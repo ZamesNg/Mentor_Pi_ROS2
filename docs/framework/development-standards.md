@@ -159,11 +159,12 @@ not permit a new host-side C or Python control bridge.
 ## Builds, warnings, and automated tooling
 
 First-party host targets use CMake and ROS packages use `ament_cmake`.
-Host-native firmware logic tests may also use CMake. The primary MCU build may
-use the CubeMX-generated Makefile/Arm GNU flow; it is not required to be
-converted to CMake. Whichever firmware entry point is selected shall use the
-pinned Arm GNU toolchain and emit ELF, HEX/BIN, map, and size reports. Tool
-versions and generated-build inputs are pinned in the repository or CI image.
+Host-native firmware logic tests also use CMake. The authoritative MCU build is
+CMake/Ninja with the pinned Arm GNU toolchain and shall emit ELF, HEX/BIN, map,
+and size reports. The root Makefile is the supported thin developer frontend;
+it shall not introduce another dependency graph. Third-party IDE-generated
+build graphs are not supported. Tool versions and generated-build inputs are
+pinned in the repository or CI image.
 The micro-ROS static-library generator shall detach every cloned repository at
 the reviewed `microros_sources.lock` commit, pin temporary copied sources such
 as `geometry2/tf2_msgs`, reject missing or unexpected repositories, and verify
@@ -211,7 +212,8 @@ The checked-in hosted workflows and their local entry points are catalogued in
 [CI and hardware qualification gates](../ci-and-hardware-gates.md). Hosted jobs
 use no project secret and cover documentation/traceability, format,
 `clang-tidy`, native Debug ASan/UBSan, native Release, TSan, deterministic fuzz
-smoke, generated CDR/introspection checks on ROS 2 Jazzy amd64, and the pinned
+smoke, generated CDR/introspection checks on ROS 2 Humble amd64 and arm64, and
+the pinned
 motor-locked firmware reproducibility/size build. The documentation gate is
 implemented by `tools/check_framework_docs.py`; it checks relative files and
 anchors, mandatory requirement mappings, every stable audit row, referenced
@@ -227,9 +229,10 @@ recovery. A separate linked real-rcl/rmw test now proves that configuration
 service replies withheld across the client timeout or a session change are
 discarded without changing motion authorization. Successful fuzz runs are now
 published under no-overwrite, checksum-closed evidence directories bound to
-production-source, test-input, corpus, and toolchain digests. A retained
-11,666,669-execution ASan/UBSan campaign completes the current-revision
-input-count portion of `VER-FUZZ-VAL-001`; comprehensive
+production-source, test-input, corpus, and toolchain digests. The retained
+11,666,669-execution ASan/UBSan campaign predates the Humble-only conversion
+and is historical evidence only. A new Humble-bound campaign is required for
+the current input-count portion of `VER-FUZZ-VAL-001`; comprehensive
 no-invalid-hardware-call review remains open. The arbitrary-input XRCE
 session-parser campaign, wire-level XRCE reply/ACK injection and
 withheld-XRCE-ACK campaign, and target transport TX-DMA/TC fault injection

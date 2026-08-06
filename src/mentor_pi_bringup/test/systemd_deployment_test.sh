@@ -161,6 +161,14 @@ RequireLine "${RELEASE_PROMOTER}" \
 RequireLine "${RELEASE_PROMOTER}" '  if ! /usr/bin/flock -n 9; then'
 RequireLine "${ASSET_INSTALLER}" '  "${INSTALL_IDLE_GUARD}"'
 RequireLine "${RELEASE_PROMOTER}" '  "${INSTALL_IDLE_GUARD}"'
+RequireLine "${RELEASE_PROMOTER}" \
+  '  deployment_os_release="/etc/os-release"'
+RequireLine "${RELEASE_PROMOTER}" \
+  '  deployment_ros_setup="/opt/ros/humble/setup.bash"'
+RequireLine "${RELEASE_PROMOTER}" \
+  '  if ! deployment_architecture="$(dpkg --print-architecture 2>/dev/null)"; then'
+RequireLine "${RELEASE_PROMOTER}" \
+  '    Fail "deployment test overrides require MENTOR_PI_DEPLOYMENT_TEST_ROOT"'
 
 RequireLine "${UDEV_TEMPLATE}" \
   'SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d4", @MENTOR_PI_DEVICE_IDENTITY@, SYMLINK+="mentor_pi_mcu", GROUP="mentor-pi-serial", MODE="0660", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_PORT_IGNORE}="1", TAG+="systemd"'
@@ -464,13 +472,55 @@ EOF
     "${stage}/share/mentor_pi_bringup/systemd/mentor-pi-controller.target"
   cp "${UDEV_TEMPLATE}" \
     "${stage}/share/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in"
+  cat >"${stage}/HOST-BUILD-METADATA.txt" <<'EOF'
+format=rrclite-host-build-v2
+ubuntu=22.04
+target_os=ubuntu
+target_version=22.04
+architecture=arm64
+ros_distro=humble
+EOF
 }
 
 readonly PROMOTION_ROOT="${TEST_ROOT}/promotion"
+readonly PROMOTION_PLATFORM_ROOT="${TEST_ROOT}/promotion-platform"
+readonly PROMOTION_OS_RELEASE="${PROMOTION_PLATFORM_ROOT}/os-release"
+readonly PROMOTION_ROS_SETUP="${PROMOTION_PLATFORM_ROOT}/humble-setup.bash"
+readonly WRONG_PROMOTION_ROS_SETUP="${PROMOTION_PLATFORM_ROOT}/wrong-setup.bash"
+mkdir -p "${PROMOTION_PLATFORM_ROOT}"
+cat >"${PROMOTION_OS_RELEASE}" <<'EOF'
+ID=ubuntu
+VERSION_ID="22.04"
+EOF
+cat >"${PROMOTION_ROS_SETUP}" <<'EOF'
+: "${AMENT_TRACE_SETUP_FILES:=}"
+export ROS_DISTRO=humble
+EOF
+cat >"${WRONG_PROMOTION_ROS_SETUP}" <<'EOF'
+: "${AMENT_TRACE_SETUP_FILES:=}"
+export ROS_DISTRO=jazzy
+EOF
+
+RunReleasePromoterWithPlatform() {
+  local os_release="$1"
+  local architecture="$2"
+  local ros_setup="$3"
+  shift 3
+  MENTOR_PI_DEPLOYMENT_TEST_ROOT="${PROMOTION_ROOT}" \
+  MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE="${os_release}" \
+  MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE="${architecture}" \
+  MENTOR_PI_DEPLOYMENT_TEST_ROS_SETUP="${ros_setup}" \
+    "${RELEASE_PROMOTER}" "$@"
+}
+
+RunReleasePromoter() {
+  RunReleasePromoterWithPlatform \
+    "${PROMOTION_OS_RELEASE}" arm64 "${PROMOTION_ROS_SETUP}" "$@"
+}
+
 MakeStagedRelease "${TEST_ROOT}/stage-r1" r1
-MENTOR_PI_DEPLOYMENT_TEST_ROOT="${PROMOTION_ROOT}" \
-  "${RELEASE_PROMOTER}" \
-    --staged-prefix "${TEST_ROOT}/stage-r1" --release-id r1
+RunReleasePromoter \
+  --staged-prefix "${TEST_ROOT}/stage-r1" --release-id r1
 readonly ACTIVE_HOST="${PROMOTION_ROOT}/opt/mentor_pi/host"
 [[ -L "${ACTIVE_HOST}" ]] || Fail "host activation is not a symbolic link"
 [[ "$(readlink "${ACTIVE_HOST}")" == \
@@ -478,24 +528,78 @@ readonly ACTIVE_HOST="${PROMOTION_ROOT}/opt/mentor_pi/host"
   Fail "r1 was not activated"
 
 MakeStagedRelease "${TEST_ROOT}/stage-r2" r2
-MENTOR_PI_DEPLOYMENT_TEST_ROOT="${PROMOTION_ROOT}" \
-  "${RELEASE_PROMOTER}" \
-    --staged-prefix "${TEST_ROOT}/stage-r2" --release-id r2
+RunReleasePromoter \
+  --staged-prefix "${TEST_ROOT}/stage-r2" --release-id r2
 [[ -d "${PROMOTION_ROOT}/opt/mentor_pi/releases/host/r1" ]] || \
   Fail "promotion removed rollback release r1"
 [[ "$(readlink "${ACTIVE_HOST}")" == \
     "${PROMOTION_ROOT}/opt/mentor_pi/releases/host/r2" ]] || \
   Fail "r2 was not atomically activated"
+ExpectFailure RunReleasePromoter \
+  --staged-prefix "${TEST_ROOT}/stage-r2" --release-id r2
+
+readonly WRONG_PROMOTION_OS_RELEASE="${PROMOTION_PLATFORM_ROOT}/wrong-os-release"
+cat >"${WRONG_PROMOTION_OS_RELEASE}" <<'EOF'
+ID=ubuntu
+VERSION_ID="24.04"
+EOF
 ExpectFailure env MENTOR_PI_DEPLOYMENT_TEST_ROOT="${PROMOTION_ROOT}" \
-  "${RELEASE_PROMOTER}" \
-    --staged-prefix "${TEST_ROOT}/stage-r2" --release-id r2
+  "${RELEASE_PROMOTER}" --activate-release r2
+ExpectFailure RunReleasePromoterWithPlatform \
+  "${WRONG_PROMOTION_OS_RELEASE}" arm64 "${PROMOTION_ROS_SETUP}" \
+  --activate-release r2
+ExpectFailure RunReleasePromoterWithPlatform \
+  "${PROMOTION_OS_RELEASE}" amd64 "${PROMOTION_ROS_SETUP}" \
+  --activate-release r2
+ExpectFailure RunReleasePromoterWithPlatform \
+  "${PROMOTION_OS_RELEASE}" arm64 \
+  "${PROMOTION_PLATFORM_ROOT}/missing-humble-setup.bash" \
+  --activate-release r2
+ExpectFailure RunReleasePromoterWithPlatform \
+  "${PROMOTION_OS_RELEASE}" arm64 "${WRONG_PROMOTION_ROS_SETUP}" \
+  --activate-release r2
+
+ExpectStagedMetadataMutationFailure() {
+  local mutation="$1"
+  local release_name="$2"
+  local stage="${TEST_ROOT}/stage-${release_name}"
+  MakeStagedRelease "${stage}" "${release_name}"
+  cp "${stage}/HOST-BUILD-METADATA.txt" \
+    "${stage}/HOST-BUILD-METADATA.valid"
+  sed "${mutation}" "${stage}/HOST-BUILD-METADATA.valid" \
+    >"${stage}/HOST-BUILD-METADATA.txt"
+  cmake -E remove "${stage}/HOST-BUILD-METADATA.valid"
+  ExpectFailure RunReleasePromoter \
+    --staged-prefix "${stage}" --release-id "${release_name}"
+}
+
+ExpectStagedMetadataMutationFailure \
+  's/^format=.*/format=rrclite-host-build-v1/' staged-v1
+ExpectStagedMetadataMutationFailure '/^ubuntu=/d' staged-no-ubuntu
+ExpectStagedMetadataMutationFailure \
+  's/^ubuntu=.*/ubuntu=24.04/' staged-wrong-ubuntu
+ExpectStagedMetadataMutationFailure \
+  's/^target_os=.*/target_os=debian/' staged-wrong-os
+ExpectStagedMetadataMutationFailure \
+  's/^target_version=.*/target_version=24.04/' staged-wrong-version
+ExpectStagedMetadataMutationFailure \
+  's/^ros_distro=.*/ros_distro=unsupported/' staged-wrong-ros
+ExpectStagedMetadataMutationFailure \
+  's/^architecture=.*/architecture=amd64/' staged-wrong-arch
+ExpectStagedMetadataMutationFailure \
+  's/^architecture=.*/architecture=riscv64/' staged-bad-arch
+MakeStagedRelease "${TEST_ROOT}/stage-no-metadata" no-metadata
+cmake -E remove "${TEST_ROOT}/stage-no-metadata/HOST-BUILD-METADATA.txt"
+ExpectFailure RunReleasePromoter \
+  --staged-prefix "${TEST_ROOT}/stage-no-metadata" \
+  --release-id no-metadata
+
 MakeStagedRelease "${TEST_ROOT}/stage-incomplete" incomplete
 cmake -E remove \
   "${TEST_ROOT}/stage-incomplete/share/mentor_pi_bringup/systemd/mentor-pi-controller.target"
-ExpectFailure env MENTOR_PI_DEPLOYMENT_TEST_ROOT="${PROMOTION_ROOT}" \
-  "${RELEASE_PROMOTER}" \
-    --staged-prefix "${TEST_ROOT}/stage-incomplete" \
-    --release-id incomplete
+ExpectFailure RunReleasePromoter \
+  --staged-prefix "${TEST_ROOT}/stage-incomplete" \
+  --release-id incomplete
 
 readonly -a REQUIRED_INTERFACE_RUNTIME=(
   'share/ament_index/resource_index/packages/mentor_pi_bringup'
@@ -513,10 +617,9 @@ for missing_index in "${!REQUIRED_INTERFACE_RUNTIME[@]}"; do
   release_name="missing-runtime-${missing_index}"
   MakeStagedRelease "${TEST_ROOT}/${stage_name}" "${release_name}"
   cmake -E remove "${TEST_ROOT}/${stage_name}/${missing_path}"
-  ExpectFailure env MENTOR_PI_DEPLOYMENT_TEST_ROOT="${PROMOTION_ROOT}" \
-    "${RELEASE_PROMOTER}" \
-      --staged-prefix "${TEST_ROOT}/${stage_name}" \
-      --release-id "${release_name}"
+  ExpectFailure RunReleasePromoter \
+    --staged-prefix "${TEST_ROOT}/${stage_name}" \
+    --release-id "${release_name}"
 done
 readonly -a REQUIRED_OPERATOR_TOOLS=(
   'lib/mentor_pi_bringup/capture_board_diagnostics'
@@ -528,26 +631,46 @@ for missing_index in "${!REQUIRED_OPERATOR_TOOLS[@]}"; do
   release_name="missing-operator-${missing_index}"
   MakeStagedRelease "${TEST_ROOT}/${stage_name}" "${release_name}"
   cmake -E remove "${TEST_ROOT}/${stage_name}/${missing_path}"
-  ExpectFailure env MENTOR_PI_DEPLOYMENT_TEST_ROOT="${PROMOTION_ROOT}" \
-    "${RELEASE_PROMOTER}" \
-      --staged-prefix "${TEST_ROOT}/${stage_name}" \
-      --release-id "${release_name}"
+  ExpectFailure RunReleasePromoter \
+    --staged-prefix "${TEST_ROOT}/${stage_name}" \
+    --release-id "${release_name}"
 done
 MakeStagedRelease "${TEST_ROOT}/stage-external-link" linked
 ln -s "${TEST_ROOT}/stage-r1/setup.bash" \
   "${TEST_ROOT}/stage-external-link/external-setup-link"
-ExpectFailure env MENTOR_PI_DEPLOYMENT_TEST_ROOT="${PROMOTION_ROOT}" \
-  "${RELEASE_PROMOTER}" \
-    --staged-prefix "${TEST_ROOT}/stage-external-link" \
-    --release-id external-link
+ExpectFailure RunReleasePromoter \
+  --staged-prefix "${TEST_ROOT}/stage-external-link" \
+  --release-id external-link
+
+ExpectInstalledMetadataMutationFailure() {
+  local mutation="$1"
+  local test_name="$2"
+  local metadata="${PROMOTION_ROOT}/opt/mentor_pi/releases/host/r1/HOST-BUILD-METADATA.txt"
+  local backup="${TEST_ROOT}/${test_name}.valid"
+  cp "${metadata}" "${backup}"
+  sed "${mutation}" "${backup}" >"${metadata}"
+  ExpectFailure RunReleasePromoter --activate-release r1
+  mv "${backup}" "${metadata}"
+}
+
+ExpectInstalledMetadataMutationFailure \
+  's/^format=.*/format=rrclite-host-build-v1/' activate-v1
+ExpectInstalledMetadataMutationFailure \
+  's/^ubuntu=.*/ubuntu=24.04/' activate-wrong-ubuntu
+ExpectInstalledMetadataMutationFailure \
+  's/^ros_distro=.*/ros_distro=unsupported/' activate-wrong-ros
+ExpectInstalledMetadataMutationFailure \
+  's/^architecture=.*/architecture=amd64/' activate-wrong-arch
+[[ "$(readlink "${ACTIVE_HOST}")" == \
+    "${PROMOTION_ROOT}/opt/mentor_pi/releases/host/r2" ]] || \
+  Fail "failed rollback validation changed the active release"
 # Operator-only tools were not present in releases installed before this
 # hardening. The current promoter's guard has already run, so preserve the
 # documented emergency rollback path to an otherwise-complete legacy release.
 cmake -E remove \
   "${PROMOTION_ROOT}/opt/mentor_pi/releases/host/r1/lib/mentor_pi_bringup/capture_board_diagnostics" \
   "${PROMOTION_ROOT}/opt/mentor_pi/releases/host/r1/lib/mentor_pi_bringup/require_controller_target_inactive"
-MENTOR_PI_DEPLOYMENT_TEST_ROOT="${PROMOTION_ROOT}" \
-  "${RELEASE_PROMOTER}" --activate-release r1
+RunReleasePromoter --activate-release r1
 [[ "$(readlink "${ACTIVE_HOST}")" == \
     "${PROMOTION_ROOT}/opt/mentor_pi/releases/host/r1" ]] || \
   Fail "rollback did not reactivate r1"

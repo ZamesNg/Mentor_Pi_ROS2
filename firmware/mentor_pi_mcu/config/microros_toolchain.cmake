@@ -18,9 +18,10 @@ set(CMAKE_CXX_FLAGS_INIT
     "-std=c++14 ${FLAGS} -fno-rtti ${MICROROSFLAGS} "
     CACHE STRING "" FORCE)
 
-# This toolchain is loaded while every interface package is configured. Jazzy
-# then preserves REP-2011 type hashes and emits null description callbacks,
-# while omitting mutable field/source description tables from the MCU archive.
+# This cache variable is ignored by Humble, whose generated C interfaces do not
+# emit the later runtime type-description tables. Keeping it explicit makes a
+# future generator upgrade fail review rather than silently growing the MCU
+# archive.
 set(ROSIDL_GENERATOR_C_DISABLE_TYPE_DESCRIPTION_CODEGEN ON
     CACHE BOOL "Disable unused runtime type-description tables" FORCE)
 

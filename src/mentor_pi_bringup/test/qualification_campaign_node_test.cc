@@ -212,7 +212,7 @@ rclcpp::NodeOptions ValidOptions(
        rclcpp::Parameter("source_revision", "node-test-source"),
        rclcpp::Parameter("firmware_sha256", std::string(64U, 'a')),
        rclcpp::Parameter("host_revision", "node-test-host"),
-       rclcpp::Parameter("ros_distribution", "jazzy"),
+       rclcpp::Parameter("ros_distribution", "humble"),
        rclcpp::Parameter("board_serial", "node-test-board"),
        rclcpp::Parameter("fixture_revision", "node-test-fixture"),
        rclcpp::Parameter("fixture_acknowledgement", acknowledgement),
@@ -579,7 +579,7 @@ class FakeQualificationController final : public rclcpp::Node {
             ++response->ticks_per_revolution;
           }
         },
-        rclcpp::ServicesQoS{}, motor_model_callback_group_);
+        rmw_qos_profile_services_default, motor_model_callback_group_);
     pwm_offsets_service_ = create_service<SetPwmServoOffsets>(
         "pwm_servos/set_offsets",
         [this](const std::shared_ptr<SetPwmServoOffsets::Request> request,
@@ -630,7 +630,7 @@ class FakeQualificationController final : public rclcpp::Node {
           bus_fixture_successes_.fetch_add(1U);
           admitted_session_id_.store(request_session);
         },
-        rclcpp::ServicesQoS{}, bus_state_callback_group_);
+        rmw_qos_profile_services_default, bus_state_callback_group_);
     bus_configure_service_ = create_service<ConfigureBusServo>(
         "bus_servos/configure",
         [this](const std::shared_ptr<ConfigureBusServo::Request> request,

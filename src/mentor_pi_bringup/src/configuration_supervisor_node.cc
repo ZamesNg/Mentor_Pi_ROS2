@@ -149,12 +149,13 @@ class ConfigurationSupervisorNode final : public rclcpp::Node {
     const auto service_qos = rclcpp::QoS{rclcpp::KeepLast{std::size_t{1}}}
                                  .reliable()
                                  .durability_volatile();
+    const auto& service_qos_profile = service_qos.get_rmw_qos_profile();
     motor_client_ =
-        create_client<SetMotorModel>("motors/set_model", service_qos);
+        create_client<SetMotorModel>("motors/set_model", service_qos_profile);
     pwm_client_ = create_client<SetPwmServoOffsets>("pwm_servos/set_offsets",
-                                                    service_qos);
+                                                    service_qos_profile);
     battery_client_ = create_client<SetBatteryThreshold>(
-        "battery/set_low_threshold", service_qos);
+        "battery/set_low_threshold", service_qos_profile);
 
     const auto heartbeat_qos = rclcpp::QoS{rclcpp::KeepLast{std::size_t{1}}}
                                    .reliable()

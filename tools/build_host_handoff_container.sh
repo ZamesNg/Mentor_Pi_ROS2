@@ -4,23 +4,31 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-readonly DEFAULT_IMAGE="ros:jazzy-ros-base@sha256:da725acf8b0f9f30c683e33ffbdcd6482d077af96d6fdc7688c5f4f280b7d923"
+readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
 
 architecture=""
 output_directory=""
 release_id=""
-image="${MENTOR_PI_HOST_BUILDER_IMAGE:-${DEFAULT_IMAGE}}"
+image=""
 
 Usage() {
   cat >&2 <<'EOF'
 Usage: build_host_handoff_container.sh --architecture amd64|arm64
   --release-id SAFE_ID --output-directory PATH [--image PINNED_IMAGE@sha256:DIGEST]
+       build_host_handoff_container.sh --print-default-image \
+         --architecture amd64|arm64
 
 The exact image must already be present locally. The build runs without network
 access and does not install into /opt, contact systemd, or access hardware.
 EOF
   exit 2
 }
+
+if [[ "$#" -eq 3 && "$1" == "--print-default-image" && \
+  "$2" == "--architecture" ]]; then
+  "${IMAGE_SELECTOR}" host "$3"
+  exit 0
+fi
 
 Fail() {
   echo "Host container build error: $*" >&2
@@ -38,6 +46,12 @@ while (($# > 0)); do
 done
 
 [[ "${architecture}" == "amd64" || "${architecture}" == "arm64" ]] || Usage
+[[ -x "${IMAGE_SELECTOR}" ]] || Fail "pinned image selector is unavailable"
+if [[ -z "${image}" ]]; then
+  image="${MENTOR_PI_HOST_BUILDER_IMAGE:-$(
+    "${IMAGE_SELECTOR}" host "${architecture}"
+  )}"
+fi
 [[ "${release_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] ||
   Fail "release ID must contain 1-64 safe filename characters"
 [[ -n "${output_directory}" ]] || Usage
@@ -46,6 +60,10 @@ done
 command -v docker >/dev/null 2>&1 || Fail "docker is not installed"
 docker image inspect "${image}" >/dev/null 2>&1 ||
   Fail "pinned image is not local; explicitly run: docker pull ${image}"
+readonly IMAGE_ARCH="$(docker image inspect "${image}" \
+  --format '{{.Architecture}}')"
+[[ "${IMAGE_ARCH}" == "${architecture}" ]] || \
+  Fail "pinned image architecture ${IMAGE_ARCH} does not match ${architecture}"
 
 if [[ "${output_directory}" == /* ]]; then
   output_candidate="${output_directory}"

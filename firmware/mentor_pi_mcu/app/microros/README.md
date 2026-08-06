@@ -63,7 +63,7 @@ have a 10 ms XRCE session timeout.
   is fixed size.
 - A 48 KiB resettable arena is open only during entity creation, sealed before
   `ACTIVE`, opened for deallocation-only teardown, and reset as one unit. The
-  executor is spun once with a zero timeout before sealing because Jazzy rclc
+  executor is spun once with a zero timeout before sealing because Humble rclc
   lazily creates its wait set on first spin. A post-seal allocation latches a
   fatal invariant, performs best-effort teardown, and stops the MicroRosTask
   heartbeat so the safety supervisor forces an IWDG reset into safe boot.
@@ -80,7 +80,7 @@ a complete `RuntimeHooks`, call `ConfigureMicroRosRuntime()`, and register
 must be nonblocking copies into owner-task storage; service poll functions must
 match both fields of `ServiceToken` before returning a completion.
 
-The generated Jazzy library must retain the limits in
+The generated Humble library must retain the limits in
 `config/microros_colcon.meta`: 1 node, 7 publishers, 7 subscriptions, 6
 services, no clients, history 8, 512-byte MTU, 40 ms create timeout, and 10 ms
 destroy timeout.
@@ -96,7 +96,7 @@ ctest --test-dir build/mentor_pi_microros --output-on-failure
 ```
 
 The portable tests exercise the lifecycle cursors and a fake boundary driver;
-they do not link `MicroRosRuntime` or Jazzy middleware. The compile check builds
+they do not link `MicroRosRuntime` or Humble middleware. The compile check builds
 the real runtime translation units against generated headers but does not link
 production firmware. The final Arm link and on-target behavior still require
 the hardware composition root, FreeRTOS/HAL objects, `libmicroros.a`, linker

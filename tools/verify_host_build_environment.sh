@@ -4,7 +4,7 @@ set -euo pipefail
 
 os_release="/etc/os-release"
 architecture=""
-ros_setup="/opt/ros/jazzy/setup.bash"
+ros_setup="/opt/ros/humble/setup.bash"
 check_tools="yes"
 
 Usage() {
@@ -46,7 +46,7 @@ ResolveReadableFile() {
 # /usr/lib/os-release file. Resolve it once and read only the canonical target;
 # dangling links and directory/device targets remain rejected.
 os_release="$(ResolveReadableFile "${os_release}" "OS identity")"
-ros_setup="$(ResolveReadableFile "${ros_setup}" "ROS 2 Jazzy setup")"
+ros_setup="$(ResolveReadableFile "${ros_setup}" "ROS 2 Humble setup")"
 
 ReadOsReleaseValue() {
   local key="$1"
@@ -64,23 +64,23 @@ ReadOsReleaseValue() {
 
 [[ "$(ReadOsReleaseValue ID)" == "ubuntu" ]] ||
   Fail "the host must be Ubuntu"
-[[ "$(ReadOsReleaseValue VERSION_ID)" == "24.04" ]] ||
-  Fail "the host must be Ubuntu 24.04"
+[[ "$(ReadOsReleaseValue VERSION_ID)" == "22.04" ]] ||
+  Fail "the host must be Ubuntu 22.04"
 if [[ -z "${architecture}" ]]; then
   command -v dpkg >/dev/null 2>&1 || Fail "dpkg is required"
   architecture="$(dpkg --print-architecture)"
 fi
 case "${architecture}" in
   amd64 | arm64) ;;
-  *) Fail "only Ubuntu 24.04 amd64 and arm64 are supported" ;;
+  *) Fail "only Ubuntu 22.04 amd64 and arm64 are supported" ;;
 esac
 
 check_script='set -eo pipefail
 set +u
 source "$1"
 set -u
-[[ "${ROS_DISTRO:-}" == jazzy ]] || {
-  echo "ROS setup did not identify ROS_DISTRO=jazzy" >&2
+[[ "${ROS_DISTRO:-}" == humble ]] || {
+  echo "ROS setup did not identify ROS_DISTRO=humble" >&2
   exit 1
 }
 if [[ "$2" == yes ]]; then
@@ -96,4 +96,4 @@ if ! bash -c "${check_script}" mentor-pi-host-check \
   Fail "ROS identity or required host build tools are incomplete"
 fi
 
-echo "Verified Ubuntu 24.04 ${architecture}, ROS 2 Jazzy, and host tools=${check_tools}."
+echo "Verified Ubuntu 22.04 ${architecture}, ROS 2 Humble, and host tools=${check_tools}."

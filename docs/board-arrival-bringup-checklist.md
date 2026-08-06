@@ -33,9 +33,11 @@ remove motor power, and return to the locked image.
   pinned builder digest, and pinned Agent source-lock digest. The preparation,
   promotion, and Agent commands came from
   [Host preparation and handoff](host-preparation-and-handoff.md).
-- [ ] On the Ubuntu 24.04 VM, the host handoff was promoted from its copied
-  `host/` prefix, the original build staging path was not required, and the
-  pinned native Agent installation completed before any controller service was
+- [ ] On the clean Ubuntu 24.04 development host, the handoff was built in the
+  pinned Ubuntu 22.04/Humble container without installing ROS natively. On the
+  onboard Ubuntu 22.04/Humble host, it was promoted from its copied `host/`
+  prefix, the original build staging path was not required, and the pinned
+  native Humble Agent installation completed before any controller service was
   enabled.
 - [ ] Motor power is physically disconnected.
 - [ ] All four PWM-servo connectors are unplugged from servos/mechanisms and
@@ -66,22 +68,19 @@ Evidence/notes:
 
 ## 2. Flash and prove the locked image first
 
-- [ ] Built the normal image with `./tools/build_firmware.sh`, without either
-  motor-commissioning environment variable.
-- [ ] On the Ubuntu 24.04 host, recorded `pio --version` and ran the
-  non-flashing PlatformIO preparation/verification hook successfully. This
-  resolves the pinned `ststm32@17.6.0` platform before the board session and
-  proves PlatformIO selects the authoritative locked ELF:
+- [ ] Ran the supported setup and normal build from the repository root, with
+  no commissioning acknowledgement:
 
   ```sh
-  pio --version
-  pio run -e rrclite_uart -t checkprogsize
+  make doctor
+  make setup
+  make firmware
   ```
 
-  Use `rrclite_stlink` for an ST-Link or `rrclite_jlink` for a J-Link.
-  `checkprogsize` does not access or flash a target; a missing dependency,
-  stale build, commissioning artifact, or source mismatch must be resolved
-  before continuing.
+  `make firmware` produces the authoritative motor-locked ELF through
+  CMake/Ninja. A missing dependency, stale build, commissioning artifact,
+  source mismatch, or failed memory-headroom assertion must be resolved before
+  continuing.
 - [ ] Verified the source-bound authoritative ELF and the prepared first-board
   handoff manifests, then recorded SHA-256 digests before flashing:
 
@@ -99,7 +98,7 @@ Evidence/notes:
 
   Replace the fail-closed directory component before running the block and
   record that reviewed directory in the session table.
-  PlatformIO flashes the authoritative ELF, not the evidence copy under the
+  The flash wrapper uses the authoritative ELF, not the evidence copy under the
   handoff directory; both `cmp` commands must therefore be silent and return
   zero. Record the verified ELF, HEX, and loadable BIN digests in the session
   table; do not copy values from an earlier board session.
@@ -111,25 +110,17 @@ Evidence/notes:
   `BOOT`, then ran:
 
   ```sh
-  RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
-    pio run -e rrclite_uart -t upload \
-      --upload-port /dev/cu.wchusbserial-REPLACE_ME
+  make flash \
+    PORT=/dev/serial/by-id/REPLACE_ME \
+    FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED
   ```
 
-  On Ubuntu use the exact CH9102F `/dev/serial/by-id/...` path. After successful
+  Use the exact CH9102F `/dev/serial/by-id/...` path. After successful
   programming and verification, released `BOOT` and tapped `RST` normally.
   The bootloader connection was 115200/8E1; CubeProgrammer was closed before
   the Agent opened the same device at the runtime 1,000,000/8N1 settings.
-
-  For an ST-Link instead:
-
-  ```sh
-  pio run -e rrclite_stlink -t upload
-  ```
-
-  Use `rrclite_jlink` only when the connected probe is a J-Link. The detailed
-  guide gives the locked-only CubeProgrammer GUI and J-Link Commander
-  alternatives.
+  The detailed guide gives locked-only CubeProgrammer GUI and J-Link Commander
+  recovery alternatives; they are not alternate build graphs.
 - [ ] Reset/run is stable; reset cause and diagnostics show no reset loop.
 - [ ] Before starting the Agent or sending any ROS command, every motor-bridge
   drive PWM output remains zero. The four distinct PWM-servo pins instead emit
@@ -151,7 +142,7 @@ and the passive checks below pass.
 - [ ] Ubuntu enumerates the CH9102F and `/dev/mentor_pi_mcu` resolves to the
   expected device.
 - [ ] The udev rule is installed; no other process owns the serial device.
-- [ ] The native Jazzy micro-ROS Agent opens the port at 1,000,000 baud, 8N1,
+- [ ] The native Humble micro-ROS Agent opens the port at 1,000,000 baud, 8N1,
   with no hardware flow control.
 - [ ] The C++ supervisor starts and applies the recorded configuration.
 - [ ] `/mentor_pi/controller`, heartbeat, and diagnostics appear with a new
@@ -259,37 +250,27 @@ fixture, stop, current limit, locked-image evidence, and selected channel.
 
 Reviewer/sign-off and selected motor: ______________________________________
 
-- [ ] Built with both exact acknowledgements and saved the resulting artifacts
+- [ ] Enabled commissioning with the exact build acknowledgement and saved the resulting artifacts
   before another build:
 
   ```sh
-  RRCLITE_MOTOR_COMMISSIONING=1 \
-  RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-    ./tools/build_firmware.sh
+  make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
   ```
 
-- [ ] Flashed and verified the recorded commissioning digest using a distinct
-  commissioning environment and the exact second acknowledgement. For UART,
+- [ ] Flashed and verified the recorded commissioning digest using the distinct
+  commissioning target and the exact second acknowledgement. For UART,
   re-entered the ROM bootloader with all wheels raised/current-limited and ran:
 
   ```sh
-  RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
-  RRCLITE_COMMISSIONING_UPLOAD_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-    pio run -e rrclite_uart_commissioning -t upload \
-      --upload-port /dev/cu.wchusbserial-REPLACE_ME
+  make flash-commissioning \
+    PORT=/dev/serial/by-id/REPLACE_ME \
+    FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
+    COMMISSIONING_FLASH_ACK=MOTORS_RAISED_CURRENT_LIMITED
   ```
 
-  For ST-Link (use `rrclite_jlink_commissioning` instead for J-Link):
-
-  ```sh
-  RRCLITE_COMMISSIONING_UPLOAD_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-    pio run -e rrclite_stlink_commissioning -t upload
-  ```
-
-  Use `pio debug -e rrclite_stlink --interface gdb` (or the matching J-Link or
-  commissioning environment). Do not add `-t nobuild`. PlatformIO debug is
-  attach-only; it never replaces
-  this gated upload step.
+  Source-level debugging requires a separately connected SWD probe. If one is
+  used, attach it to the verified ELF for symbols; do not use a debugger or IDE
+  firmware-download action in place of this gated upload step.
 - [ ] Cleared any temporary debugger IWDG freeze, reset, and confirmed normal
   watchdog operation before connecting motor power.
 - [ ] Connected motor power with all wheels contained and the recorded current

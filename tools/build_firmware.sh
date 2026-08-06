@@ -17,11 +17,25 @@ readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/firmware-builder.Dockerfile"
 readonly FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
 readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
 readonly ARTIFACT_VERIFIER="${PROJECT_ROOT}/tools/verify_firmware_artifact.sh"
+readonly DEPENDENCY_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
 readonly IMAGE="mentor-pi/rrclite-firmware-builder:gcc-13.2.1"
+readonly CUBE_REPOSITORY="https://github.com/STMicroelectronics/STM32CubeF4.git"
+readonly MICROROS_REPOSITORY="https://github.com/micro-ROS/micro_ros_stm32cubemx_utils.git"
 readonly EXPECTED_CUBE_COMMIT="52757b5e33259a088509a777a9e3a5b971194c7d"
-readonly EXPECTED_MICROROS_COMMIT="a5b2127495ae0ab53d7a1360beaf17822309a3cc"
+readonly EXPECTED_MICROROS_COMMIT="bd531b273c1bcd070b3143c5642128ec75a6f04e"
 readonly COMMISSIONING_MAXIMUM_RPS="0.25"
 readonly COMMISSIONING_OUTPUT_LIMIT_PERMILLE="300"
+
+declare -a docker_build_command=(docker build)
+for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
+    http_proxy https_proxy no_proxy; do
+  if [[ -n "${!proxy_variable:-}" ]]; then
+    docker_build_command+=(
+      --build-arg "${proxy_variable}=${!proxy_variable}"
+    )
+  fi
+done
+readonly -a docker_build_command
 
 Fail() {
   echo "Firmware build error: $*" >&2
@@ -44,23 +58,24 @@ RequireFile() {
   [[ -f "${required_file}" ]] || Fail "${required_file} is missing. ${recovery_hint}"
 }
 
-VerifyCommit() {
+RemoveBuildRoot() {
+  [[ "${BUILD_ROOT}" == "${FIRMWARE_ROOT}/build/stm32" &&
+     "${BUILD_ROOT}" != "/" ]] ||
+    Fail "refusing to remove unexpected firmware build root: ${BUILD_ROOT}"
+  rm -rf -- "${BUILD_ROOT}"
+}
+
+VerifyDependency() {
   local repository="$1"
-  local expected_commit="$2"
-  command -v git >/dev/null 2>&1 || Fail "git is not installed"
+  local expected_origin="$2"
+  local expected_commit="$3"
   [[ -d "${repository}" ]] || \
     Fail "dependency is missing at ${repository}; run ./tools/bootstrap_firmware_dependencies.sh"
-  local actual_commit
-  actual_commit="$(git -C "${repository}" rev-parse --verify HEAD 2>/dev/null)" || \
-    Fail "dependency at ${repository} is not a Git worktree"
-  [[ "${actual_commit}" == "${expected_commit}" ]] || \
-    Fail "dependency mismatch at ${repository}; expected ${expected_commit}, got ${actual_commit}"
-  local worktree_status
-  worktree_status="$(
-    git -C "${repository}" status --porcelain=v1 --untracked-files=all
-  )"
-  [[ -z "${worktree_status}" ]] || \
-    Fail "dependency worktree is dirty at ${repository}; restore or re-bootstrap it before building"
+  [[ -x "${DEPENDENCY_BOOTSTRAP}" ]] || \
+    Fail "firmware dependency verifier is missing: ${DEPENDENCY_BOOTSTRAP}"
+  "${DEPENDENCY_BOOTSTRAP}" --verify-existing \
+    "${expected_origin}" "${expected_commit}" "${repository}" || \
+    Fail "dependency provenance verification failed at ${repository}"
 }
 
 if [[ "$#" -gt 1 || ("$#" -eq 1 && "$1" != "--print-motor-profile") ]]; then
@@ -102,9 +117,10 @@ if [[ "${1:-}" == "--print-motor-profile" ]]; then
   exit 0
 fi
 
-VerifyCommit "${CUBE_ROOT}" "${EXPECTED_CUBE_COMMIT}"
-VerifyCommit "${FIRMWARE_ROOT}/third_party/micro_ros_stm32cubemx_utils" \
-  "${EXPECTED_MICROROS_COMMIT}"
+VerifyDependency "${CUBE_ROOT}" "${CUBE_REPOSITORY}" \
+  "${EXPECTED_CUBE_COMMIT}"
+VerifyDependency "${FIRMWARE_ROOT}/third_party/micro_ros_stm32cubemx_utils" \
+  "${MICROROS_REPOSITORY}" "${EXPECTED_MICROROS_COMMIT}"
 RequireFile "${FINGERPRINT_TOOL}" "Restore the firmware fingerprint tool."
 RequireFile "${MICROROS_FINGERPRINT_TOOL}" \
   "Restore the micro-ROS artifact fingerprint tool."
@@ -115,6 +131,10 @@ RequireFile "${MICROROS_TREE_HASH}" \
   "Restore the pinned micro-ROS archive/header-tree hash."
 RequireFile "${MICROROS_ROOT}/libmicroros.a" \
   "Run ./tools/build_microros_library.sh."
+RequireFile "${MICROROS_ROOT}/ros_distro" \
+  "Run ./tools/build_microros_library.sh for ROS 2 Humble."
+[[ "$(tr -d '[:space:]' <"${MICROROS_ROOT}/ros_distro")" == "humble" ]] ||
+  Fail "generated micro-ROS library targets a different ROS distribution"
 RequireFile "${MICROROS_INTERFACE_FINGERPRINT}" \
   "Run ./tools/build_microros_library.sh to bind it to current interfaces."
 RequireFile \
@@ -163,7 +183,7 @@ if [[ "${RRCLITE_BUILD_LOCAL:-0}" == "1" ]]; then
     Fail "local arm-none-eabi-gcc must be the pinned 13.2.1 release"
   [[ "$(arm-none-eabi-g++ -dumpfullversion)" == "13.2.1" ]] || \
     Fail "local arm-none-eabi-g++ must be the pinned 13.2.1 release"
-  cmake -E remove_directory "${BUILD_ROOT}"
+  RemoveBuildRoot
   cmake -S "${TARGET_ROOT}" -B "${BUILD_ROOT}" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_FILE}" \
     -DCMAKE_BUILD_TYPE=MinSizeRel \
@@ -173,9 +193,10 @@ if [[ "${RRCLITE_BUILD_LOCAL:-0}" == "1" ]]; then
 else
   command -v docker >/dev/null || Fail "Docker is not installed"
   docker info >/dev/null 2>&1 || Fail "Docker Desktop/Engine is not running"
-  docker build --file "${DOCKERFILE}" --tag "${IMAGE}" \
+  "${docker_build_command[@]}" \
+    --file "${DOCKERFILE}" --tag "${IMAGE}" \
     "${PROJECT_ROOT}/tools/docker"
-  cmake -E remove_directory "${BUILD_ROOT}"
+  RemoveBuildRoot
   docker run --rm \
     --user "$(id -u):$(id -g)" \
     --env SOURCE_DATE_EPOCH=0 \
@@ -201,9 +222,10 @@ for artifact in mentor_pi_mcu.elf mentor_pi_mcu.hex mentor_pi_mcu.bin \
   RequireFile "${BUILD_ROOT}/${artifact}" "The target build did not complete."
 done
 
-VerifyCommit "${CUBE_ROOT}" "${EXPECTED_CUBE_COMMIT}"
-VerifyCommit "${FIRMWARE_ROOT}/third_party/micro_ros_stm32cubemx_utils" \
-  "${EXPECTED_MICROROS_COMMIT}"
+VerifyDependency "${CUBE_ROOT}" "${CUBE_REPOSITORY}" \
+  "${EXPECTED_CUBE_COMMIT}"
+VerifyDependency "${FIRMWARE_ROOT}/third_party/micro_ros_stm32cubemx_utils" \
+  "${MICROROS_REPOSITORY}" "${EXPECTED_MICROROS_COMMIT}"
 readonly MICROROS_ARCHIVE_FINGERPRINT_AFTER="$(
   Sha256 "${MICROROS_ROOT}/libmicroros.a"
 )"
@@ -214,7 +236,7 @@ if [[ "${MICROROS_ARCHIVE_FINGERPRINT_BEFORE}" != \
       "${MICROROS_ARCHIVE_FINGERPRINT_AFTER}" || \
     "${MICROROS_TREE_FINGERPRINT_BEFORE}" != \
       "${MICROROS_TREE_FINGERPRINT_AFTER}" ]]; then
-  cmake -E remove_directory "${BUILD_ROOT}"
+  RemoveBuildRoot
   Fail "micro-ROS generated inputs changed during the firmware build"
 fi
 
@@ -222,7 +244,7 @@ readonly SOURCE_FINGERPRINT_AFTER="$(
   "${FINGERPRINT_TOOL}" firmware "${PROJECT_ROOT}"
 )"
 if [[ "${SOURCE_FINGERPRINT_BEFORE}" != "${SOURCE_FINGERPRINT_AFTER}" ]]; then
-  cmake -E remove_directory "${BUILD_ROOT}"
+  RemoveBuildRoot
   Fail "project-owned firmware inputs changed during the build"
 fi
 
@@ -234,8 +256,9 @@ fi
 readonly METADATA="${BUILD_ROOT}/rrclite-build-metadata.txt"
 readonly METADATA_TEMP="${METADATA}.tmp"
 printf '%s\n' \
-  'schema=rrclite-firmware-build-v1' \
+  'schema=rrclite-firmware-build-v2' \
   'target=STM32F407VET6' \
+  'ros_distro=humble' \
   "motor_mode=${MOTOR_MODE}" \
   "commissioning_ack=${MOTOR_COMMISSIONING_ACK}" \
   'release_qualified=0' \

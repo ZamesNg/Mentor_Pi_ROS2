@@ -169,7 +169,7 @@ Fixture MakeFixture(const std::string& label) {
   fixture.metadata.firmware_sha256 =
       "963f2834a08b9e86dbe736e58cfee83a2378983cdcaf2f1bc1a3ea0257136e8f";
   fixture.metadata.host_revision = "host-r4";
-  fixture.metadata.ros_distribution = "jazzy";
+  fixture.metadata.ros_distribution = "humble";
   fixture.metadata.board_serial = "RRCLITE-TEST-BOARD";
   fixture.metadata.fixture_revision = "fixture-r2";
   fixture.metadata.campaign_mode = "load500";

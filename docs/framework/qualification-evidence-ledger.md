@@ -33,7 +33,7 @@ Replace every `REQUIRED` value in the copied ledger before review.
 | Firmware BIN/HEX SHA-256 | `REQUIRED` |
 | Host artifact SHA-256 or manifest | `REQUIRED` |
 | micro-ROS Agent revision and binary SHA-256 | `REQUIRED` |
-| ROS distribution | `jazzy` |
+| ROS distribution | `humble` |
 | Host OS and architecture | `REQUIRED` |
 | Board model and PCB revision | `RRCLite V1.0 / REQUIRED` |
 | Board or fixture serial | `REQUIRED` |

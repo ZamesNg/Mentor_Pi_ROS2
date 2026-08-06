@@ -72,11 +72,11 @@ ReadOsReleaseValue() {
 [[ -r "${os_release}" ]] || Fail "cannot read OS identity ${os_release}"
 [[ "$(ReadOsReleaseValue ID)" == "ubuntu" ]] ||
   Fail "the deployment host must be Ubuntu"
-[[ "$(ReadOsReleaseValue VERSION_ID)" == "24.04" ]] ||
-  Fail "the deployment host must be Ubuntu 24.04"
+[[ "$(ReadOsReleaseValue VERSION_ID)" == "22.04" ]] ||
+  Fail "the deployment host must be Ubuntu 22.04"
 case "${architecture}" in
   amd64|arm64) ;;
-  *) Fail "only Ubuntu 24.04 amd64 and arm64 are supported" ;;
+  *) Fail "only Ubuntu 22.04 amd64 and arm64 are supported" ;;
 esac
 
 for ((index = 0; index < ${#repository_paths[@]}; ++index)); do
@@ -106,4 +106,4 @@ for ((index = 0; index < ${#repository_paths[@]}; ++index)); do
   fi
 done
 
-echo "Verified Ubuntu 24.04 ${architecture} and pinned Agent source state."
+echo "Verified Ubuntu 22.04 ${architecture} and pinned Agent source state."

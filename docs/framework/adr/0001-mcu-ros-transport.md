@@ -35,12 +35,12 @@ bounded resource use, and deterministic recovery.
 
 RRCLite v2 shall use:
 
-- the ROS 2 Jazzy line of micro-ROS;
+- the ROS 2 Humble line of micro-ROS;
 - the default Micro XRCE-DDS middleware;
 - the micro-ROS custom serial transport over STM32 USART1;
 - USART1 RX DMA in continuous circular mode;
 - the board's existing CH9102F and communication USB-C connector;
-- the native micro-ROS Agent as a ROS 2 process on Ubuntu 24.04;
+- the native micro-ROS Agent as a ROS 2 process on Ubuntu 22.04;
 - a clean v2 ROS interface generated from `mentor_pi_interfaces`.
 
 The transport settings are fixed at 1,000,000 baud, 8N1, with no RTS/CTS. The
@@ -70,6 +70,15 @@ the dedicated serial group, require a unique measured adapter identity, hold an
 exclusive wrapper lock, restart it after failure, and preserve its logs and exit
 status.
 
+Ubuntu 24.04 is a development host only. It shall have no native ROS
+installation. ROS-dependent host builds and micro-ROS generation run inside
+pinned Ubuntu 22.04/ROS 2 Humble containers; ROS-free cross-compilation,
+analysis, and portable tests may use pinned Ubuntu 24.04 utility containers. A
+deployment shall not mix ROS distributions between the MCU client, Agent, and
+host nodes. Migration to ROS 2 Jazzy is future work that requires new pinned
+artifacts and full requalification before Humble reaches end of life in May
+2027; it is not an active fallback under this ADR.
+
 ## Why this option
 
 The selected path uses the only data-capable USB connector already present on
@@ -78,7 +87,7 @@ controlled on-board segment is asynchronous UART. This avoids PCB changes and
 keeps all four PWM servo channels.
 
 micro-ROS supplies ROS 2 nodes, topics, services, types, and QoS semantics on an
-RTOS-class MCU. Its Jazzy STM32 integration supports FreeRTOS and a custom
+RTOS-class MCU. Its Humble STM32 integration supports FreeRTOS and a custom
 USART transport with DMA, and specifically directs circular DMA for RX. The
 Agent natively supports serial transport and represents the MCU entities in the
 host DDS graph.
@@ -111,7 +120,7 @@ the rest of this specification remain mandatory.
   an ACK timeout is fatal to that session. With no reliable operation pending,
   Agent loss is detected by three consecutive bounded ACTIVE ping failures.
 - The initial XRCE MTU is 512 bytes with reliable stream history depth eight.
-  The pinned Jazzy generated type support is normative and shall report a
+  The pinned Humble generated type support is normative and shall report a
   388-byte maximum message-field payload for `ControllerDiagnostics`; the
   pinned RMW/CDR path shall serialize exactly 392 bytes including its four-byte
   encapsulation. The feasibility gate must prove that
@@ -143,7 +152,7 @@ This decision authorizes a feasibility implementation, not product deployment.
 Before device-driver or application implementation proceeds, Gate D1 shall
 prove all of the following on the actual STM32F407 toolchain and board:
 
-1. The Jazzy micro-ROS static library builds with every interface in
+1. The Humble micro-ROS static library builds with every interface in
    `mentor_pi_interfaces`; generated maximum CDR/XRCE sizes, including the
    normative 388-byte diagnostics field payload and 392-byte encapsulated
    sample, fit the 512-byte MTU, and every
@@ -232,10 +241,10 @@ Costs and risks:
 
 ## References
 
-- [micro-ROS STM32CubeMX utilities, Jazzy](https://github.com/micro-ROS/micro_ros_stm32cubemx_utils/tree/jazzy)
-- [micro-ROS Agent, Jazzy](https://github.com/micro-ROS/micro-ROS-Agent/tree/jazzy)
+- [micro-ROS STM32CubeMX utilities, Humble](https://github.com/micro-ROS/micro_ros_stm32cubemx_utils/tree/humble)
+- [micro-ROS Agent, Humble](https://github.com/micro-ROS/micro-ROS-Agent/tree/humble)
 - [micro-ROS setup and production-use notice](https://github.com/micro-ROS/micro_ros_setup)
 - [Micro XRCE-DDS stream transport and framing](https://micro-xrce-dds.docs.eprosima.com/en/stable/transport.html)
-- [ROS 2 Jazzy Ubuntu binaries](https://docs.ros.org/en/jazzy/Installation/Alternatives/Ubuntu-Install-Binary.html)
+- [ROS 2 Humble Ubuntu binaries](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html)
 - [Hardware baseline](../hardware-baseline.md)
 - [Verification](../verification.md)

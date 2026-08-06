@@ -58,10 +58,15 @@ cmake -E remove_directory "${BUILD_ROOT}"
 cmake -E make_directory "${BUILD_ROOT}"
 
 bash -n "${PROJECT_ROOT}"/tools/*.sh
+"${PROJECT_ROOT}/tools/test_active_build_policy.sh"
+"${PROJECT_ROOT}/tools/test_firmware_dependency_provenance.sh"
 "${PROJECT_ROOT}/tools/test_firmware_artifact_verification.sh"
 "${PROJECT_ROOT}/tools/test_microros_agent_install_state.sh"
+"${PROJECT_ROOT}/tools/test_microros_agent_build_container.sh"
+"${PROJECT_ROOT}/tools/test_microros_source_lock.sh"
 "${PROJECT_ROOT}/tools/test_package_board_handoff.sh"
 "${PROJECT_ROOT}/tools/test_flash_firmware.sh"
+"${PROJECT_ROOT}/tools/test_pull_pinned_build_images.sh"
 
 RunCmakeSuite() {
   local name="$1"

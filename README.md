@@ -1,213 +1,150 @@
 # Mentor Pi RRCLite v2
 
-RRCLite v2 is a clean ROS 2 Jazzy controller stack for the Mentor Pi
-RRCLite V1.0 board. It replaces the legacy Python serial bridge and proprietary
-MCU packet dispatcher with a native micro-ROS client on the STM32F407VET6.
-
-The physical runtime path remains:
+RRCLite v2 is a C++17 ROS 2 Humble controller stack for the Mentor Pi
+RRCLite V1.0 board (STM32F407VET6). It replaces the legacy Python serial bridge
+and proprietary MCU packet dispatcher with micro-ROS and a native micro-ROS
+Agent.
 
 ```text
 ROS 2 nodes <-> native micro-ROS Agent
-            <-> USB-C / CH9102F / 1,000,000-baud USART1
-            <-> FreeRTOS firmware
-            <-> robot hardware
+            <-> USB-C / CH9102F / USART1 at 1,000,000 baud, 8N1
+            <-> FreeRTOS firmware <-> robot hardware
 ```
 
-Project-owned host runtime code is C++17. MCU orchestration and drivers are
-C++17 around the C STM32 HAL, FreeRTOS, and micro-ROS libraries. No Python
-process is in the runtime data path.
+The data connector is USB on the host side and USART1 after the CH9102F bridge.
+The second USB-C connector is power-only; this board has no supported native-MCU
+USB connection.
 
-## Status
+## Safety and current status
 
-This repository is an engineering build awaiting first-board HIL
-characterization. Native tests and cross-build checks can prove software
-behavior, bounds, and memory layout without a board. Motor/encoder polarity,
-PID tuning, analog scaling, IMU axes, peripheral timing, watchdog timing, and
-the endurance/reconnect acceptance tests require the physical RRCLite V1.0.
+The software is ready for first-board bring-up, but motor/encoder polarity, PID
+tuning, IMU axes, analog scaling, peripheral timing, watchdog timing, and the
+endurance/reconnect gates still need hardware evidence.
 
-The normal firmware build is deliberately motor-locked while that evidence is
-missing. It accepts valid zero/stop motor commands but rejects every nonzero
-motor target. JGA27 currently uses a provisional encoder-polarity factor of
-`-1` derived from legacy controller evidence; neither that factor nor any PID
-profile is release-qualified.
+The default firmware is motor-locked: zero/stop motor commands work, but every
+nonzero target is rejected. Never flash or commission with actuators connected.
+Before any powered motor test, complete the passive encoder-direction checks,
+raise or guard every wheel, and use a current-limited supply. Follow
+[Flashing and first bring-up](docs/flashing-and-first-bringup.md) and record the
+session in the [board-arrival checklist](docs/board-arrival-bringup-checklist.md).
 
-Do not connect unrestricted actuator power for the first flash. Follow
-[Flashing and first bring-up](docs/flashing-and-first-bringup.md).
-Use the blank [board-arrival evidence record](docs/board-arrival-bringup-checklist.md)
-for the session; its installed read-only diagnostic command produces the
-manifested archive needed for actionable bug feedback without opening the
-serial transport or publishing a command.
+## Supported environments
 
-## Repository layout
+- Production/onboard computer: Ubuntu 22.04 with ROS 2 Humble.
+- Development computer: Ubuntu 24.04 with Docker; do not install ROS natively.
+- Host architectures: `arm64` and `amd64`; build for the deployment computer.
+- Firmware build: CMake/Ninja through the root Makefile.
+- Host build: `colcon` inside the pinned Humble container.
+- Flashing without SWD: STM32CubeProgrammer through CH9102F/USART1.
 
-- [`docs/framework/`](docs/framework/) is the normative design and verification
-  specification.
-- [`src/mentor_pi_interfaces/`](src/mentor_pi_interfaces/) contains the bounded
-  v2 messages and services.
-- [`src/mentor_pi_bringup/`](src/mentor_pi_bringup/) contains the native Agent
-  deployment assets and C++ configuration supervisor.
-- [`firmware/mentor_pi_mcu/`](firmware/mentor_pi_mcu/) contains the portable
-  domain, drivers, controller workers, micro-ROS runtime, and STM32 platform.
-- [`tools/`](tools/) contains pinned dependency and reproducible build helpers.
-- `docs/reference/` is local legacy evidence and is intentionally ignored by
-  Git. Production code must not depend on it.
+Project-owned runtime code does not use Python. Upstream ROS and code-generation
+tools may use Python during builds.
 
-The parent `.gitignore` also excludes the legacy worktree's nested `.git`
-boundary without modifying that independent repository. As with every Git
-ignore rule, it prevents new parent-repository tracking but does not remove a
-path that an existing parent index already tracks. When importing this tree
-into such a repository, review the index first and, if necessary, remove only
-the cached parent entry with `git rm -r --cached -- docs/reference/`; the local
-evidence files remain in place.
+## Quick start
 
-## Build firmware
-
-Docker Desktop or Docker Engine is required for the pinned ARM build from a
-non-Ubuntu development host.
+Install Git, Make, and Docker Engine, then start Docker. CubeProgrammer is only
+required when flashing. On the Ubuntu 24.04 development computer, use:
 
 ```sh
-./tools/bootstrap_firmware_dependencies.sh
-./tools/build_microros_library.sh
-./tools/build_firmware.sh
+make doctor
+make setup HOST_ARCH=arm64
+make firmware
+make agent HOST_ARCH=arm64
+make test HOST_ARCH=arm64
 ```
 
-The final command emits ELF, HEX, BIN, map, and size artifacts under
-`firmware/mentor_pi_mcu/build/stm32/`. Linker assertions reject images that do
-not retain at least 20% flash, DMA-accessible SRAM, and CCM headroom.
-
-The micro-ROS regeneration step is networked but deterministic: it detaches all
-35 fetched ROS repositories at
-`firmware/mentor_pi_mcu/config/microros_sources.lock`, pins the temporary
-`geometry2/tf2_msgs` copy, and rejects a generated archive whose SHA-256 does
-not match the reviewed artifact lock. Updating an interface or dependency
-therefore requires a deliberate lock/hash review rather than silently taking a
-new Jazzy branch head.
-
-## Flash without a debug probe
-
-RRCLite V1.0 can be flashed through the USB-C port labelled USB serial
-1/download. It routes through CH9102F to the STM32F407 factory USART1
-bootloader; the separate 5 V/5 A USB-C port is power-output only. Install
-STM32CubeProgrammer, disconnect all actuators, hold `BOOT`, tap `RST`, release
-`BOOT`, identify the exact CH9102F device, then run:
+`make test` includes the authoritative Humble host build and tests. To build
+only a deployable host handoff, run:
 
 ```sh
-RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
-  pio run -e rrclite_uart -t upload \
-    --upload-port /dev/cu.wchusbserial-REPLACE_ME
+make host HOST_ARCH=arm64
 ```
 
-Use the matching `/dev/serial/by-id/...` path on Ubuntu. The command verifies
-the source-bound motor-locked artifact, snapshots the ELF, programs it at
-115200/8E1, and requests CubeProgrammer read-back verification. On success,
-tap `RST` normally; the application then uses the same connector at
-1,000,000/8N1. See
-[Flashing and first bring-up](docs/flashing-and-first-bringup.md) for the GUI,
-SWD, commissioning, and safety procedures.
+Use `HOST_ARCH=amd64` only for an amd64 deployment target. Run `make help` for
+all supported targets. Generated outputs are disposable and ignored by Git:
 
-`./tools/build_firmware.sh` defaults to a motor-locked image. Only after the
-passive encoder-direction checks in the bring-up guide, with all wheels raised
-or equivalently guarded and a current-limited supply, build the separate
-commissioning image with both explicit acknowledgements:
+- firmware: `firmware/mentor_pi_mcu/build/stm32/`;
+- host handoff: `build/host-handoff/`;
+- Agent and test evidence: other directories below `build/`.
+
+## Flash the default locked firmware
+
+Install STM32CubeProgrammer, disconnect motor and servo power, connect the
+USB-C port labelled UART1/USB serial 1, then hold `BOOT`, tap `RST`, and release
+`BOOT`. Identify the exact CH9102F device and run:
 
 ```sh
-RRCLITE_MOTOR_COMMISSIONING=1 \
-RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-./tools/build_firmware.sh
+make flash PORT=/dev/serial/by-id/REPLACE_ME \
+  FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED
 ```
 
-That image is capped at 0.25 RPS and 300 permille output and is not a release
-image. The command overwrites the artifacts in the STM32 build directory, so
-record its hash as commissioning-only and rebuild the default locked image
-after the test.
+The wrapper verifies the locked artifact, snapshots its exact ELF, programs it
+through the factory bootloader at 115200 baud/8E1, and requests read-back
+verification. Reset normally afterward; the application returns to
+1,000,000 baud/8N1.
 
-## Run portable tests
-
-Run every interface, MCU domain, driver, controller, micro-ROS compile-check,
-and host-supervisor native suite with:
+Commissioning firmware is intentionally separate and capped at 0.25 RPS and
+300 permille output. Use it only after the guarded prerequisites in the bring-up
+guide:
 
 ```sh
-./tools/run_native_tests.sh
+make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
+make flash-commissioning PORT=/dev/serial/by-id/REPLACE_ME \
+  FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
+  COMMISSIONING_FLASH_ACK=MOTORS_RAISED_CURRENT_LIMITED
 ```
 
-The script uses Python only for interface source-contract tests; Python is not
-part of either runtime. Individual suites can also be run directly, for
-example:
+## Deploy and operate the host
+
+`make host` creates a checksummed Humble handoff for the selected architecture.
+Install it on the Ubuntu 22.04 onboard computer by following
+[Host preparation and handoff](docs/host-preparation-and-handoff.md). Use
+[ROS 2 CLI examples](docs/ros2-cli-examples.md) for bounded telemetry, command,
+and service examples.
+
+## Move to another computer
+
+There is currently no required Git remote. Commit all intended tracked changes,
+then either copy the whole repository including its hidden `.git` directory, or
+create a portable Git bundle:
 
 ```sh
-cmake -S firmware/mentor_pi_mcu -B build/mentor_pi_mcu-native -G Ninja \
-  -DBUILD_TESTING=ON
-cmake --build build/mentor_pi_mcu-native
-ctest --test-dir build/mentor_pi_mcu-native --output-on-failure
-
-cmake -S firmware/mentor_pi_mcu/drivers \
-  -B build/mentor_pi_mcu-drivers -G Ninja -DBUILD_TESTING=ON
-cmake --build build/mentor_pi_mcu-drivers
-ctest --test-dir build/mentor_pi_mcu-drivers --output-on-failure
-
-python3 -m unittest discover -s src/mentor_pi_interfaces/test -v
+git status --short
+git bundle create ../Mentor_Pi.bundle --all
 ```
 
-ROS packages are supported on ROS 2 Jazzy with Ubuntu 24.04, amd64 or arm64.
-The host deployment and configuration schema are described in
-[`src/mentor_pi_bringup/README.md`](src/mentor_pi_bringup/README.md).
-The clean-machine dependency, merged Release build, relocation proof, and
-checksummed host-handoff workflow are in
-[Host preparation and handoff](docs/host-preparation-and-handoff.md).
-
-Minimal, schema-correct commands for inspecting telemetry, publishing bounded
-commands, and calling services are in
-[ROS 2 CLI examples](docs/ros2-cli-examples.md).
-
-## Software-only quality gates
-
-The checked-in GitHub workflows run documentation/traceability checks, C++
-format and static analysis, native Debug ASan/UBSan and Release tests, a
-separate TSan job, an enforced 90%/80% portable coverage gate, bounded
-libFuzzer smoke, generated CDR/introspection tests on ROS 2 Jazzy amd64, and a
-pinned two-build firmware reproducibility comparison. The same primary native
-checks can be run locally:
+On the new computer:
 
 ```sh
-./tools/check_framework_docs.py
-./tools/test_gitignore_contract.sh
-./tools/run_native_ci_tests.sh --build-type Debug --sanitizers on
-./tools/run_native_ci_tests.sh --build-type Release --sanitizers off
-./tools/run_tsan_tests.sh
-./tools/run_coverage_tests.sh
+git clone Mentor_Pi.bundle Mentor_Pi
+cd Mentor_Pi
+make doctor
+make setup HOST_ARCH=arm64
 ```
 
-The explicit portable first-party manifest now measures 91.29% line and 80.94%
-branch coverage. The local script and hosted coverage job enforce the required
-90%/80% release threshold.
+Do not transfer generated `build/`, firmware `third_party/`, or generated
+micro-ROS directories; rebuild them. The raw contents of `docs/reference/` are
+ignored and are not included in a Git bundle, so copy that local legacy
+evidence separately if it is still needed.
 
-The firmware comparison requires the dependencies and generated library from
-the firmware build section, then runs with:
+Codex should read [AGENTS.md](AGENTS.md), then use
+[docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) as the durable handoff.
 
-```sh
-./tools/check_firmware_reproducibility.sh
-```
+## Repository map
 
-These hosted jobs require no project secrets and no connected board. See
-[CI and hardware qualification gates](docs/ci-and-hardware-gates.md) for the
-exact workflow boundary, local clang commands, remaining software-only work,
-and the HIL evidence that must wait for physical hardware.
+- [`firmware/mentor_pi_mcu/`](firmware/mentor_pi_mcu/) — STM32 firmware, drivers,
+  controller workers, and micro-ROS runtime.
+- [`src/mentor_pi_interfaces/`](src/mentor_pi_interfaces/) — bounded ROS messages
+  and services.
+- [`src/mentor_pi_bringup/`](src/mentor_pi_bringup/) — C++ supervisor, Agent
+  launch, deployment tools, and qualification utilities.
+- [`tools/`](tools/) — pinned setup, build, verification, packaging, and flash
+  helpers used by the Makefile.
+- [`docs/framework/`](docs/framework/) — normative requirements, hardware,
+  architecture, interface, safety, and verification contracts.
+- [`docs/ci-and-hardware-gates.md`](docs/ci-and-hardware-gates.md) — what software
+  tests prove and what still requires the board.
 
-## Safety contract
-
-- Normal firmware accepts motor zero/stop commands but cannot arm nonzero
-  motion; the host `motion_enabled` topic does not override this lock.
-- Commissioning motion requires the two exact build variables above, raised
-  wheels/equivalent guarding, a current-limited supply, and prior passive
-  encoder-direction checks. It remains capped at 0.25 RPS and 300 permille.
-- Every motor has an independent 200 ms command lease.
-- Invalid commands are rejected atomically and do not refresh a lease.
-- Transport failure or RX overrun disarms motors and tears down the session.
-- PWM and bus servos hold their last accepted state across host loss.
-- High-rate commands use latest-value mailboxes, never unbounded FIFOs.
-- The micro-ROS task alone owns ROS entities and the USART1 transport.
-- The safety supervisor is the only task allowed to refresh the watchdog.
-
-The complete normative rules and acceptance limits are in
-[`docs/framework/reliability-and-safety.md`](docs/framework/reliability-and-safety.md)
-and [`docs/framework/verification.md`](docs/framework/verification.md).
+Public ROS names, QoS, units, limits, safety behavior, and acceptance tests are
+defined by the framework documents. Do not infer them from this quick-start
+guide.

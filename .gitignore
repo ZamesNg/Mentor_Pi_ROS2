@@ -1,5 +1,7 @@
-# Local legacy evidence. The v2 build must not depend on this directory.
-docs/reference/
+# Local legacy evidence. Track only its policy; the v2 build must not depend on
+# the raw snapshot.
+docs/reference/*
+!docs/reference/README.md
 
 # macOS metadata.
 .DS_Store
@@ -16,6 +18,10 @@ log/
 cmake-build-*/
 **/cmake-build-*/
 Testing/
+
+# Obsolete PlatformIO caches; PlatformIO is not an active build path.
+.pio/
+**/.pio/
 
 # Local inspection and rendering scratch space.
 tmp/

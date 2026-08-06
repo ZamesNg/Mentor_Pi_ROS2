@@ -9,11 +9,21 @@ readonly PROJECT_ROOT
 readonly BUILD_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32"
 readonly FIRMWARE_IMAGE="mentor-pi/rrclite-firmware-builder:gcc-13.2.1"
 readonly REPORT_ROOT="${RRCLITE_REPRO_REPORT_DIR:-${PROJECT_ROOT}/build/firmware-reproducibility}"
-SNAPSHOT_ROOT="$(mktemp -d)"
+readonly TEMPORARY_PARENT="${TMPDIR:-/tmp}"
+SNAPSHOT_ROOT="$(mktemp -d \
+  "${TEMPORARY_PARENT%/}/rrclite-repro.XXXXXX")"
 readonly SNAPSHOT_ROOT
 
 Cleanup() {
-  cmake -E remove_directory "${SNAPSHOT_ROOT}"
+  case "${SNAPSHOT_ROOT}" in
+    "${TEMPORARY_PARENT%/}"/rrclite-repro.*)
+      rm -rf -- "${SNAPSHOT_ROOT}"
+      ;;
+    *)
+      echo "Refusing unsafe reproducibility-snapshot cleanup: ${SNAPSHOT_ROOT}" >&2
+      return 1
+      ;;
+  esac
 }
 trap Cleanup EXIT
 
@@ -62,7 +72,13 @@ RequireWithinBudget() {
 CleanBuild() {
   local build_number="$1"
   echo "Starting clean locked firmware build ${build_number}/2"
-  cmake -E remove_directory "${BUILD_ROOT}"
+  [[ "${BUILD_ROOT}" == \
+      "${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32" && \
+      "${BUILD_ROOT}" != "/" ]] || {
+    echo "Refusing unsafe firmware-build cleanup: ${BUILD_ROOT}" >&2
+    return 1
+  }
+  rm -rf -- "${BUILD_ROOT}"
   RRCLITE_MOTOR_COMMISSIONING=0 \
     RRCLITE_MOTOR_COMMISSIONING_ACK= \
     "${PROJECT_ROOT}/tools/build_firmware.sh"
@@ -103,9 +119,9 @@ fi
 
 CleanBuild 1
 GenerateLoadableImage
-cmake -E copy "${BUILD_ROOT}/mentor_pi_mcu.loadable.bin" \
+cp -- "${BUILD_ROOT}/mentor_pi_mcu.loadable.bin" \
   "${SNAPSHOT_ROOT}/first.loadable.bin"
-cmake -E copy "${BUILD_ROOT}/mentor_pi_mcu.hex" \
+cp -- "${BUILD_ROOT}/mentor_pi_mcu.hex" \
   "${SNAPSHOT_ROOT}/first.hex"
 
 CleanBuild 2
@@ -148,9 +164,10 @@ RequireWithinBudget flash "${FLASH_USED_BYTES}" "${FLASH_MAXIMUM_BYTES}"
 RequireWithinBudget sram "${SRAM_USED_BYTES}" "${SRAM_MAXIMUM_BYTES}"
 RequireWithinBudget ccm "${CCM_USED_BYTES}" "${CCM_MAXIMUM_BYTES}"
 
-cmake -E make_directory "${REPORT_ROOT}"
+mkdir -p -- "${REPORT_ROOT}"
 printf '%s\n' \
   'target=STM32F407VET6' \
+  'ros_distro=humble' \
   'toolchain=arm-none-eabi-gcc-13.2.1' \
   'mode=motor-locked' \
   'builds=2' \

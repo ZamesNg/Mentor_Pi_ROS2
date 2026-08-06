@@ -11,6 +11,7 @@ host_prefix=""
 output_directory=""
 release_id=""
 staging_root=""
+validation_root=""
 
 Usage() {
   cat >&2 <<'EOF'
@@ -46,6 +47,9 @@ ReadMetadataValue() {
 }
 
 Cleanup() {
+  if [[ -n "${validation_root}" && -d "${validation_root}" ]]; then
+    rm -rf -- "${validation_root}"
+  fi
   if [[ -n "${staging_root}" && -d "${staging_root}" ]]; then
     rm -rf -- "${staging_root}"
   fi
@@ -68,25 +72,32 @@ done
 [[ -x "${FINGERPRINT_TOOL}" ]] || Fail "host fingerprint tool is missing"
 [[ -f "${AGENT_SOURCE_LOCK}" && ! -L "${AGENT_SOURCE_LOCK}" ]] ||
   Fail "Agent source lock is missing or symbolic"
+[[ "$(ReadMetadataValue "${AGENT_SOURCE_LOCK}" format)" == \
+    "mentor-pi-micro-ros-agent-source-lock-v2" ]] ||
+  Fail "unsupported Agent source lock metadata"
+[[ "$(ReadMetadataValue "${AGENT_SOURCE_LOCK}" ros_distro)" == "humble" ]] ||
+  Fail "Agent source lock targets the wrong ROS distribution"
 
 readonly BUILD_METADATA="${host_prefix}/HOST-BUILD-METADATA.txt"
 [[ -f "${BUILD_METADATA}" && ! -L "${BUILD_METADATA}" ]] ||
   Fail "host build metadata is missing"
 [[ "$(ReadMetadataValue "${BUILD_METADATA}" format)" == \
-    "rrclite-host-build-v1" ]] || Fail "unsupported host build metadata"
+    "rrclite-host-build-v2" ]] || Fail "unsupported host build metadata"
+[[ "$(ReadMetadataValue "${BUILD_METADATA}" ubuntu)" == "22.04" ]] ||
+  Fail "host release has the wrong Ubuntu identity"
 [[ "$(ReadMetadataValue "${BUILD_METADATA}" target_os)" == "ubuntu" ]] ||
   Fail "host release targets the wrong OS"
-[[ "$(ReadMetadataValue "${BUILD_METADATA}" target_version)" == "24.04" ]] ||
+[[ "$(ReadMetadataValue "${BUILD_METADATA}" target_version)" == "22.04" ]] ||
   Fail "host release targets the wrong Ubuntu version"
 readonly ARCHITECTURE="$(ReadMetadataValue "${BUILD_METADATA}" architecture)"
 [[ "${ARCHITECTURE}" == "amd64" || "${ARCHITECTURE}" == "arm64" ]] ||
   Fail "host release has unsupported architecture ${ARCHITECTURE}"
-[[ "$(ReadMetadataValue "${BUILD_METADATA}" ros_distro)" == "jazzy" ]] ||
+[[ "$(ReadMetadataValue "${BUILD_METADATA}" ros_distro)" == "humble" ]] ||
   Fail "host release targets the wrong ROS distribution"
 [[ "$(ReadMetadataValue "${BUILD_METADATA}" build_type)" == "Release" ]] ||
   Fail "host release is not a Release build"
 readonly BUILDER_IMAGE="$(ReadMetadataValue "${BUILD_METADATA}" builder_image)"
-if [[ "${BUILDER_IMAGE}" != "native-ubuntu-24.04" &&
+if [[ "${BUILDER_IMAGE}" != "native-ubuntu-22.04" &&
       ! "${BUILDER_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
   Fail "host build metadata has an unpinned builder identity"
 fi
@@ -130,11 +141,24 @@ readonly OUTPUT_ROOT="${output_parent}/${output_name}"
   Fail "refusing to replace existing output ${OUTPUT_ROOT}"
 
 validation_root="$(mktemp -d "${TMPDIR:-/tmp}/mentor-pi-host-layout.XXXXXX")"
+mkdir -p "${validation_root}/environment"
+cat >"${validation_root}/environment/os-release" <<'EOF'
+ID=ubuntu
+VERSION_ID="22.04"
+EOF
+cat >"${validation_root}/environment/humble-setup.bash" <<'EOF'
+: "${AMENT_TRACE_SETUP_FILES:=}"
+export ROS_DISTRO=humble
+EOF
 MENTOR_PI_DEPLOYMENT_TEST_ROOT="${validation_root}" \
+MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE="${validation_root}/environment/os-release" \
+MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE="${ARCHITECTURE}" \
+MENTOR_PI_DEPLOYMENT_TEST_ROS_SETUP="${validation_root}/environment/humble-setup.bash" \
   "${host_prefix}/lib/mentor_pi_bringup/promote_host_release" \
     --staged-prefix "${host_prefix}" --release-id package-layout-check \
     >/dev/null
 rm -rf -- "${validation_root}"
+validation_root=""
 
 staging_root="$(mktemp -d "${output_parent}/.mentor-pi-host-handoff.XXXXXX")"
 mkdir -p "${staging_root}/host" \
@@ -144,6 +168,7 @@ mkdir -p "${staging_root}/host" \
 cp -a "${host_prefix}/." "${staging_root}/host/"
 install -m 0755 \
   "${SCRIPT_DIR}/install_microros_agent.sh" \
+  "${SCRIPT_DIR}/build_microros_agent_from_lock.sh" \
   "${SCRIPT_DIR}/require_microros_agent_install_idle.sh" \
   "${SCRIPT_DIR}/verify_microros_agent_install_state.sh" \
   "${staging_root}/agent-installer/tools/"
@@ -161,7 +186,8 @@ readonly CREATED_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 readonly PACKAGED_AGENT_SOURCE_LOCK="${staging_root}/agent-installer/tools/microros_agent_source.lock"
 readonly AGENT_LOCK_SHA="$(Sha256 "${PACKAGED_AGENT_SOURCE_LOCK}")"
 cat >"${staging_root}/AGENT-METADATA.txt" <<EOF
-format=rrclite-agent-handoff-v1
+format=rrclite-agent-handoff-v2
+ros_distro=humble
 installation=pinned-source-build
 source_lock=agent-installer/tools/microros_agent_source.lock
 source_lock_sha256=${AGENT_LOCK_SHA}
@@ -169,13 +195,14 @@ installer=agent-installer/tools/install_microros_agent.sh
 runtime_executable=/opt/mentor_pi/bin/mentor_pi_micro_ros_agent
 EOF
 cat >"${staging_root}/HOST-HANDOFF.txt" <<EOF
-package_format=rrclite-host-handoff-v1
+package_format=rrclite-host-handoff-v2
 release_id=${release_id}
 created_utc=${CREATED_UTC}
+ubuntu=22.04
 target_os=ubuntu
-target_version=24.04
+target_version=22.04
 architecture=${ARCHITECTURE}
-ros_distro=jazzy
+ros_distro=humble
 build_type=Release
 source_sha256=${CURRENT_SOURCE}
 builder_image=${BUILDER_IMAGE}
@@ -187,7 +214,7 @@ cat >"${staging_root}/INSTALL.txt" <<EOF
 Verify from this directory:
   sha256sum --check SHA256SUMS
 
-On Ubuntu 24.04 ${ARCHITECTURE}, with mentor-pi-controller.target inactive:
+On Ubuntu 22.04 ${ARCHITECTURE}, with mentor-pi-controller.target inactive:
   sudo ./agent-installer/tools/install_microros_agent.sh
   sudo ./host/lib/mentor_pi_bringup/promote_host_release \\
     --staged-prefix "\${PWD}/host" --release-id ${release_id}

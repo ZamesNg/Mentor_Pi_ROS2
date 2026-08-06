@@ -55,6 +55,8 @@ AppendDirectory "${PROJECT_ROOT}/src/ros_package_schema"
 for file in \
     docs/board-arrival-bringup-checklist.md \
     docs/host-preparation-and-handoff.md \
+    Makefile \
+    tools/build_microros_agent_from_lock.sh \
     tools/build_host_handoff_container.sh \
     tools/build_host_release.sh \
     tools/host_handoff_container_entrypoint.sh \
@@ -64,8 +66,12 @@ for file in \
     tools/package_host_handoff.sh \
     tools/prepare_host_build_dependencies.sh \
     tools/require_microros_agent_install_idle.sh \
+    tools/select_pinned_build_image.sh \
     tools/verify_host_build_environment.sh \
     tools/verify_host_release_relocation.sh \
+    tools/verify_microros_agent_build_container.sh \
+    tools/verify_microros_agent_build_in_container.sh \
+    tools/test_active_build_policy.sh \
     tools/verify_microros_agent_install_state.sh; do
   AppendFile "${PROJECT_ROOT}/${file}"
 done

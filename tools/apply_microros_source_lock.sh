@@ -2,13 +2,14 @@
 
 set -euo pipefail
 
-if [[ "$#" -ne 2 ]]; then
-  echo "Usage: $0 <micro-ROS workspace> <source lock>" >&2
+if [[ "$#" -lt 2 ]]; then
+  echo "Usage: $0 <micro-ROS workspace> <source lock> [--deferred-repository URL ...]" >&2
   exit 2
 fi
 
 readonly WORKSPACE="$1"
 readonly SOURCE_LOCK="$2"
+shift 2
 
 [[ -d "${WORKSPACE}" ]] || {
   echo "micro-ROS workspace does not exist: ${WORKSPACE}" >&2
@@ -28,7 +29,25 @@ NormalizeUrl() {
 
 readonly NORMALIZED_LOCK="$(mktemp)"
 readonly CHECKED_REPOSITORIES="$(mktemp)"
-trap 'rm -f "${NORMALIZED_LOCK}" "${CHECKED_REPOSITORIES}"' EXIT
+readonly DEFERRED_REPOSITORIES="$(mktemp)"
+trap 'rm -f "${NORMALIZED_LOCK}" "${CHECKED_REPOSITORIES}" "${DEFERRED_REPOSITORIES}"' EXIT
+
+while [[ "$#" -gt 0 ]]; do
+  [[ "$#" -ge 2 && "$1" == "--deferred-repository" ]] || {
+    echo "Usage: $0 <micro-ROS workspace> <source lock> [--deferred-repository URL ...]" >&2
+    exit 2
+  }
+  NormalizeUrl "$2" >>"${DEFERRED_REPOSITORIES}"
+  shift 2
+done
+sort -o "${DEFERRED_REPOSITORIES}" "${DEFERRED_REPOSITORIES}"
+duplicate_deferred="$(awk \
+  'previous == $1 {print $1; exit} {previous=$1}' \
+  "${DEFERRED_REPOSITORIES}")"
+[[ -z "${duplicate_deferred}" ]] || {
+  echo "Duplicate deferred source-lock repository: ${duplicate_deferred}" >&2
+  exit 1
+}
 
 while read -r repository_url commit extra; do
   if [[ -z "${repository_url}" || "${repository_url:0:1}" == "#" ]]; then
@@ -64,6 +83,14 @@ while IFS= read -r git_directory; do
     echo "Duplicate micro-ROS repository checkout: ${normalized_url}" >&2
     exit 1
   fi
+  worktree_status="$(git -C "${repository}" status --porcelain=v1 \
+    --untracked-files=all)"
+  if [[ -n "${worktree_status}" ]]; then
+    echo "Dirty micro-ROS repository before locking: ${normalized_url}" >&2
+    printf '%s\n' "${worktree_status}" >&2
+    git -C "${repository}" diff --stat >&2 || true
+    exit 1
+  fi
   if ! git -C "${repository}" cat-file -e "${expected_commit}^{commit}";
   then
     git -C "${repository}" fetch --depth=1 origin "${expected_commit}"
@@ -74,12 +101,32 @@ while IFS= read -r git_directory; do
     echo "Failed to lock ${normalized_url} at ${expected_commit}" >&2
     exit 1
   fi
+  if git -C "${repository}" symbolic-ref -q HEAD >/dev/null 2>&1; then
+    echo "micro-ROS repository is not detached: ${normalized_url}" >&2
+    exit 1
+  fi
+  if [[ -n "$(git -C "${repository}" status --porcelain=v1 \
+      --untracked-files=all)" ]]; then
+    echo "Dirty micro-ROS repository after locking: ${normalized_url}" >&2
+    exit 1
+  fi
   printf '%s\n' "${normalized_url}" >>"${CHECKED_REPOSITORIES}"
 done < <(find "${WORKSPACE}" -type d -name .git -print | sort)
 
 readonly EXPECTED_REPOSITORIES="$(mktemp)"
-trap 'rm -f "${NORMALIZED_LOCK}" "${CHECKED_REPOSITORIES}" "${EXPECTED_REPOSITORIES}"' EXIT
-awk '{print $1}' "${NORMALIZED_LOCK}" >"${EXPECTED_REPOSITORIES}"
+trap 'rm -f "${NORMALIZED_LOCK}" "${CHECKED_REPOSITORIES}" "${DEFERRED_REPOSITORIES}" "${EXPECTED_REPOSITORIES}"' EXIT
+while IFS= read -r deferred_repository; do
+  [[ -n "${deferred_repository}" ]] || continue
+  deferred_count="$(awk -v url="${deferred_repository}" \
+    '$1 == url {count++} END {print count + 0}' "${NORMALIZED_LOCK}")"
+  [[ "${deferred_count}" == "1" ]] || {
+    echo "Deferred repository is not present exactly once in the lock: ${deferred_repository}" >&2
+    exit 1
+  }
+done <"${DEFERRED_REPOSITORIES}"
+awk 'NR == FNR {deferred[$1] = 1; next} !($1 in deferred) {print $1}' \
+  "${DEFERRED_REPOSITORIES}" "${NORMALIZED_LOCK}" \
+  >"${EXPECTED_REPOSITORIES}"
 sort -o "${CHECKED_REPOSITORIES}" "${CHECKED_REPOSITORIES}"
 if ! diff -u "${EXPECTED_REPOSITORIES}" "${CHECKED_REPOSITORIES}"; then
   echo "The generated micro-ROS workspace is incomplete." >&2
@@ -87,4 +134,5 @@ if ! diff -u "${EXPECTED_REPOSITORIES}" "${CHECKED_REPOSITORIES}"; then
 fi
 
 repository_count="$(wc -l <"${CHECKED_REPOSITORIES}" | tr -d '[:space:]')"
-echo "Locked ${repository_count} micro-ROS source repositories"
+deferred_count="$(wc -l <"${DEFERRED_REPOSITORIES}" | tr -d '[:space:]')"
+echo "Locked ${repository_count} micro-ROS source repositories; ${deferred_count} deferred repository/repositories remain mandatory after generation"

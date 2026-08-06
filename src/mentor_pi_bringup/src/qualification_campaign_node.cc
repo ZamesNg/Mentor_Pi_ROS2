@@ -88,7 +88,7 @@ constexpr std::int64_t kServiceTimeoutNs = INT64_C(250000000);
 constexpr double kDefaultDiscoveryTimeoutSeconds = 30.0;
 constexpr double kDefaultCampaignTimeoutSeconds = 7200.0;
 constexpr double kMaximumTimeoutSeconds = 172800.0;
-constexpr char kRosDistribution[] = "jazzy";
+constexpr char kRosDistribution[] = "humble";
 constexpr std::uint16_t kBusVolatileConfigurationMask =
     ConfigureBusServo::Request::SET_OFFSET |
     ConfigureBusServo::Request::SET_TORQUE;

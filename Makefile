@@ -7,13 +7,14 @@ HOST_ARCH ?= $(shell uname -m | sed \
 DEFAULT_HOST_RELEASE_ID := dev-$(shell date -u +%Y%m%dT%H%M%SZ)
 HOST_RELEASE_ID ?= $(DEFAULT_HOST_RELEASE_ID)
 HOST_OUTPUT ?= build/host-handoff/$(HOST_RELEASE_ID)-$(HOST_ARCH)
+AGENT_EVIDENCE_ID ?=
 
 PORT ?=
 FLASH_ACK ?=
 COMMISSIONING_BUILD_ACK ?=
 COMMISSIONING_FLASH_ACK ?=
 
-.PHONY: help doctor setup firmware firmware-commissioning host test flash \
+.PHONY: help doctor setup firmware firmware-commissioning host agent test flash \
 	flash-commissioning
 
 help:
@@ -23,13 +24,15 @@ help:
 		'  make doctor' \
 		'      Check Git, Make, Docker, architecture, disk space, and CubeProgrammer.' \
 		'  make setup' \
-		'      Fetch pinned firmware sources and the pinned Humble host image.' \
+		'      Fetch pinned firmware sources and images for HOST_ARCH.' \
 		'  make firmware' \
 		'      Generate micro-ROS and build the default motor-locked firmware.' \
 		'  make host' \
 		'      Build and test the Humble host packages in the pinned container.' \
+		'  make agent' \
+		'      Build the pinned Humble Agent and capture compatibility evidence.' \
 		'  make test' \
-		'      Run portable tests, tooling tests, formatting, and documentation checks.' \
+		'      Run the Humble host gate plus portable, tooling, format, and doc checks.' \
 		'  make flash PORT=/dev/ttyUSB0' \
 		'      FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED' \
 		'      Verify and flash the current motor-locked firmware.' \
@@ -44,11 +47,14 @@ doctor:
 	@./tools/doctor.sh
 
 setup: doctor
+	@if [[ "$(HOST_ARCH)" != 'amd64' && "$(HOST_ARCH)" != 'arm64' ]]; then \
+		echo 'Unsupported setup architecture. Set HOST_ARCH=amd64 or HOST_ARCH=arm64.' >&2; \
+		exit 1; \
+	fi
 	@./tools/bootstrap_firmware_dependencies.sh
-	@host_image="$$(./tools/build_host_handoff_container.sh --print-default-image)"; \
-		docker pull "$${host_image}"
+	@./tools/pull_pinned_build_images.sh --architecture "$(HOST_ARCH)"
 	@printf '%s\n' \
-		'Setup complete. Firmware-specific builder images are prepared by make firmware.'
+		'Setup complete. Builder layers are cached; make firmware creates local images.'
 
 firmware:
 	@./tools/bootstrap_firmware_dependencies.sh
@@ -79,12 +85,19 @@ host:
 		--release-id "$(HOST_RELEASE_ID)" \
 		--output-directory "$(HOST_OUTPUT)"
 
-test:
-	@./tools/run_native_ci_tests.sh --build-type Debug --sanitizers on
-	@./tools/test_gitignore_contract.sh
-	@./tools/test_host_handoff_tools.sh
-	@./tools/check_cpp_format.sh
-	@./tools/check_framework_docs.py
+agent:
+	@if [[ "$(HOST_ARCH)" != 'amd64' && "$(HOST_ARCH)" != 'arm64' ]]; then \
+		echo 'Unsupported Agent architecture. Set HOST_ARCH=amd64 or HOST_ARCH=arm64.' >&2; \
+		exit 1; \
+	fi
+	@args=(--architecture "$(HOST_ARCH)"); \
+		if [[ -n "$(AGENT_EVIDENCE_ID)" ]]; then \
+			args+=(--evidence-id "$(AGENT_EVIDENCE_ID)"); \
+		fi; \
+		./tools/verify_microros_agent_build_container.sh "$${args[@]}"
+
+test: host
+	@./tools/run_quality_tests_container.sh
 
 flash:
 	@RRCLITE_UART_BOOTLOADER_ACK="$(FLASH_ACK)" \

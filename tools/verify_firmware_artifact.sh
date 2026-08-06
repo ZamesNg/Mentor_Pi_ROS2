@@ -35,7 +35,7 @@ Usage: ./tools/verify_firmware_artifact.sh LOCKED|COMMISSIONING [PROJECT_ROOT]
 
 Verify that the authoritative ELF, build profile, micro-ROS interface library,
 and project-owned sources all match the successful-build metadata. This is a
-read-only gate used before PlatformIO flash/debug operations.
+read-only gate used before firmware flash operations.
 EOF
 }
 
@@ -60,6 +60,7 @@ readonly ELF="${BUILD_ROOT}/mentor_pi_mcu.elf"
 readonly METADATA="${BUILD_ROOT}/rrclite-build-metadata.txt"
 readonly MICROROS_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros"
 readonly MICROROS_ARCHIVE="${MICROROS_ROOT}/libmicroros.a"
+readonly MICROROS_ROS_DISTRO="${MICROROS_ROOT}/ros_distro"
 readonly MICROROS_INTERFACE_FINGERPRINT="${MICROROS_ROOT}/mentor_pi_interfaces.source.sha256"
 readonly FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
 readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
@@ -70,6 +71,9 @@ readonly PINNED_MICROROS_TREE_HASH="${PROJECT_ROOT}/firmware/mentor_pi_mcu/confi
 [[ -s "${ELF}" ]] || Fail "missing or empty ELF; rebuild firmware"
 [[ -f "${METADATA}" ]] || Fail "missing build metadata; rebuild firmware"
 [[ -s "${MICROROS_ARCHIVE}" ]] || Fail "missing micro-ROS archive"
+[[ -f "${MICROROS_ROS_DISTRO}" ]] || Fail "missing micro-ROS ROS identity"
+[[ "$(tr -d '[:space:]' <"${MICROROS_ROS_DISTRO}")" == "humble" ]] ||
+  Fail "micro-ROS library targets a different ROS distribution"
 [[ -f "${MICROROS_INTERFACE_FINGERPRINT}" ]] || \
   Fail "missing micro-ROS interface fingerprint; regenerate the library"
 [[ -x "${FINGERPRINT_TOOL}" ]] || Fail "fingerprint tool is not executable"
@@ -80,21 +84,30 @@ readonly PINNED_MICROROS_TREE_HASH="${PROJECT_ROOT}/firmware/mentor_pi_mcu/confi
 [[ -f "${PINNED_MICROROS_TREE_HASH}" ]] || \
   Fail "pinned micro-ROS tree hash is missing"
 
-[[ "$(ReadMetadata schema)" == "rrclite-firmware-build-v1" ]] || \
+[[ "$(ReadMetadata schema)" == "rrclite-firmware-build-v2" ]] || \
   Fail "unsupported or missing build metadata schema"
 [[ "$(ReadMetadata target)" == "STM32F407VET6" ]] || \
   Fail "build metadata targets a different MCU"
+[[ "$(ReadMetadata ros_distro)" == "humble" ]] || \
+  Fail "build metadata targets a different ROS distribution"
+[[ "$(ReadMetadata release_qualified)" == "0" ]] || \
+  Fail "build metadata must classify the artifact as non-release"
 
 readonly RECORDED_MODE="$(ReadMetadata motor_mode)"
 [[ "${RECORDED_MODE}" == "${EXPECTED_MODE}" ]] || \
   Fail "artifact is ${RECORDED_MODE}, but ${EXPECTED_MODE} was requested"
+readonly RECORDED_COMMISSIONING_ACK="$(ReadMetadata commissioning_ack)"
 
 if [[ "${EXPECTED_MODE}" == "LOCKED" ]]; then
+  [[ -z "${RECORDED_COMMISSIONING_ACK}" ]] || \
+    Fail "locked build metadata contains a commissioning acknowledgement"
   grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING:BOOL=OFF' "${CACHE}" || \
     Fail "CMake cache is not motor-locked"
   grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=' "${CACHE}" || \
     Fail "locked build contains a commissioning acknowledgement"
 else
+  [[ "${RECORDED_COMMISSIONING_ACK}" == "MOTORS_RAISED" ]] || \
+    Fail "commissioning build metadata acknowledgement is missing or invalid"
   grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING:BOOL=ON' "${CACHE}" || \
     Fail "CMake cache is not a commissioning build"
   grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=MOTORS_RAISED' \

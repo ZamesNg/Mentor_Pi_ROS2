@@ -424,7 +424,7 @@ bool TestSimplePeripherals() {
   CHECK(!rgb_driver.busy() && !spi.active);
   rgb_driver.Cancel();
 
-  for (const auto [status, expected] :
+  for (const auto& [status, expected] :
        std::array<std::pair<IoStatus, ResultCode>, 3>{
            {{IoStatus::kBusy, ResultCode::kBusy},
             {IoStatus::kTimeout, ResultCode::kTimeout},
@@ -535,7 +535,7 @@ bool TestImuAndOled() {
   Qmi8658Driver absent_imu(absent_i2c);
   CHECK(absent_imu.Initialize(1000U).code == ResultCode::kIoError);
 
-  for (const auto [status, expected] :
+  for (const auto& [status, expected] :
        std::array<std::pair<IoStatus, ResultCode>, 2>{
            {{IoStatus::kBusy, ResultCode::kBusy},
             {IoStatus::kTimeout, ResultCode::kTimeout}}}) {
@@ -632,7 +632,7 @@ bool TestImuAndOled() {
   }
   CHECK(!page_two_has_pixels && page_three_has_pixels);
 
-  for (const auto [status, expected] :
+  for (const auto& [status, expected] :
        std::array<std::pair<IoStatus, ResultCode>, 3>{
            {{IoStatus::kBusy, ResultCode::kBusy},
             {IoStatus::kTimeout, ResultCode::kTimeout},
@@ -813,7 +813,7 @@ bool TestBusServoFailurePaths() {
   const auto canceled = validation_driver.Poll(1U);
   CHECK(canceled.complete && canceled.result.code == ResultCode::kIoError);
 
-  for (const auto [status, expected] :
+  for (const auto& [status, expected] :
        std::array<std::pair<IoStatus, ResultCode>, 3>{
            {{IoStatus::kBusy, ResultCode::kBusy},
             {IoStatus::kTimeout, ResultCode::kTimeout},

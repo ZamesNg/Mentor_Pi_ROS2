@@ -1,7 +1,7 @@
 # CI and Hardware Qualification Gates
 
-This guide separates checks that can run on an ordinary hosted amd64 runner
-from evidence that requires the physical RRCLite V1.0 and a guarded fixture.
+This guide separates checks that can run on hosted amd64 or arm64 runners from
+evidence that requires the physical RRCLite V1.0 and a guarded fixture.
 Passing hosted CI does not by itself qualify a release or enable nonzero motor
 authority.
 
@@ -10,7 +10,7 @@ authority.
 | Workflow | Hosted evidence | Hardware | Configured secrets |
 |---|---|---|---|
 | `software-quality.yml` | Documentation links and traceability, Google-format check, Debug ASan/UBSan tests, optimized Release tests, TSan concurrency tests, enforced 90%/80% portable coverage, deterministic libFuzzer smoke, exact pinned XRCE framing conformance, and `clang-tidy` | None | None |
-| `ros-jazzy-amd64.yml` | ROS 2 Jazzy package generation, generated CDR/introspection tests, build, ament lint, C++ supervisor-peer integration, and external XML launch tests on Ubuntu 24.04 amd64 | None | None |
+| `ros-humble-amd64.yml` | Authoritative `make host` Release build, tests, offline handoff packaging, relocation, Humble metadata/manifest verification, and a network-separated pinned native-Agent build with checksummed evidence in a native Ubuntu 22.04 matrix on amd64 and arm64 | None | None |
 | `firmware-reproducibility.yml` | Pinned dependencies, reviewed micro-ROS archive, linker resource assertions, two clean motor-locked builds with identical loadable bytes, a separate motor-locked STM32 Debug build, required interrupt/fault/RTOS vector-strength audit, and `clang-tidy` over its complete first-party Arm compile database | None | None |
 
 All external actions are pinned to immutable commit SHAs. Workflow permissions
@@ -20,7 +20,7 @@ short-lived workflow identity. Fork pull requests receive no project secret.
 The XRCE conformance, ROS, and firmware jobs require public network access. The
 conformance job fetches the Micro-XRCE-DDS Client archive for the exact commit
 in `microros_sources.lock` and verifies its checked-in SHA-256 before compiling
-it. ROS packages come from the configured ROS 2 Jazzy apt repository. Firmware
+it. ROS packages come from the configured ROS 2 Humble apt repository. Firmware
 dependencies are fetched at the exact commits in the build scripts, and all
 three firmware Dockerfiles pin their base image by digest. These are dependency
 inputs, not runtime services.
@@ -62,10 +62,9 @@ pinned Linux/Clang 18 firmware-builder container:
 ./tools/run_fuzz_smoke.sh
 ```
 
-This is also the supported path from Apple Silicon development hosts. Native
-macOS sanitizer runtimes are not qualification environments; in particular,
-an incompatible ASan/dyld combination can stall before a harness reaches
-`LLVMFuzzerTestOneInput`. The runner validates a bounded per-harness count,
+This is the supported path from the clean Ubuntu 24.04 Docker development
+host. Native macOS sanitizer runtimes are not qualification environments. The
+runner validates a bounded per-harness count,
 uses `--network=none` for the test container, and treats
 `build/fuzz-smoke-linux/` as disposable working storage. Only a successful run
 is atomically published to a new, read-only
@@ -90,8 +89,7 @@ XRCE-session-parser part of `VER-FUZZ-TRN-001`.
 
 The previously noted 2026-08-06 11,666,669-execution observation predated this
 immutable evidence format, and its single working-directory report was later
-overwritten by a smoke run. It is historical context, not accepted evidence
-for the current revision. The replacement campaign
+overwritten by a smoke run. The replacement campaign
 `prehardware-20260806-fuzz-qualification-v3` ran 1,666,667 inputs through each
 of seven harnesses under Clang 18 ASan/UBSan: 10,000,002 inputs across the six
 validation/state/driver harnesses plus 1,666,667 in the USART1 ring harness,
@@ -104,8 +102,9 @@ source-corpus digest is
 `369692aa66ff1f1fdeee8b7c2ea672fd63864521f046b962399f369129cfb0a7`,
 and 867-file final-corpus digest is
 `01af9fe2f3a65852e210791c695ea1d58b6999c97522b5c722a69c89dc134e89`.
-This completes the current-revision input-count and sanitizer clause of
-`VER-FUZZ-VAL-001`.
+Both campaigns predate the Humble-only dependency conversion and authoritative
+source-manifest expansion. They are historical evidence only and do not close
+the current-revision input-count or sanitizer clause of `VER-FUZZ-VAL-001`.
 
 State-preservation fuzz assertions cover all seven command mailboxes, the
 RGB/OLED mergers, and the listed controller state paths. The bus UART driver
@@ -115,8 +114,8 @@ no-invalid-hardware-call clause for every retained hardware path. USART1 ring
 bytes also remain opaque rather than being parsed by the full XRCE session
 implementation.
 
-On a supported Ubuntu 24.04 host with Clang 18 and its libFuzzer runtime
-installed, the direct command used by hosted CI is:
+Inside the pinned ROS-free Ubuntu 24.04 firmware-test container with Clang 18
+and its libFuzzer runtime installed, the direct command used by hosted CI is:
 
 ```sh
 cmake -S firmware/mentor_pi_mcu -B build/fuzz-smoke -G Ninja \
@@ -278,7 +277,7 @@ variables or workflow logs.
 
 ## Known software-only qualification work
 
-The generated Jazzy CDR/introspection tests and seven bounded libFuzzer
+The generated Humble CDR/introspection tests and seven bounded libFuzzer
 harnesses are checked in. Hosted CI runs the generated type-support suite, a
 deterministic 10,000-input smoke run per fuzz harness (70,000 total executions),
 and the separate pinned-source XRCE framing conformance target. Smoke proves
@@ -288,10 +287,10 @@ qualification campaign.
 The deterministic semantic validation-input preflight and retained
 source-corpus review are complete. The immutable runner preserves each
 successful campaign and binds it to production-source, test-input, corpus, and
-toolchain digests. The retained current-revision campaign records 10,000,002
-inputs across the six validation/state/driver harnesses and 1,666,667 in the
-USART1 ring harness. It completes the input-count and sanitizer portion of
-`VER-FUZZ-VAL-001`. The semantic preflight is not evidence that every retained
+toolchain digests. The retained 11,666,669-execution campaign belongs to the
+pre-Humble revision. A new Humble-bound retained campaign is required to close
+the current input-count and sanitizer portion of `VER-FUZZ-VAL-001`. The
+semantic preflight is not evidence that every retained
 mutation seed contains every category. Existing fuzz assertions check
 rejection-state preservation in the mailboxes, mergers, and listed controller
 paths, and the bus driver checks zero fake-HAL exchanges after its rejected

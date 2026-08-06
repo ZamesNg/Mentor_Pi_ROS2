@@ -1,7 +1,9 @@
 # RRCLite v2 Runtime Architecture
 
 Status: normative implementation architecture  
-Host: ROS 2 Jazzy on Ubuntu 24.04, amd64 or arm64  
+Runtime host: ROS 2 Humble on Ubuntu 22.04, amd64 or arm64
+
+Development host: Ubuntu 24.04 with pinned Humble containers and no native ROS
 MCU: STM32F407VET6, STM32 HAL, FreeRTOS, and a C++17 application framework
 over the micro-ROS C client library
 
@@ -9,7 +11,7 @@ over the micro-ROS C client library
 
 RRCLite v2 replaces both the Python serial bridge and the MCU proprietary packet
 dispatcher. The MCU is a micro-ROS client and exposes the bounded endpoints in
-the [ROS interface contract](ros-interface-contract.md) through the native Jazzy
+the [ROS interface contract](ros-interface-contract.md) through the native Humble
 micro-ROS Agent:
 
 ```text
@@ -97,9 +99,7 @@ The only pre-HIL image allowed to accept nonzero targets is a commissioning
 image built through the supported wrapper with both deliberate inputs:
 
 ```sh
-RRCLITE_MOTOR_COMMISSIONING=1 \
-RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-./tools/build_firmware.sh
+make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
 ```
 
 The wrapper and CMake configuration fail if commissioning is requested without
@@ -526,7 +526,7 @@ active. A 12-byte, four-byte-aligned watchdog-offender record is the only
 first-party `.noinit` object; the linker retains it in normal SRAM and startup
 code neither initializes nor clears it.
 
-Generate the Jazzy micro-ROS library with these exact maxima:
+Generate the Humble micro-ROS library with these exact maxima:
 
 | Resource | Limit |
 | --- | ---: |
@@ -539,7 +539,7 @@ Generate the Jazzy micro-ROS library with these exact maxima:
 | Reliable stream history | 8 |
 | XRCE transport MTU | 512 bytes |
 
-Disable unused UDP, TCP, and discovery client profiles. Pin the upstream Jazzy
+Disable unused UDP, TCP, and discovery client profiles. Pin the upstream Humble
 source revision used to generate the static library. Select only
 `rosidl_typesupport_microxrcedds_c` and globally set
 `ROSIDL_GENERATOR_C_DISABLE_TYPE_DESCRIPTION_CODEGEN=ON` for the MCU static
@@ -670,7 +670,7 @@ shall observe exactly one connected adapter matching the selected identity
 before installation or upgrade.
 
 A systemd unit, running as the only member of `mentor-pi-serial`, shall execute
-the pinned native Jazzy Agent with the deployment's required authoritative
+the pinned native Humble Agent with the deployment's required authoritative
 `ROS_DOMAIN_ID`. The unit has a closed device policy permitting only
 `/dev/mentor_pi_mcu`, and the wrapper holds a nonblocking serial-owner lock. The
 project installer builds immutable upstream revisions below `/opt/mentor_pi`;
@@ -692,6 +692,9 @@ tests are specified in
 [verification.md](verification.md); language and build rules are in
 [development-standards.md](development-standards.md).
 
-Production deployment is Ubuntu 24.04 on amd64 or arm64. Apple Silicon is a
-development host only through an Ubuntu 24.04 arm64 virtual machine with USB
-passthrough of the CH9102F device; native macOS Agent deployment is unsupported.
+Production deployment is Ubuntu 22.04 with ROS 2 Humble on amd64 or arm64.
+Ubuntu 24.04 is supported only as a clean Docker development host: it shall not
+receive a native ROS installation. ROS-dependent host builds and micro-ROS
+generation use pinned Ubuntu 22.04/Humble containers; ROS-free firmware,
+analysis, and portable-test jobs may use pinned Ubuntu 24.04 utility
+containers. Native macOS Agent deployment is unsupported.

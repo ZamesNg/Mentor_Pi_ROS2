@@ -36,6 +36,7 @@ trap 'rm -f "${MANIFEST}" "${UNSORTED_MANIFEST}"' EXIT
 [[ -f "${LIBRARY_ROOT}/available_ros2_types" ]] || \
   Fail "available_ros2_types is missing"
 [[ -f "${LIBRARY_ROOT}/built_packages" ]] || Fail "built_packages is missing"
+[[ -f "${LIBRARY_ROOT}/ros_distro" ]] || Fail "ros_distro is missing"
 readonly ARTIFACT_SYMLINK="$(find "${LIBRARY_ROOT}" -type l -print -quit)"
 [[ -z "${ARTIFACT_SYMLINK}" ]] || \
   Fail "generated artifact symlink is unsupported: ${ARTIFACT_SYMLINK}"
@@ -53,7 +54,7 @@ fi
 (
   cd "${LIBRARY_ROOT}"
   {
-    printf '%s\0' libmicroros.a available_ros2_types built_packages
+    printf '%s\0' libmicroros.a available_ros2_types built_packages ros_distro
     find include -type f ! -name '.DS_Store' -print0
   } | xargs -0 "${HASH_COMMAND[@]}"
 ) >"${UNSORTED_MANIFEST}"

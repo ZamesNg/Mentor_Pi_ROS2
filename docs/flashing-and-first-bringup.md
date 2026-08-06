@@ -41,10 +41,9 @@ unless the board documentation explicitly permits it.
 From the repository root:
 
 ```sh
-./tools/bootstrap_firmware_dependencies.sh
-./tools/build_microros_library.sh
-./tools/build_firmware.sh --print-motor-profile
-./tools/build_firmware.sh
+make doctor
+make setup
+make firmware
 ```
 
 This command deliberately builds the normal **motor-locked** image. It accepts
@@ -52,8 +51,8 @@ selected zero-speed commands as stop commands, but atomically rejects any motor
 command containing a selected nonzero target with result `UNSUPPORTED`. Encoder
 telemetry and the other retained peripherals remain available. Always flash
 and verify this image before considering a commissioning image.
-The profile probe must report `mode=LOCKED`; it describes the next wrapper
-selection and does not inspect an already-built ELF.
+The build fails unless the selected profile is `mode=LOCKED`; it describes the
+artifact being produced and does not inspect a previously built ELF.
 
 The firmware build produces these files under
 `firmware/mentor_pi_mcu/build/stm32/`:
@@ -78,28 +77,24 @@ The default package contains only the locked artifacts under a UTC-stamped
 `build/board-handoff/` directory. Its nested manifests cross-check every
 ELF/HEX/BIN/map digest against `BUILD-METADATA.txt` as well as hashing the
 packaged copies. A commissioning package is intentionally unavailable unless
-the two build-time acknowledgements shown below are supplied after the physical
-safety gate.
+commissioning is enabled with the exact build acknowledgement shown below
+after the physical safety gate.
 
-The handoff directory is an immutable evidence copy; PlatformIO deliberately
-uploads only the source-bound authoritative ELF under
-`firmware/mentor_pi_mcu/build/stm32/`. Before a board session that names a
-specific handoff, compare its ELF and `BUILD-METADATA.txt` byte-for-byte with
-the authoritative files as shown in the board-arrival checklist. A successful
-manifest check alone does not select that package as PlatformIO's input.
+The handoff directory is an immutable evidence copy. The flash wrapper uses the
+source-bound authoritative ELF under `firmware/mentor_pi_mcu/build/stm32/` and
+creates its own hash-named temporary snapshot after verification. Before a
+board session that names a specific handoff, compare its ELF and
+`BUILD-METADATA.txt` byte-for-byte with the authoritative files as shown in the
+board-arrival checklist. A successful handoff manifest check alone does not
+select that package as the flash input.
 
 ### Guarded motor-commissioning image
 
 Only after the normal image and passive encoder-direction checks below pass,
-build the non-release commissioning image with both exact acknowledgements:
+build the non-release commissioning image with its exact acknowledgement:
 
 ```sh
-RRCLITE_MOTOR_COMMISSIONING=1 \
-RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-  ./tools/build_firmware.sh --print-motor-profile
-RRCLITE_MOTOR_COMMISSIONING=1 \
-RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-  ./tools/build_firmware.sh
+make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
 ```
 
 The wrapper and CMake configuration fail closed if commissioning is requested
@@ -108,7 +103,7 @@ without the exact acknowledgement. This image caps accepted targets at
 ceilings, not tuning parameters and not evidence that the provisional PID gains
 or direction factors are release-qualified. There is no ROS service, parameter,
 or host configuration that unlocks the normal image.
-The profile command must report `mode=COMMISSIONING`, the 0.25/300 limits, and
+The build must report `mode=COMMISSIONING`, the 0.25/300 limits, and
 `release_qualified=0`; it fails if the acknowledgement is absent or misspelled.
 
 The build paths are reused, so record the ELF/HEX SHA-256 digest and label the
@@ -116,114 +111,76 @@ commissioning artifacts before another build overwrites them. Rebuild and
 reflash the normal locked image after commissioning unless a separately
 reviewed, HIL-qualified production image has been approved.
 
-## Recommended without a probe: PlatformIO over USB serial 1
+## Flash over USB serial 1
 
-PlatformIO preserves the source/profile/hash checks and invokes
-STM32CubeProgrammer only after creating an immutable verified ELF snapshot.
-The ROM bootloader uses `115200` baud, 8 data bits, even parity, one stop bit,
-and no flow control. This is deliberately different from the application
-runtime, which uses 1,000,000 baud, 8N1.
+The project-owned flash target verifies the source, profile, dependency and
+artifact hashes, creates an immutable ELF snapshot, and then invokes
+STM32CubeProgrammer. The ROM bootloader uses `115200` baud, 8 data bits, even
+parity, one stop bit, and no flow control. This is deliberately different from
+the application runtime, which uses 1,000,000 baud, 8N1.
 
 1. Disconnect all motors, PWM servos, and the bus-servo power/device connector.
    Close the micro-ROS Agent and every other process that may own the serial
    device.
 2. Connect the USB-C port labelled USB serial 1/download. Do not connect the
    5 V/5 A output port to the host as a data connection.
-3. Identify the exact CH9102F device. On macOS it is normally
-   `/dev/cu.wchusbserial-*`; on Ubuntu prefer the matching
-   `/dev/serial/by-id/*` entry during first flash.
+3. Identify the exact CH9102F device. On Ubuntu use its stable
+   `/dev/serial/by-id/*` entry during first flash; do not guess a changing
+   `/dev/ttyUSB*` number.
 4. Hold `BOOT`, press and release `RST`, then release `BOOT`. BOOT1 is already
    pulled low on RRCLite V1.0, so this reset enters the STM32 factory system-
    memory bootloader.
 5. Run the verified locked upload, replacing the example port:
 
    ```sh
-   RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
-     pio run -e rrclite_uart -t upload \
-       --upload-port /dev/cu.wchusbserial-REPLACE_ME
+   make flash \
+     PORT=/dev/serial/by-id/REPLACE_ME \
+     FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED
    ```
 
-   On Ubuntu, replace the port with the exact `/dev/serial/by-id/...` path.
-   If CubeProgrammer is installed outside the executable search path, set
-   `STM32_CUBE_PROGRAMMER_CLI` to its absolute executable path. In this
-   supported PlatformIO flow, source/profile verification happens before the
-   helper, and the helper independently rejects a missing/wrong
-   acknowledgement, an empty port, a non-hash-bound ELF snapshot, a snapshot
-   whose digest changed, or a failed CubeProgrammer read-back comparison. Do
-   not invoke `platformio_uart_upload.sh` directly.
+   Replace the port with the exact stable path. If CubeProgrammer is installed
+   outside the executable search path, set `STM32_CUBE_PROGRAMMER_CLI` to its
+   absolute executable path. The wrapper rejects a missing or wrong
+   acknowledgement, an empty or ambiguous port, the wrong motor profile,
+   stale build metadata, a changed dependency/source fingerprint, a changed
+   snapshot digest, or a failed CubeProgrammer read-back comparison.
 6. After CubeProgrammer reports programming and verification success, release
    `BOOT` and press `RST` normally. Close CubeProgrammer before starting the
    Agent at 1,000,000 baud.
 
-`rrclite_uart` accepts only the normal `LOCKED` artifact. After every passive
-and physical commissioning gate has passed, the non-release commissioning
-image uses both exact acknowledgements:
+The default flash target accepts only the normal `LOCKED` artifact. After every
+passive and physical commissioning gate has passed, build with its exact
+commissioning acknowledgement, then flash with the separate bootloader and
+physical-safety acknowledgements:
 
 ```sh
-RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
-RRCLITE_COMMISSIONING_UPLOAD_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-  pio run -e rrclite_uart_commissioning -t upload \
-    --upload-port /dev/cu.wchusbserial-REPLACE_ME
+make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
+make flash-commissioning \
+  PORT=/dev/serial/by-id/REPLACE_ME \
+  FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
+  COMMISSIONING_FLASH_ACK=MOTORS_RAISED_CURRENT_LIMITED
 ```
 
 This UART path programs and verifies firmware but provides no breakpoint,
 register, or raw snapshot access. Use SWD when a later step requires those
 capabilities.
 
-## PlatformIO with SWD for flashing and debugging
+## Optional SWD source debugging
 
-PlatformIO is the command-line flash/debug frontend. The CMake cross-build
-remains the authoritative compiler and linker path so there is only one
-firmware dependency graph.
+The CH9102F/USART1 bootloader is a flash transport only. Breakpoints, register
+inspection, raw snapshots, and source-level debugging require an ST-Link or
+J-Link connected to SWDIO, SWCLK, GND, target-voltage sense, and preferably
+NRST. The project has no second firmware build graph for a debugger: build with
+`make firmware`, flash the verified artifact through the supported UART target,
+then attach the probe client to
+`firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf` for symbols.
 
-For ST-Link:
-
-```sh
-pio run -e rrclite_stlink -t upload
-pio debug -e rrclite_stlink --interface gdb
-```
-
-For J-Link:
-
-```sh
-pio run -e rrclite_jlink -t upload
-pio debug -e rrclite_jlink --interface gdb
-```
-
-The upload path verifies the CMake profile/cache, current project inputs,
-pinned micro-ROS archive and generated headers, and ELF hash. It then uploads
-an immutable hash-named snapshot so a concurrent rebuild cannot replace the
-verified bytes. The default environments accept only a `LOCKED` artifact.
-
-PlatformIO debugging is deliberately configured with
-`debug_load_mode = manual`: it attaches and uses symbols but does **not** write
-firmware. Run the verified upload command first. Do not use PlatformIO's
-`nobuild` target; the project rejects it because upstream would otherwise skip
-the verification hook. Do not change `debug_load_mode`, use an IDE action that
-loads firmware directly, or invoke a raw GDB `load` command. Those are not
-supported flash paths.
-
-After all passive checks and physical commissioning gates are satisfied, a
-commissioning build must use its distinct environment and second, exact
-flash-time acknowledgement. For ST-Link:
-
-```sh
-RRCLITE_COMMISSIONING_UPLOAD_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-  pio run -e rrclite_stlink_commissioning -t upload
-RRCLITE_COMMISSIONING_UPLOAD_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-  pio debug -e rrclite_stlink_commissioning --interface gdb
-```
-
-For J-Link, replace both environment names with
-`rrclite_jlink_commissioning`. The debug command remains attach-only; the
-acknowledgement is included so a missing local debug artifact cannot trigger an
-unacknowledged preparation attempt. A normal `rrclite_stlink` or
-`rrclite_jlink` command refuses the commissioning ELF, and a commissioning
-environment refuses the locked ELF.
-
-Use "connect under reset" if an earlier image reconfigures SWD, immediately
-resets, or otherwise prevents a normal connection. Keep `NRST` connected for
-that recovery path.
+Debugger sessions are attach-only. Do not use an IDE firmware-download action
+or a GDB `load` command, because either would bypass the artifact and motor-
+profile verification performed by the flash wrapper. Use connect-under-reset
+if an earlier image prevents a normal connection, and keep `NRST` connected for
+that recovery path. There is no supported source-debugging workflow without an
+SWD probe.
 
 ### SWD halt and the independent watchdog
 
@@ -370,10 +327,11 @@ change and a new locked handoff.
 ## STM32CubeProgrammer GUI over USB serial 1
 
 STM32CubeProgrammer is both a graphical application and a command-line tool.
-This raw programmer path does not execute PlatformIO's flash-time safety hook,
-so it is supported here only for the normal locked image. Immediately before
-opening the GUI, verify the source-bound build and both manifests of the exact
-locked handoff selected for the board session:
+The normal supported path is `make flash`, which calls the CLI only after all
+project safety and provenance checks. A manual GUI operation bypasses that
+wrapper, so it is a recovery path for the normal locked image only. Immediately
+before opening the GUI, verify the source-bound build and both manifests of the
+exact locked handoff selected for the board session:
 
 ```sh
 ./tools/verify_firmware_artifact.sh LOCKED
@@ -390,23 +348,23 @@ reviewed handoff's `locked/mentor_pi_mcu-locked.hex`, enable programming
 verification, and start programming. On success, release `BOOT`, press `RST`
 normally, and close CubeProgrammer before starting the Agent.
 
-The equivalent raw CLI shape is shown below, but the PlatformIO UART environment
-above is preferred because it preserves the immutable-snapshot gate:
+The wrapper ultimately invokes this CubeProgrammer CLI shape against its
+verified, read-only temporary snapshot (the random directory is removed when
+the wrapper exits):
 
 ```sh
-STM32_Programmer_CLI -c port=/dev/cu.wchusbserial-REPLACE_ME br=115200 \
-  -w build/board-handoff/REPLACE_WITH_REVIEWED_DIRECTORY/locked/mentor_pi_mcu-locked.hex \
+STM32_Programmer_CLI \
+  -c port=/dev/serial/by-id/REPLACE_ME br=115200 P=EVEN db=8 sb=1 fc=OFF \
+  -w /tmp/rrclite-flash.RANDOM/mentor_pi_mcu-REPLACE_WITH_SHA256.elf \
   -v
 ```
 
 The exact executable path depends on the CubeProgrammer installation. On
-macOS, the CLI is normally inside the application bundle; on Ubuntu it is in
-the CubeProgrammer installation directory.
+Ubuntu it is normally in the CubeProgrammer installation directory.
 
-Do not use the raw CubeProgrammer path for a commissioning image. Use the
-distinct `rrclite_uart_commissioning`, ST-Link commissioning, or J-Link
-commissioning PlatformIO environment so the exact second flash-time
-acknowledgement is enforced.
+Do not use the raw CLI or GUI for a commissioning image. Use
+`make flash-commissioning` so the distinct motor profile and exact second
+flash-time acknowledgement are enforced.
 
 For CubeProgrammer over SWD instead, select `ST-LINK`, connect to
 `STM32F407VE`, erase the required sectors, program the authoritative
@@ -421,9 +379,9 @@ STM32_Programmer_CLI -c port=SWD mode=UR reset=HWrst \
 ## J-Link Commander alternative
 
 As with CubeProgrammer, first run
-`./tools/verify_firmware_artifact.sh LOCKED`. The raw Commander path is
-supported only for the locked image; commissioning uses the gated PlatformIO
-environment.
+`./tools/verify_firmware_artifact.sh LOCKED`. The raw Commander path is a
+recovery option for the locked image only; commissioning must use the gated
+UART flash target.
 
 Use device `STM32F407VE`, interface SWD, and a conservative initial speed such
 as 4 MHz. A typical interactive sequence is:
@@ -467,7 +425,7 @@ Do not skip from flashing directly to powered motor motion. Use this order:
    [bring-up package guide](../src/mentor_pi_bringup/README.md) to verify exactly
    one serial/`ID_PATH` identity and render the dedicated-group udev rule; do
    not copy the unrendered template. Use `/dev/mentor_pi_mcu` afterward.
-4. Start the native Jazzy micro-ROS Agent at 1,000,000 baud, then the C++
+4. Start the native Humble micro-ROS Agent at 1,000,000 baud, then the C++
    configuration supervisor. Inspect heartbeat and diagnostics, and test one
    LED, one button, and battery telemetry. The initial image deliberately
    reports the IMU as unverified/invalid; run the explicit

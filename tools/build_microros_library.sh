@@ -6,17 +6,56 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly FIRMWARE_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu"
 readonly INTERFACE_ROOT="${PROJECT_ROOT}/src/mentor_pi_interfaces"
+readonly ROS_PACKAGE_SCHEMA_ROOT="${PROJECT_ROOT}/src/ros_package_schema"
 readonly SOURCE_UTILS="${FIRMWARE_ROOT}/third_party/micro_ros_stm32cubemx_utils"
+readonly SOURCE_UTILS_REPOSITORY="https://github.com/micro-ROS/micro_ros_stm32cubemx_utils.git"
+readonly SOURCE_UTILS_COMMIT="bd531b273c1bcd070b3143c5642128ec75a6f04e"
 readonly BUILD_ROOT="${FIRMWARE_ROOT}/build/microros"
 readonly BUILD_UTILS="${BUILD_ROOT}/micro_ros_stm32cubemx_utils"
-readonly IMAGE="mentor-pi/micro-ros-static-library-builder:jazzy-arm64"
+readonly IMAGE="mentor-pi/micro-ros-static-library-builder:humble-gcc-13.2.1"
+readonly CAPTURE_IMAGE="microros/micro_ros_static_library_builder:humble@sha256:e291f74890e81b31eb1d70731cb79b2d767dd585269325031effc72952b24b9d"
 readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/microros-builder.Dockerfile"
 readonly SOURCE_LOCK="${FIRMWARE_ROOT}/config/microros_sources.lock"
 readonly ARTIFACT_HASH="${FIRMWARE_ROOT}/config/microros_artifact.sha256"
 readonly ARTIFACT_TREE_HASH="${FIRMWARE_ROOT}/config/microros_artifact_tree.sha256"
 readonly FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
 readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
-readonly GEOMETRY2_COMMIT="62335b1e1506785a283ba121f451bb962e9b6db3"
+readonly DEPENDENCY_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
+readonly GEOMETRY2_COMMIT="65c620c308920f558c7b5d3fb852941bd6d8fced"
+readonly LIBYAML_REPOSITORY="https://github.com/yaml/libyaml"
+readonly LIBYAML_COMMIT="2c891fc7a770e8ba2fec34fc6b545c672beb37e6"
+readonly SOURCE_LOCK_CANDIDATE="${FIRMWARE_ROOT}/build/microros_sources.humble.candidate.lock"
+readonly ARTIFACT_HASH_CANDIDATE="${FIRMWARE_ROOT}/build/microros_artifact.humble.candidate.sha256"
+readonly ARTIFACT_TREE_HASH_CANDIDATE="${FIRMWARE_ROOT}/build/microros_artifact_tree.humble.candidate.sha256"
+
+# Docker does not inherit shell proxy variables into builds or containers.
+# Forward only the standard proxy variables when the caller explicitly sets
+# them; a normal direct-network build adds no proxy arguments.
+declare -a docker_build_command=(docker build)
+declare -a docker_run_command=(docker run --rm)
+for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
+    http_proxy https_proxy no_proxy; do
+  if [[ -n "${!proxy_variable:-}" ]]; then
+    docker_build_command+=(
+      --build-arg "${proxy_variable}=${!proxy_variable}"
+    )
+    docker_run_command+=(
+      --env "${proxy_variable}=${!proxy_variable}"
+    )
+  fi
+done
+readonly -a docker_build_command docker_run_command
+
+capture_source_lock=0
+capture_artifact_hashes=0
+if [[ "$#" -eq 1 && "$1" == "--capture-source-lock" ]]; then
+  capture_source_lock=1
+elif [[ "$#" -eq 1 && "$1" == "--capture-artifact-hashes" ]]; then
+  capture_artifact_hashes=1
+elif [[ "$#" -ne 0 ]]; then
+  echo "Usage: $0 [--capture-source-lock|--capture-artifact-hashes]" >&2
+  exit 2
+fi
 
 Sha256() {
   if command -v sha256sum >/dev/null; then
@@ -29,6 +68,15 @@ Sha256() {
   fi
 }
 
+RemoveBuildRoot() {
+  [[ "${BUILD_ROOT}" == "${FIRMWARE_ROOT}/build/microros" &&
+     "${BUILD_ROOT}" != "/" ]] || {
+    echo "Refusing to remove unexpected micro-ROS build root: ${BUILD_ROOT}" >&2
+    return 1
+  }
+  rm -rf -- "${BUILD_ROOT}"
+}
+
 if [[ ! -d "${SOURCE_UTILS}" ]]; then
   echo "Run tools/bootstrap_firmware_dependencies.sh first." >&2
   exit 1
@@ -37,64 +85,110 @@ if [[ ! -f "${INTERFACE_ROOT}/package.xml" ]]; then
   echo "mentor_pi_interfaces is missing: ${INTERFACE_ROOT}" >&2
   exit 1
 fi
-if [[ ! -f "${SOURCE_LOCK}" || ! -f "${ARTIFACT_HASH}" || \
-    ! -f "${ARTIFACT_TREE_HASH}" ]]; then
+if [[ ! -d "${ROS_PACKAGE_SCHEMA_ROOT}" ]]; then
+  echo "Offline ROS package schema is missing: ${ROS_PACKAGE_SCHEMA_ROOT}" >&2
+  exit 1
+fi
+if [[ ! -f "${SOURCE_LOCK}" || \
+    ("${capture_source_lock}" == "0" && \
+     "${capture_artifact_hashes}" == "0" && \
+     (! -f "${ARTIFACT_HASH}" || ! -f "${ARTIFACT_TREE_HASH}")) ]]; then
   echo "micro-ROS source/artifact lock is missing under config/." >&2
   exit 1
 fi
 if [[ ! -x "${FINGERPRINT_TOOL}" || \
-    ! -x "${MICROROS_FINGERPRINT_TOOL}" ]]; then
+    ! -x "${MICROROS_FINGERPRINT_TOOL}" || \
+    ! -x "${DEPENDENCY_BOOTSTRAP}" ]]; then
   echo "Firmware artifact fingerprint tooling is missing or not executable." >&2
   exit 1
 fi
+"${DEPENDENCY_BOOTSTRAP}" --verify-existing \
+  "${SOURCE_UTILS_REPOSITORY}" "${SOURCE_UTILS_COMMIT}" "${SOURCE_UTILS}"
 readonly INTERFACE_FINGERPRINT_BEFORE="$(
   "${FINGERPRINT_TOOL}" interfaces "${PROJECT_ROOT}"
 )"
 
-cmake -E remove_directory "${BUILD_ROOT}"
-cmake -E make_directory "${BUILD_ROOT}"
-cmake -E copy_directory "${SOURCE_UTILS}" "${BUILD_UTILS}"
+RemoveBuildRoot
+mkdir -p "${BUILD_UTILS}"
+cp -a "${SOURCE_UTILS}/." "${BUILD_UTILS}/"
+# The dependency checkout is provenance-verified immediately above. Its Git
+# object database is not an input to static-library generation, and copying it
+# into a bind-mounted build tree prevents Docker Desktop from restoring file
+# ownership. Keep only the reviewed checkout contents in the build tree.
+rm -rf -- "${BUILD_UTILS}/.git"
+if [[ -n "$(find "${BUILD_ROOT}" -type d -name .git -print -quit)" ]]; then
+  echo "Unexpected nested Git metadata in the micro-ROS build inputs." >&2
+  exit 1
+fi
 
 # The upstream generator resolves custom packages from BASE_PATH/../../, where
 # BASE_PATH is BUILD_UTILS/microros_static_library_ide.  Therefore the
 # microros_component directory must be a sibling of BUILD_UTILS, not a child.
 readonly EXTRA_PACKAGES="${BUILD_ROOT}/microros_component/extra_packages"
-cmake -E make_directory "${EXTRA_PACKAGES}"
-cmake -E copy_directory "${INTERFACE_ROOT}" \
-  "${EXTRA_PACKAGES}/mentor_pi_interfaces"
-cmake -E copy \
+mkdir -p "${EXTRA_PACKAGES}/mentor_pi_interfaces"
+cp -a "${INTERFACE_ROOT}/." \
+  "${EXTRA_PACKAGES}/mentor_pi_interfaces/"
+mkdir -p "${EXTRA_PACKAGES}/ros_package_schema"
+cp -a "${ROS_PACKAGE_SCHEMA_ROOT}/." \
+  "${EXTRA_PACKAGES}/ros_package_schema/"
+cp \
   "${FIRMWARE_ROOT}/config/microros_colcon.meta" \
   "${BUILD_UTILS}/microros_static_library_ide/library_generation/colcon.meta"
-cmake -E copy \
+cp \
   "${FIRMWARE_ROOT}/config/microros_toolchain.cmake" \
   "${BUILD_UTILS}/microros_static_library_ide/library_generation/toolchain.cmake"
-cmake -E copy \
+cp \
   "${FIRMWARE_ROOT}/config/microros_library_generation.sh" \
   "${BUILD_UTILS}/microros_static_library_ide/library_generation/library_generation.sh"
 
-if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
-  docker build --file "${DOCKERFILE}" --tag "${IMAGE}" \
+selected_image="${IMAGE}"
+if [[ "${capture_source_lock}" == "1" ]]; then
+  selected_image="${CAPTURE_IMAGE}"
+  if ! docker image inspect "${selected_image}" >/dev/null 2>&1; then
+    docker pull "${selected_image}"
+  fi
+else
+  "${docker_build_command[@]}" \
+    --file "${DOCKERFILE}" --tag "${selected_image}" \
     "${PROJECT_ROOT}/tools/docker"
 fi
+readonly selected_image
 
-# Jazzy's generic C dispatcher otherwise retains every installed backend,
-# including desktop introspection tables. Select the sole MCU backend at
-# generation time. The project-owned toolchain also enables
-# rosidl_generator_c's supported description-codegen reduction globally: it
-# preserves type hashes and emits explicit empty description callbacks without
-# allocating the source/field tables that the MCU never serves.
-docker run --rm \
+# Select the sole MCU type-support backend at generation time so desktop
+# backends are not retained in the embedded archive.
+if [[ "${capture_source_lock}" == "1" ]]; then
+  rm -f -- "${SOURCE_LOCK_CANDIDATE}"
+fi
+if [[ "${capture_artifact_hashes}" == "1" ]]; then
+  rm -f -- "${ARTIFACT_HASH_CANDIDATE}" \
+    "${ARTIFACT_TREE_HASH_CANDIDATE}"
+fi
+"${docker_run_command[@]}" \
   --volume "${FIRMWARE_ROOT}:/project" \
   --volume "${PROJECT_ROOT}/tools:/rrclite_tools:ro" \
   --env MICROROS_LIBRARY_FOLDER=build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide \
   --env STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_microxrcedds_c \
   --env MICROROS_GEOMETRY2_COMMIT="${GEOMETRY2_COMMIT}" \
+  --env MICROROS_LIBYAML_REPOSITORY="${LIBYAML_REPOSITORY}" \
+  --env MICROROS_LIBYAML_COMMIT="${LIBYAML_COMMIT}" \
+  --env MICROROS_CAPTURE_SOURCE_LOCK="${capture_source_lock}" \
+  --env MICROROS_SOURCE_LOCK_CANDIDATE=build/microros_sources.humble.candidate.lock \
+  --env MICROROS_CALLER_UID="$(id -u)" \
+  --env MICROROS_CALLER_GID="$(id -g)" \
   --env PYTHONHASHSEED=0 \
-  "${IMAGE}"
+  "${selected_image}"
+
+if [[ "${capture_source_lock}" == "1" ]]; then
+  test -s "${SOURCE_LOCK_CANDIDATE}"
+  echo "Captured candidate Humble micro-ROS source lock: ${SOURCE_LOCK_CANDIDATE}"
+  echo "Review and apply it to ${SOURCE_LOCK}, then run this command without arguments."
+  exit 0
+fi
 
 readonly LIBRARY_DIR="${BUILD_UTILS}/microros_static_library_ide/libmicroros"
 test -f "${LIBRARY_DIR}/libmicroros.a"
 test -d "${LIBRARY_DIR}/include"
+grep -Fqx 'humble' "${LIBRARY_DIR}/ros_distro"
 test -f \
   "${LIBRARY_DIR}/include/mentor_pi_interfaces/msg/motor_command.h"
 test -f \
@@ -108,31 +202,24 @@ readonly NORMALIZED_ACTUAL="$(mktemp)"
 trap 'rm -f "${NORMALIZED_EXPECTED}" "${NORMALIZED_ACTUAL}"' EXIT
 sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "${SOURCE_LOCK}" | sort \
   >"${NORMALIZED_EXPECTED}"
-sed '/^[[:space:]]*$/d; s#\.git # #; s#/$##' \
-  "${LIBRARY_DIR}/built_packages" | sort >"${NORMALIZED_ACTUAL}"
+while read -r repository_url repository_commit extra; do
+  [[ -n "${repository_url}" && -n "${repository_commit}" && \
+      -z "${extra:-}" ]] || {
+    echo "Invalid generated built_packages row." >&2
+    exit 1
+  }
+  repository_url="${repository_url%/}"
+  repository_url="${repository_url%.git}"
+  printf '%s %s\n' "${repository_url}" "${repository_commit}"
+done <"${LIBRARY_DIR}/built_packages" | sort >"${NORMALIZED_ACTUAL}"
 if ! diff -u "${NORMALIZED_EXPECTED}" "${NORMALIZED_ACTUAL}"; then
   echo "Generated micro-ROS package revisions differ from the lock." >&2
   exit 1
 fi
-readonly EXPECTED_ARCHIVE_HASH="$(tr -d '[:space:]' <"${ARTIFACT_HASH}")"
 readonly ACTUAL_ARCHIVE_HASH="$(Sha256 "${LIBRARY_DIR}/libmicroros.a")"
-if [[ "${ACTUAL_ARCHIVE_HASH}" != "${EXPECTED_ARCHIVE_HASH}" ]]; then
-  echo "Generated libmicroros.a hash differs from the reviewed artifact." >&2
-  echo "Expected: ${EXPECTED_ARCHIVE_HASH}" >&2
-  echo "Actual:   ${ACTUAL_ARCHIVE_HASH}" >&2
-  exit 1
-fi
-readonly EXPECTED_TREE_HASH="$(tr -d '[:space:]' \
-  <"${ARTIFACT_TREE_HASH}")"
 readonly ACTUAL_TREE_HASH="$(
   "${MICROROS_FINGERPRINT_TOOL}" "${PROJECT_ROOT}"
 )"
-if [[ "${ACTUAL_TREE_HASH}" != "${EXPECTED_TREE_HASH}" ]]; then
-  echo "Generated micro-ROS archive/header tree differs from the reviewed artifact." >&2
-  echo "Expected: ${EXPECTED_TREE_HASH}" >&2
-  echo "Actual:   ${ACTUAL_TREE_HASH}" >&2
-  exit 1
-fi
 readonly INTERFACE_FINGERPRINT_AFTER="$(
   "${FINGERPRINT_TOOL}" interfaces "${PROJECT_ROOT}"
 )"
@@ -143,4 +230,30 @@ if [[ "${INTERFACE_FINGERPRINT_BEFORE}" != \
 fi
 printf '%s\n' "${INTERFACE_FINGERPRINT_AFTER}" \
   >"${LIBRARY_DIR}/mentor_pi_interfaces.source.sha256"
-echo "Generated Jazzy micro-ROS library: ${LIBRARY_DIR}"
+
+if [[ "${capture_artifact_hashes}" == "1" ]]; then
+  printf '%s\n' "${ACTUAL_ARCHIVE_HASH}" >"${ARTIFACT_HASH_CANDIDATE}"
+  printf '%s\n' "${ACTUAL_TREE_HASH}" >"${ARTIFACT_TREE_HASH_CANDIDATE}"
+  echo "Captured candidate Humble micro-ROS artifact hashes:"
+  echo "  archive=${ACTUAL_ARCHIVE_HASH}"
+  echo "  tree=${ACTUAL_TREE_HASH}"
+  echo "Review and apply the candidate files under ${FIRMWARE_ROOT}/build."
+  exit 0
+fi
+
+readonly EXPECTED_ARCHIVE_HASH="$(tr -d '[:space:]' <"${ARTIFACT_HASH}")"
+if [[ "${ACTUAL_ARCHIVE_HASH}" != "${EXPECTED_ARCHIVE_HASH}" ]]; then
+  echo "Generated libmicroros.a hash differs from the reviewed artifact." >&2
+  echo "Expected: ${EXPECTED_ARCHIVE_HASH}" >&2
+  echo "Actual:   ${ACTUAL_ARCHIVE_HASH}" >&2
+  exit 1
+fi
+readonly EXPECTED_TREE_HASH="$(tr -d '[:space:]' \
+  <"${ARTIFACT_TREE_HASH}")"
+if [[ "${ACTUAL_TREE_HASH}" != "${EXPECTED_TREE_HASH}" ]]; then
+  echo "Generated micro-ROS archive/header tree differs from the reviewed artifact." >&2
+  echo "Expected: ${EXPECTED_TREE_HASH}" >&2
+  echo "Actual:   ${ACTUAL_TREE_HASH}" >&2
+  exit 1
+fi
+echo "Generated Humble micro-ROS library: ${LIBRARY_DIR}"

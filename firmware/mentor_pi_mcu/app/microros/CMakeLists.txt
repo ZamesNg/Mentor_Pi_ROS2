@@ -4,7 +4,7 @@ project(mentor_pi_microros_runtime LANGUAGES CXX)
 set(MENTOR_PI_MCU_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(MENTOR_PI_MICROROS_INCLUDE_DIR
     "${MENTOR_PI_MCU_ROOT}/build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros/include"
-    CACHE PATH "Path to generated Jazzy libmicroros headers")
+    CACHE PATH "Path to generated Humble libmicroros headers")
 
 set(MENTOR_PI_WARNING_OPTIONS
   -Wall
@@ -45,7 +45,7 @@ if(BUILD_TESTING)
 endif()
 
 # This object target checks every runtime translation unit against the actual
-# generated C types and Jazzy rcl/rclc/rmw declarations. The final firmware
+# generated C types and Humble rcl/rclc/rmw declarations. The final firmware
 # target supplies libmicroros.a, HAL/FreeRTOS objects, and the linker script.
 if(EXISTS "${MENTOR_PI_MICROROS_INCLUDE_DIR}/rcl/rcl.h" AND
    EXISTS "${MENTOR_PI_MICROROS_INCLUDE_DIR}/mentor_pi_interfaces/msg/motor_command.h")

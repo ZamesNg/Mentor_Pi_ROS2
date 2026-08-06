@@ -48,7 +48,26 @@ Fail() {
 }
 
 RemoveBuildRoot() {
-  cmake -E remove_directory "${BUILD_ROOT}"
+  [[ "${BUILD_ROOT}" == \
+      "${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32" && \
+      "${BUILD_ROOT}" != "/" ]] || {
+    echo "Refusing unsafe authoritative-build cleanup: ${BUILD_ROOT}" >&2
+    return 1
+  }
+  rm -rf -- "${BUILD_ROOT}"
+}
+
+RemoveStagingRoot() {
+  [[ -n "${STAGING_ROOT}" ]] || return 0
+  case "${STAGING_ROOT}" in
+    "${OUTPUT_PARENT}"/.rrclite-board-handoff.*)
+      rm -rf -- "${STAGING_ROOT}"
+      ;;
+    *)
+      echo "Refusing unsafe handoff-staging cleanup: ${STAGING_ROOT}" >&2
+      return 1
+      ;;
+  esac
 }
 
 ReadMetadataValue() {
@@ -97,12 +116,16 @@ VerifyBuildMode() {
     return 1
   }
   [[ "$(ReadMetadataValue "${metadata}" schema)" == \
-      "rrclite-firmware-build-v1" ]] || {
+      "rrclite-firmware-build-v2" ]] || {
     echo "Unsupported build metadata schema." >&2
     return 1
   }
   [[ "$(ReadMetadataValue "${metadata}" target)" == "STM32F407VET6" ]] || {
     echo "Build metadata targets a different MCU." >&2
+    return 1
+  }
+  [[ "$(ReadMetadataValue "${metadata}" ros_distro)" == "humble" ]] || {
+    echo "Build metadata targets a different ROS distribution." >&2
     return 1
   }
   [[ "$(ReadMetadataValue "${metadata}" commissioning_ack)" == \
@@ -248,16 +271,16 @@ PackageModeArtifacts() {
   esac
 
   local destination="${STAGING_ROOT}/${directory_name}"
-  cmake -E make_directory "${destination}"
+  mkdir -p -- "${destination}"
 
   local extension
   for extension in "${ARTIFACT_EXTENSIONS[@]}"; do
     local source="${BUILD_ROOT}/mentor_pi_mcu.${extension}"
     local packaged_name="mentor_pi_mcu-${file_suffix}.${extension}"
-    cmake -E copy "${source}" "${destination}/${packaged_name}"
+    cp -- "${source}" "${destination}/${packaged_name}"
     cmp "${source}" "${destination}/${packaged_name}"
   done
-  cmake -E copy "${BUILD_ROOT}/rrclite-build-metadata.txt" \
+  cp -- "${BUILD_ROOT}/rrclite-build-metadata.txt" \
     "${destination}/BUILD-METADATA.txt"
   for extension in "${ARTIFACT_EXTENSIONS[@]}"; do
     local packaged_name="mentor_pi_mcu-${file_suffix}.${extension}"
@@ -374,7 +397,7 @@ OnExit() {
   fi
 
   if [[ -n "${STAGING_ROOT}" && -d "${STAGING_ROOT}" ]]; then
-    cmake -E remove_directory "${STAGING_ROOT}" || status=1
+    RemoveStagingRoot || status=1
   fi
   exit "${status}"
 }
@@ -406,8 +429,10 @@ case "${REQUESTED_COMMISSIONING}" in
 esac
 readonly INCLUDE_COMMISSIONING
 
-command -v cmake >/dev/null 2>&1 || Fail "cmake is not installed"
 command -v cmp >/dev/null 2>&1 || Fail "cmp is not installed"
+command -v cp >/dev/null 2>&1 || Fail "cp is not installed"
+command -v mkdir >/dev/null 2>&1 || Fail "mkdir is not installed"
+command -v rm >/dev/null 2>&1 || Fail "rm is not installed"
 [[ -x "${BUILD_SCRIPT}" ]] || Fail "${BUILD_SCRIPT} is not executable"
 if ! command -v sha256sum >/dev/null 2>&1 && \
     ! command -v shasum >/dev/null 2>&1; then
@@ -438,7 +463,7 @@ OUTPUT_PARENT="$(dirname "${OUTPUT_CANDIDATE}")"
 OUTPUT_NAME="$(basename "${OUTPUT_CANDIDATE}")"
 [[ "${OUTPUT_NAME}" != "." && "${OUTPUT_NAME}" != ".." ]] || \
   Fail "output directory must name a new child directory"
-cmake -E make_directory "${OUTPUT_PARENT}"
+mkdir -p -- "${OUTPUT_PARENT}"
 OUTPUT_PARENT="$(cd "${OUTPUT_PARENT}" && pwd -P)"
 readonly OUTPUT_PARENT
 OUTPUT_ROOT="${OUTPUT_PARENT}/${OUTPUT_NAME}"
@@ -458,7 +483,7 @@ trap OnExit EXIT
 
 # Establish and verify the safe default before any optional commissioning
 # build. The final locked build is packaged after commissioning so locked/
-# always matches the authoritative build directory left for PlatformIO/SWD.
+# always matches the authoritative build directory left for flashing or SWD.
 BuildMode LOCKED || Fail "could not establish the initial locked build"
 
 if [[ "${INCLUDE_COMMISSIONING}" == "1" ]]; then

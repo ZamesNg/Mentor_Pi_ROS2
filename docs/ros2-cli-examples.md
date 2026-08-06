@@ -1,7 +1,7 @@
 # ROS 2 CLI Examples
 
 These examples use the final `mentor_pi_interfaces` schemas and absolute v2
-names. They are intended for ROS 2 Jazzy on Ubuntu 24.04 after the interface and
+names. They are intended for ROS 2 Humble on Ubuntu 22.04 after the interface and
 bringup packages have been built.
 
 ## Prepare the shell
@@ -9,7 +9,7 @@ bringup packages have been built.
 Source ROS and the workspace that contains the built packages:
 
 ```sh
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/humble/setup.bash
 source install/setup.bash
 ```
 

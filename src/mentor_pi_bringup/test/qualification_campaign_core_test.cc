@@ -690,7 +690,7 @@ void TestEvidenceFilesAreRevisionBoundAndExplicit() {
   metadata.firmware_sha256 =
       "963f2834a08b9e86dbe736e58cfee83a2378983cdcaf2f1bc1a3ea0257136e8f";
   metadata.host_revision = "host-r3";
-  metadata.ros_distribution = "jazzy";
+  metadata.ros_distribution = "humble";
   metadata.board_serial = "RRCLITE-UNIT-BOARD";
   metadata.fixture_revision = "fixture-unit-r1";
   metadata.campaign_mode = "load500";

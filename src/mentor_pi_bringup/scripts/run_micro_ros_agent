@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly ROS_SETUP="/opt/ros/jazzy/setup.bash"
+readonly ROS_SETUP="/opt/ros/humble/setup.bash"
 readonly AGENT_ROOT="/opt/mentor_pi/micro_ros_agent"
 readonly AGENT_EXECUTABLE="${AGENT_ROOT}/lib/micro_ros_agent/micro_ros_agent"
 readonly SERIAL_LOCK="/run/mentor-pi/serial.lock"

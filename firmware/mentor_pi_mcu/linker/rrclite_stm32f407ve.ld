@@ -5,8 +5,19 @@ ENTRY(Reset_Handler)
 MEMORY
 {
   FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 512K
-  RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 128K
-  CCM   (xrw) : ORIGIN = 0x10000000, LENGTH = 64K
+  RAM   (rw)  : ORIGIN = 0x20000000, LENGTH = 128K
+  CCM   (rw)  : ORIGIN = 0x10000000, LENGTH = 64K
+}
+
+/* Keep executable flash and writable memory in distinct ELF load segments.
+   GNU ld 13 treats an implicit RWX segment as a warning; the release link
+   promotes every linker warning to an error. */
+PHDRS
+{
+  flash PT_LOAD FLAGS(5); /* PF_R | PF_X */
+  data  PT_LOAD FLAGS(6); /* PF_R | PF_W, initialized from flash */
+  ram   PT_LOAD FLAGS(6); /* PF_R | PF_W, NOLOAD */
+  ccm   PT_LOAD FLAGS(6); /* PF_R | PF_W */
 }
 
 _estack = ORIGIN(RAM) + LENGTH(RAM);
@@ -20,7 +31,7 @@ SECTIONS
     . = ALIGN(4);
     KEEP(*(.isr_vector))
     . = ALIGN(4);
-  } > FLASH
+  } > FLASH :flash
 
   .text :
   {
@@ -34,7 +45,7 @@ SECTIONS
     KEEP(*(.fini))
     . = ALIGN(4);
     _etext = .;
-  } > FLASH
+  } > FLASH :flash
 
   .rodata :
   {
@@ -42,26 +53,26 @@ SECTIONS
     *(.rodata)
     *(.rodata*)
     . = ALIGN(4);
-  } > FLASH
+  } > FLASH :flash
 
   .ARM.extab :
   {
     *(.ARM.extab* .gnu.linkonce.armextab.*)
-  } > FLASH
+  } > FLASH :flash
 
   .ARM.exidx :
   {
     __exidx_start = .;
     *(.ARM.exidx*)
     __exidx_end = .;
-  } > FLASH
+  } > FLASH :flash
 
   .preinit_array :
   {
     PROVIDE_HIDDEN(__preinit_array_start = .);
     KEEP(*(.preinit_array*))
     PROVIDE_HIDDEN(__preinit_array_end = .);
-  } > FLASH
+  } > FLASH :flash
 
   .init_array :
   {
@@ -69,7 +80,7 @@ SECTIONS
     KEEP(*(SORT(.init_array.*)))
     KEEP(*(.init_array*))
     PROVIDE_HIDDEN(__init_array_end = .);
-  } > FLASH
+  } > FLASH :flash
 
   .fini_array :
   {
@@ -77,7 +88,7 @@ SECTIONS
     KEEP(*(SORT(.fini_array.*)))
     KEEP(*(.fini_array*))
     PROVIDE_HIDDEN(__fini_array_end = .);
-  } > FLASH
+  } > FLASH :flash
 
   _sidata = LOADADDR(.data);
   .data :
@@ -88,7 +99,7 @@ SECTIONS
     *(.data*)
     . = ALIGN(4);
     _edata = .;
-  } > RAM AT > FLASH
+  } > RAM AT > FLASH :data
 
   /* DMA2 cannot access CCM. All first-party DMA objects carry the explicit
      .dma_buffer attribute and are retained in the DMA-accessible SRAM bank. */
@@ -100,7 +111,7 @@ SECTIONS
     KEEP(*(.dma_buffer.*))
     . = ALIGN(32);
     __dma_buffer_end__ = .;
-  } > RAM
+  } > RAM AT > RAM :ram
 
   .bss (NOLOAD) :
   {
@@ -113,7 +124,7 @@ SECTIONS
     . = ALIGN(8);
     _ebss = .;
     __bss_end__ = _ebss;
-  } > RAM
+  } > RAM AT > RAM :ram
 
   .noinit (NOLOAD) :
   {
@@ -124,7 +135,7 @@ SECTIONS
     *(.noinit*)
     . = ALIGN(8);
     __noinit_end__ = .;
-  } > RAM
+  } > RAM AT > RAM :ram
 
   ._user_heap_stack (NOLOAD) :
   {
@@ -135,7 +146,7 @@ SECTIONS
     . += _Min_Stack_Size;
     . = ALIGN(8);
     __ram_used_end__ = .;
-  } > RAM
+  } > RAM AT > RAM :ram
 
   /* CPU-only objects, including the 48 KiB resettable micro-ROS arena. */
   .ccmram (NOLOAD) :
@@ -146,11 +157,11 @@ SECTIONS
     KEEP(*(.ccmram.*))
     . = ALIGN(8);
     __ccm_end__ = .;
-  } > CCM
+  } > CCM AT > CCM :ccm
 
   /DISCARD/ : { *(.note.GNU-stack) }
 
-  .ARM.attributes 0 : { *(.ARM.attributes) }
+  .ARM.attributes 0 : { *(.ARM.attributes) } :NONE
 
   __flash_image_end__ = LOADADDR(.data) + SIZEOF(.data);
 

@@ -1,5 +1,8 @@
-format=mentor-pi-micro-ros-agent-source-lock-v1
+format=mentor-pi-micro-ros-agent-source-lock-v2
+ros_distro=humble
 agent_repository=https://github.com/micro-ROS/micro-ROS-Agent.git
-agent_commit=52abdf5a9897637b2539cb1c239e1ec4fa92e01c
+agent_commit=4f363a79ae96aed39dcc5269f53f73f6a70d3a2c
 messages_repository=https://github.com/micro-ROS/micro_ros_msgs.git
-messages_commit=e65ab21bd0733ebff2af6317d573cc584efa5893
+messages_commit=100bf269e78da3fe0a58f6531ebe47d6991bd9ab
+xrce_agent_repository=https://github.com/eProsima/Micro-XRCE-DDS-Agent.git
+xrce_agent_commit=57d086216d01ec43121845d385894a25987f8a2c

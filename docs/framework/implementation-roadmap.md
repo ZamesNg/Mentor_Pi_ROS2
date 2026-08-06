@@ -59,7 +59,7 @@ No firmware or host runtime implementation may be merged before D0.
 
 Build the smallest useful firmware on the target board and production compiler:
 
-- FreeRTOS plus the Jazzy micro-ROS static library;
+- FreeRTOS plus the Humble micro-ROS static library;
 - custom USART1 transport with 8 KiB circular RX DMA;
 - the final `mentor_pi_interfaces` type support;
 - one representative best-effort motor subscription;
@@ -69,14 +69,14 @@ Build the smallest useful firmware on the target board and production compiler:
 - allocation accounting, link-map reporting, and stack watermark reporting.
 
 The feasibility report shall record the generated maximum size of every CDR and
-XRCE sample. The pinned Jazzy generated type support is normative: it shall
+XRCE sample. The pinned Humble generated type support is normative: it shall
 report a 388-byte maximum message-field payload for diagnostics, while the
 pinned RMW/CDR serialization path shall produce exactly 392 bytes including the
 four-byte encapsulation. That sample shall fit without XRCE fragmentation, and
 stream-framing callback writes shall fit the 1 KiB TX bounce buffer. A
 conflicting hand-calculated size blocks D1.
 
-Use the native Jazzy Agent on Ubuntu 24.04. Do not use the legacy Python bridge,
+Use the native Humble Agent on Ubuntu 22.04. Do not use the legacy Python bridge,
 Docker, Snap, USB CDC, or a reduced placeholder interface set.
 
 ### D1 exit criteria
@@ -226,7 +226,7 @@ request.
 Implement `mentor_pi_bringup` in first-party C++ and declarative system assets:
 
 - stable udev selection for the CH9102F;
-- native Agent launch and systemd service for Ubuntu 24.04 `amd64` and `arm64`;
+- native Agent launch and systemd service for Ubuntu 22.04 `amd64` and `arm64`;
 - a C++ `configuration_supervisor` node;
 - a validated YAML schema for motor model, four PWM offsets, and battery low
   threshold;
@@ -248,12 +248,13 @@ order. After Agent-only recovery it idempotently reapplies those values without
 touching bus-servo persistence or replaying another command. A session change
 invalidates every outstanding future and leaves motion disabled.
 
-For Apple Silicon development, document an Ubuntu 24.04 ARM64 VM with exclusive
-USB passthrough to the VM. macOS-native deployment is not supported.
+For Ubuntu 24.04 development, document the pinned Ubuntu 22.04/Humble Docker
+image and keep ROS out of the native host OS. macOS-native deployment is not
+supported.
 
 ### D4-H exit criteria
 
-- The same bring-up package passes on Ubuntu 24.04 `amd64` and `arm64`.
+- The same bring-up package passes on Ubuntu 22.04/Humble `amd64` and `arm64`.
 - Agent and supervisor run without root; project-owned nodes and the
   control/data path contain no Python. Pinned upstream ROS tooling may use its
   own Python implementation/dependencies.
@@ -329,3 +330,13 @@ and host/ROS owners.
 Temporary test hooks must be compile-time excluded from release builds. A stage
 cannot close with an undocumented waiver; an accepted waiver must state its
 scope, safety impact, owner, expiry, and compensating test.
+
+## 12. Future ROS distribution migration
+
+This roadmap releases only Ubuntu 22.04/ROS 2 Humble artifacts. Before Humble
+reaches end of life in May 2027, schedule a separate migration review for
+Ubuntu 24.04/ROS 2 Jazzy. That review shall create new immutable host, Agent,
+and MCU dependency locks; rebuild generated types and serialization evidence;
+and rerun every affected software, transport, reconnect, stress, and HIL gate.
+Until that work passes, Jazzy is neither a supported runtime nor a fallback,
+and mixed-distribution deployment is prohibited.

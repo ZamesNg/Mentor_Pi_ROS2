@@ -6,7 +6,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly ENVIRONMENT_CHECK="${SCRIPT_DIR}/verify_host_build_environment.sh"
 readonly IDLE_GUARD="${SCRIPT_DIR}/require_microros_agent_install_idle.sh"
-readonly ROS_SETUP="/opt/ros/jazzy/setup.bash"
+readonly ROS_SETUP="/opt/ros/humble/setup.bash"
 
 Fail() {
   echo "Host dependency preparation error: $*" >&2
@@ -34,7 +34,7 @@ apt-get install -y --no-install-recommends \
 if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then
   rosdep init
 fi
-rosdep update --rosdistro jazzy
+rosdep update --rosdistro humble
 
 set +u
 source "${ROS_SETUP}"
@@ -42,7 +42,7 @@ set -u
 rosdep install --from-paths \
   "${PROJECT_ROOT}/src/mentor_pi_interfaces" \
   "${PROJECT_ROOT}/src/mentor_pi_bringup" \
-  --ignore-src --rosdistro jazzy --as-root pip:false -y
+  --ignore-src --rosdistro humble --as-root pip:false -y
 
 "${ENVIRONMENT_CHECK}" --check-tools yes
 echo "Mentor Pi host build dependencies are ready. Build as an unprivileged user."

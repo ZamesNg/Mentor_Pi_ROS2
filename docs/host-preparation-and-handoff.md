@@ -1,14 +1,17 @@
 # Host Preparation and Handoff
 
-This is the pre-hardware host path for RRCLite v2. It produces a separately
-versioned, checksummed ROS 2 host handoff; it does not modify the firmware
-handoff under `build/board-handoff/`.
+This is the supported host path for RRCLite v2. The production runtime is
+Ubuntu 22.04 with ROS 2 Humble on `amd64` or `arm64`. Ubuntu 24.04 is a clean
+Docker development host and shall not have ROS installed natively.
 
-## Supported host
+The workflow produces a separately versioned, checksummed ROS 2 host handoff;
+it does not modify the firmware handoff under `build/board-handoff/`.
 
-Deployment is limited to Ubuntu 24.04 `amd64` or `arm64` with ROS 2 Jazzy
-installed at `/opt/ros/jazzy`. Install Jazzy from the official
-[ROS 2 Jazzy installation documentation](https://docs.ros.org/en/jazzy/Installation.html),
+## Supported environments
+
+The onboard computer shall run Ubuntu 22.04 with ROS 2 Humble installed at
+`/opt/ros/humble`. Install Humble from the official
+[ROS 2 Humble Ubuntu documentation](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html),
 then verify the exact platform and build tools:
 
 ```sh
@@ -16,21 +19,37 @@ then verify the exact platform and build tools:
 ```
 
 The verifier resolves Ubuntu's normal `/etc/os-release` symlink, then requires
-its canonical file to identify Ubuntu 24.04. It rejects a dangling link,
-non-regular target, unsupported architecture, missing Jazzy setup, wrong
-`ROS_DISTRO`, or missing build tool.
+its canonical file to identify Ubuntu 22.04. It rejects a dangling link,
+non-regular target, unsupported architecture, missing Humble setup, wrong
+`ROS_DISTRO`, or missing build tools.
 
-For a native clean-machine build, install project build dependencies in a
-separate privileged step while the controller target is inactive:
+On Ubuntu 24.04, do not install Humble or source another ROS distribution.
+Install Git, Make, and Docker Engine, then run:
+
+```sh
+make doctor
+make setup
+make host
+```
+
+The root Makefile selects the checked-in, content-addressed Ubuntu 22.04/Humble
+image. The container is a build/test environment only: it receives no systemd,
+`/opt` installation, serial device, or hardware access. The resulting software
+is deployed to the native Ubuntu 22.04/Humble onboard computer.
+
+## Native Ubuntu 22.04 build
+
+For a native clean-machine build, install project dependencies in a separate
+privileged step while the controller target is inactive:
 
 ```sh
 sudo ./tools/prepare_host_build_dependencies.sh
 ```
 
-That command verifies the OS and Jazzy before its first mutation, installs the
-host build tools, initializes or updates `rosdep`, and resolves the two project
-packages. It does not install the Mentor Pi runtime. Build and package afterward
-as an unprivileged user:
+That command verifies Ubuntu 22.04 and Humble before its first mutation,
+installs build tools, initializes or updates `rosdep`, and resolves the two
+project packages. It does not install the Mentor Pi runtime. Build and package
+afterward as an unprivileged user:
 
 ```sh
 readonly RELEASE_ID=pre-hardware-20260806-r1
@@ -48,25 +67,22 @@ readonly HOST_HANDOFF="${PWD}/build/host-handoff/${RELEASE_ID}"
 ```
 
 The build starts from nonexistent work/install paths, performs `rosdep check`,
-builds one merged `Release` prefix, and runs both ROS package suites. It promotes
-a copy below a temporary root, renames the original staging prefix out of the
-way, and proves the copied environment, interfaces, executables, and dynamic
-libraries work without referring to the staging path. A trap restores the
-original prefix on both success and failure.
+builds one merged `Release` prefix, and runs both ROS package suites. It copies
+the prefix below a temporary root, moves the staging prefix aside, and proves
+that the copied interfaces, executables, and dynamic libraries work without a
+reference to the staging path. A trap restores the original prefix on success
+or failure.
 
-## Pinned offline container build
+## Pinned Humble container build on Ubuntu 24.04
 
-On a development machine with Docker, first fetch the reviewed
-multi-architecture Jazzy image explicitly:
+The recommended development workflow is:
 
 ```sh
-readonly HOST_IMAGE='ros:jazzy-ros-base@sha256:da725acf8b0f9f30c683e33ffbdcd6482d077af96d6fdc7688c5f4f280b7d923'
-docker pull --platform linux/arm64 "${HOST_IMAGE}"
+make setup
+make host
 ```
 
-Use `linux/amd64` only for an amd64 deployment host. After the image exists
-locally, the project build runs with networking disabled, as the invoking UID,
-and without systemd, `/opt` installation, serial devices, or hardware access:
+For a separately named handoff, use the container wrapper directly:
 
 ```sh
 ./tools/build_host_handoff_container.sh \
@@ -75,13 +91,18 @@ and without systemd, `/opt` installation, serial devices, or hardware access:
   --output-directory build/host-handoff/pre-hardware-20260806-r1
 ```
 
-The wrapper refuses a mutable image tag. `HOST-BUILD-METADATA.txt` and
-`HOST-HANDOFF.txt` record the exact digest, target architecture, ROS
-distribution, build type, compiler, and project-owned source fingerprint.
+Use `amd64` only for an amd64 deployment host. The wrapper refuses a mutable
+image tag, builds with networking disabled after dependency preparation, and
+runs as the invoking UID. `HOST-BUILD-METADATA.txt` and `HOST-HANDOFF.txt`
+record the exact image digest, target architecture, `ros_distro=humble`,
+`ubuntu=22.04`, build type, compiler, and project-owned source fingerprint.
+A handoff whose metadata names another ROS distribution or Ubuntu release is
+not installable.
 
 ## Verify and install the handoff
 
-Never mix an arm64 handoff with an amd64 VM. From the reviewed handoff directory:
+Never mix an arm64 handoff with an amd64 target. From the reviewed handoff
+directory:
 
 ```sh
 sha256sum --check SHA256SUMS
@@ -92,15 +113,24 @@ sed -n '1,200p' AGENT-METADATA.txt
 The handoff contains:
 
 - `host/`: the tested, relocatable merged ROS prefix and deployment assets;
-- `agent-installer/`: the pinned source-build Agent installer, state validator,
-  runtime wrapper, and authoritative source lock;
+- `agent-installer/`: the pinned Humble source-build Agent installer, state
+  validator, runtime wrapper, and authoritative source lock;
 - `HOST-HANDOFF.txt`, `AGENT-METADATA.txt`, and a full `SHA256SUMS` manifest;
 - this guide and the first-board checklist used for the handoff.
 
 The Agent build is deliberately separate and networked: it installs exact
-detached upstream commits recorded in the handoff lock, verifies their origins
-and clean state, and installs the native executable below `/opt/mentor_pi`.
-On the Ubuntu deployment VM, with the production target inactive:
+detached Humble-compatible upstream commits recorded in the handoff lock,
+verifies their origins and clean state, and installs the native executable
+below `/opt/mentor_pi`. On the onboard Ubuntu 22.04 host, with the production
+target inactive:
+
+Before deployment, `make agent HOST_ARCH=amd64|arm64` builds those same pinned
+source commits without package installation inside the digest-pinned Humble
+micro-ROS builder. The resulting checksummed record binds the resolved
+architecture-specific image, installed package manifest, full generated
+install tree, source lock, and native executable hash. It is build
+compatibility evidence, not a deployable Agent bundle; production installation
+continues to use the guarded source installer below.
 
 ```sh
 sudo ./agent-installer/tools/install_microros_agent.sh
@@ -116,10 +146,15 @@ identity and coordinated services using the exact commands in the installed
 Keep `mentor-pi-controller.target` stopped until the udev identity, YAML, ROS
 domain, unit verification, and motor-locked firmware digest are reviewed.
 
-## What still requires the real VM and board
+## Qualification boundary and future migration
 
 The container build proves package generation, tests, layout, and relocation.
-It cannot prove live `systemd-analyze verify`, USB passthrough, CH9102F identity,
-serial ownership, Agent/MCU discovery, reconnect behavior, or hardware safety.
-Record those results in the
+It cannot prove live `systemd-analyze verify`, CH9102F identity, serial
+ownership, Agent/MCU discovery, reconnect behavior, or hardware safety. Record
+those results in the
 [board-arrival checklist](board-arrival-bringup-checklist.md).
+
+ROS 2 Jazzy is future migration work, not an active build or runtime. Plan a
+controlled Ubuntu 24.04/Jazzy migration and requalification before Humble
+reaches end of life in May 2027. Do not mix Humble and Jazzy nodes, Agents, or
+MCU artifacts in one deployment.

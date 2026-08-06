@@ -104,8 +104,9 @@ Sha256() {
   fi
 }
 printf '%s\n' \
-  'schema=rrclite-firmware-build-v1' \
+  'schema=rrclite-firmware-build-v2' \
   'target=STM32F407VET6' \
+  'ros_distro=humble' \
   "motor_mode=${mode}" \
   "commissioning_ack=${ack}" \
   'release_qualified=0' \

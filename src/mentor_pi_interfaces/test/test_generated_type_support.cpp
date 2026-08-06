@@ -515,8 +515,8 @@ TEST(GeneratedTypeSupportTest,
   EXPECT_EQ(kMaximumOledLineBytes, members->members_[1].string_upper_bound_);
   EXPECT_EQ(kMaximumOledLineBytes, members->members_[2].string_upper_bound_);
 
-  // Jazzy rosidl_generator_cpp intentionally represents a bounded string as a
-  // std::string, so assignment is not an enforcement point. Its generated
+  // Humble rosidl_generator_cpp represents a bounded string as a std::string,
+  // so assignment is not an enforcement point. Its generated
   // introspection metadata carries the limit for validation. There are no
   // variable-length sequence fields in this package; every array is std::array
   // and its limit is therefore enforced by the generated C++ type itself.

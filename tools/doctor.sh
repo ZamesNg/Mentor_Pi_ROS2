@@ -57,10 +57,17 @@ if [[ -n "${programmer}" ]]; then
 elif command -v STM32_Programmer_CLI >/dev/null 2>&1; then
   programmer="$(command -v STM32_Programmer_CLI)"
 else
-  readonly MACOS_PROGRAMMER="/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin/STM32_Programmer_CLI"
-  if [[ -x "${MACOS_PROGRAMMER}" ]]; then
-    programmer="${MACOS_PROGRAMMER}"
-  fi
+  readonly -a PROGRAMMER_CANDIDATES=(
+    "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin/STM32_Programmer_CLI"
+    "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin/STM32_Programmer_CLI"
+    "/opt/st/stm32cubeprogrammer/bin/STM32_Programmer_CLI"
+  )
+  for candidate in "${PROGRAMMER_CANDIDATES[@]}"; do
+    if [[ -x "${candidate}" ]]; then
+      programmer="${candidate}"
+      break
+    fi
+  done
 fi
 
 echo "Git worktree: ${PROJECT_ROOT}"

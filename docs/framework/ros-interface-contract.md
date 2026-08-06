@@ -10,7 +10,7 @@ timing, and failure behavior match this document. Product requirements are in
 
 | Item | Contract value |
 |---|---|
-| ROS distribution | ROS 2 Jazzy |
+| ROS distribution | ROS 2 Humble |
 | Custom interface package | `mentor_pi_interfaces` |
 | Firmware package | `mentor_pi_mcu` |
 | Bring-up/supervisor package | `mentor_pi_bringup` |
@@ -196,8 +196,10 @@ refreshed. Because this is a topic, the result is reported through controller
 diagnostics rather than a synchronous response.
 
 Before motor HIL, nonzero commands are available only in a commissioning image
-built with both `RRCLITE_MOTOR_COMMISSIONING=1` and
-`RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED`. That image adds an effective
+built with
+`make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED`.
+The target passes the two required internal CMake gates and fails closed if the
+acknowledgement is missing or changed. That image adds an effective
 absolute target limit of 0.25 RPS and an absolute output limit of 300 permille;
 a target beyond the stricter speed limit rejects the whole message as
 `OUT_OF_RANGE` rather than being clamped. The build acknowledgement is not a
@@ -969,7 +971,7 @@ Maximum serialized-size budget:
 Constants consume no serialized bytes. The schema has no string or sequence,
 so 392 bytes is a hard maximum, not a typical-size estimate. The encapsulation
 header precedes the message-field payload and resets its alignment origin; it
-does not introduce padding before the first `uint64`. Generated ROS 2 Jazzy
+does not introduce padding before the first `uint64`. Generated ROS 2 Humble
 type support is normative for field layout and shall report a 388-byte maximum
 message-field payload; an actual serialized CDR buffer including its four-byte
 encapsulation shall be 392 bytes. CDR plus XRCE message/submessage headers shall
@@ -1090,7 +1092,7 @@ Semantics:
   `ROSIDL_GENERATOR_C_DISABLE_TYPE_DESCRIPTION_CODEGEN=ON` globally while
   cross-building packages. This removes unused runtime type-description
   construction, not serialization support or any field from the wire schema.
-  Host-side Jazzy generation remains unchanged.
+  Host-side Humble generation remains unchanged.
 
 ## 13. Related documents
 

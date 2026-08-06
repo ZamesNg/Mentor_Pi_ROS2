@@ -295,7 +295,7 @@ capture when it is safe to retain the live reset/session evidence.
 
 ## Build and native tests
 
-The production build requires ROS 2 Jazzy and the sibling
+The production build requires ROS 2 Humble and the sibling
 `mentor_pi_interfaces` package:
 
 ```sh
@@ -313,7 +313,7 @@ cmake --build build/mentor_pi_bringup-native
 ctest --test-dir build/mentor_pi_bringup-native --output-on-failure
 ```
 
-The ROS build also runs three C++ integration tests with generated Jazzy types.
+The ROS build also runs three C++ integration tests with generated Humble types.
 The in-process controller peer verifies exact non-default service payloads,
 motor-model -> PWM-offset -> battery-threshold ordering, immutable deployment
 parameters, session-ID recovery, motion-gate closure, and bounded retry after
@@ -342,14 +342,14 @@ must pass the physical stress campaign.
 
 ## Interactive launch
 
-The Jazzy Agent is not assumed to exist in `/opt/ros`. Install the pinned
-native build once on Ubuntu 24.04:
+The Humble Agent is not assumed to exist in `/opt/ros`. Install the pinned
+native build once on the onboard Ubuntu 22.04/Humble host:
 
 ```sh
 sudo ./tools/install_microros_agent.sh
 ```
 
-The installer verifies Ubuntu 24.04 from `/etc/os-release`, accepts only
+The installer verifies Ubuntu 22.04 from `/etc/os-release`, accepts only
 `amd64`/`arm64`, and checks out immutable official Agent and message revisions.
 Before its first package or source-tree mutation, it proves
 `mentor-pi-controller.target` is inactive; a not-yet-installed target is
@@ -397,7 +397,7 @@ follow [`docs/host-preparation-and-handoff.md`](../../docs/host-preparation-and-
 The manual commands below remain the underlying native deployment sequence.
 
 ```sh
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/humble/setup.bash
 readonly RELEASE_ID="2026-08-06.1"
 readonly STAGED_PREFIX="${PWD}/artifacts/mentor-pi-host-${RELEASE_ID}"
 test ! -e "${STAGED_PREFIX}"
@@ -555,16 +555,20 @@ The journal is the primary operator log; ROS also writes beneath
 or launcher, and never start a second Agent or interactive launch while the
 production target owns the port.
 
-Production support is Ubuntu 24.04 amd64 or arm64. Apple Silicon development
-uses an Ubuntu 24.04 ARM64 VM with exclusive USB passthrough.
+Production support is Ubuntu 22.04 with ROS 2 Humble on amd64 or arm64. An
+Ubuntu 24.04 development host keeps ROS out of the native OS and uses the
+pinned Ubuntu 22.04/Humble Docker image. ROS 2 Jazzy is future migration work
+to complete before Humble reaches end of life in May 2027; mixed-distribution
+deployment is unsupported.
 
 ## Verification status
 
 The pure C++ validator/state-machine tests and the systemd static/mock test pass
 on non-ROS hosts. The complete package, generated `mentor_pi_interfaces`, and
 the ROS integration/lint gates—including in-process and external-launch
-supervisor tests—pass in the official ROS 2 Jazzy ARM64 container. Remaining
-deployment evidence includes `systemd-analyze verify` and live boot on the
-supported Ubuntu image, XRCE/middleware fault injection with the installed
-native micro-ROS Agent, and hardware tests for graph-disappearance timing,
-reconnect behavior, and ordered reapplication against the MCU.
+supervisor tests—must pass through authoritative `make host` runs for both
+amd64 and arm64 before release. Remaining deployment evidence includes
+`systemd-analyze verify` and live boot on the supported Ubuntu image,
+XRCE/middleware fault injection with the installed native micro-ROS Agent, and
+hardware tests for graph-disappearance timing, reconnect behavior, and ordered
+reapplication against the MCU.

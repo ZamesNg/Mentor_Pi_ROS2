@@ -22,14 +22,20 @@ Sha256() {
 
 Usage() {
   cat <<'EOF'
-Usage: ./tools/firmware_source_fingerprint.sh [firmware|interfaces] [PROJECT_ROOT]
+Usage: ./tools/firmware_source_fingerprint.sh [--manifest] [firmware|interfaces] [PROJECT_ROOT]
 
 Print a deterministic SHA-256 over project-owned inputs to the selected
 artifact. PROJECT_ROOT is intended for the verifier's isolated tests; normal
-builds omit it.
+builds omit it. --manifest prints the canonical input manifest instead of its
+SHA-256 so evidence-producing tools can reuse the same source selection.
 EOF
 }
 
+PRINT_MANIFEST=0
+if [[ "${1:-}" == "--manifest" ]]; then
+  PRINT_MANIFEST=1
+  shift
+fi
 [[ "$#" -le 2 ]] || {
   Usage >&2
   exit 2
@@ -82,6 +88,7 @@ AppendFile "${INTERFACE_ROOT}/package.xml"
 AppendDirectory "${INTERFACE_ROOT}/include"
 AppendDirectory "${INTERFACE_ROOT}/msg"
 AppendDirectory "${INTERFACE_ROOT}/srv"
+AppendDirectory "${PROJECT_ROOT}/src/ros_package_schema"
 
 if [[ "${MODE}" == "firmware" ]]; then
   readonly FIRMWARE_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu"
@@ -94,9 +101,14 @@ if [[ "${MODE}" == "firmware" ]]; then
   AppendDirectory "${FIRMWARE_ROOT}/platform"
   AppendDirectory "${FIRMWARE_ROOT}/src"
   AppendDirectory "${FIRMWARE_ROOT}/target/stm32"
+  AppendFile "${PROJECT_ROOT}/tools/apply_microros_source_lock.sh"
+  AppendFile "${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
   AppendFile "${PROJECT_ROOT}/tools/build_firmware.sh"
+  AppendFile "${PROJECT_ROOT}/tools/build_microros_library.sh"
   AppendFile "${PROJECT_ROOT}/tools/docker/firmware-builder.Dockerfile"
+  AppendFile "${PROJECT_ROOT}/tools/docker/microros-builder.Dockerfile"
   AppendFile "${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
+  AppendFile "${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
 fi
 
 LC_ALL=C sort -u "${PATHS}" | while IFS= read -r source; do
@@ -111,4 +123,8 @@ LC_ALL=C sort -u "${PATHS}" | while IFS= read -r source; do
   printf '%s  %s\n' "$(Sha256 "${source}")" "${relative}"
 done >"${MANIFEST}"
 
-Sha256 "${MANIFEST}"
+if [[ "${PRINT_MANIFEST}" == "1" ]]; then
+  cat "${MANIFEST}"
+else
+  Sha256 "${MANIFEST}"
+fi

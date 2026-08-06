@@ -7,13 +7,20 @@ readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly ARTIFACT_VERIFIER="${SCRIPT_DIR}/verify_firmware_artifact.sh"
 readonly REQUIRED_UART_ACK="ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED"
 readonly REQUIRED_COMMISSIONING_ACK="MOTORS_RAISED_CURRENT_LIMITED"
+readonly TEMPORARY_PARENT="${TMPDIR:-/tmp}"
 
-temporary_elf=""
-temporary_metadata=""
+temporary_directory=""
 
 Cleanup() {
-  [[ -z "${temporary_elf}" ]] || rm -f -- "${temporary_elf}"
-  [[ -z "${temporary_metadata}" ]] || rm -f -- "${temporary_metadata}"
+  [[ -n "${temporary_directory}" ]] || return
+  case "${temporary_directory}" in
+    "${TEMPORARY_PARENT%/}"/rrclite-flash.*)
+      rm -rf -- "${temporary_directory}"
+      ;;
+    *)
+      echo "Refusing unsafe flash-snapshot cleanup: ${temporary_directory}" >&2
+      ;;
+  esac
 }
 trap Cleanup EXIT
 
@@ -96,13 +103,16 @@ fi
   "${SERIAL_PORT}" != *"/../"* && "${SERIAL_PORT}" != */.. && \
   "${SERIAL_PORT}" != *"/./"* && "${SERIAL_PORT}" != */. ]] || \
   Fail "serial port must be an explicit, well-formed /dev path"
+[[ -c "${SERIAL_PORT}" ]] || \
+  Fail "serial port does not resolve to an existing character device: ${SERIAL_PORT}"
+[[ -r "${SERIAL_PORT}" && -w "${SERIAL_PORT}" ]] || \
+  Fail "serial port is not readable and writable: ${SERIAL_PORT}"
 [[ -x "${ARTIFACT_VERIFIER}" ]] || \
   Fail "firmware artifact verifier is missing or not executable"
 
 readonly BUILD_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32"
 readonly AUTHORITATIVE_ELF="${BUILD_ROOT}/mentor_pi_mcu.elf"
 readonly METADATA="${BUILD_ROOT}/rrclite-build-metadata.txt"
-readonly SNAPSHOT_DIRECTORY="${BUILD_ROOT}/verified-artifacts"
 
 if ! "${ARTIFACT_VERIFIER}" "${MODE}" "${PROJECT_ROOT}" >/dev/null; then
   Fail "firmware artifact verification failed; rebuild before flashing"
@@ -112,26 +122,24 @@ fi
 [[ -f "${METADATA}" && ! -L "${METADATA}" ]] || \
   Fail "firmware build metadata is missing or a symbolic link"
 
-mkdir -p "${SNAPSHOT_DIRECTORY}"
-[[ ! -L "${SNAPSHOT_DIRECTORY}" ]] || \
-  Fail "verified-artifacts directory must not be a symbolic link"
-temporary_metadata="$(mktemp \
-  "${SNAPSHOT_DIRECTORY}/.rrclite-build-metadata.XXXXXX")"
-temporary_elf="$(mktemp \
-  "${SNAPSHOT_DIRECTORY}/.mentor_pi_mcu.XXXXXX.elf.tmp")"
+temporary_directory="$(mktemp -d \
+  "${TEMPORARY_PARENT%/}/rrclite-flash.XXXXXX")"
+readonly SNAPSHOT_DIRECTORY="${temporary_directory}"
+readonly SNAPSHOT_METADATA="${SNAPSHOT_DIRECTORY}/rrclite-build-metadata.txt"
+readonly SNAPSHOT_TEMP="${SNAPSHOT_DIRECTORY}/mentor_pi_mcu.elf.tmp"
 
-cp "${METADATA}" "${temporary_metadata}"
-cp "${AUTHORITATIVE_ELF}" "${temporary_elf}"
+cp "${METADATA}" "${SNAPSHOT_METADATA}"
+cp "${AUTHORITATIVE_ELF}" "${SNAPSHOT_TEMP}"
 
-readonly SNAPSHOT_MODE="$(ReadMetadata "${temporary_metadata}" motor_mode)"
+readonly SNAPSHOT_MODE="$(ReadMetadata "${SNAPSHOT_METADATA}" motor_mode)"
 [[ "${SNAPSHOT_MODE}" == "${MODE}" ]] || \
   Fail "firmware metadata mode changed while the flash snapshot was prepared"
 readonly EXPECTED_ELF_SHA256="$(
-  ReadMetadata "${temporary_metadata}" elf_sha256
+  ReadMetadata "${SNAPSHOT_METADATA}" elf_sha256
 )"
 [[ "${EXPECTED_ELF_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
   Fail "firmware metadata contains a malformed ELF SHA-256"
-[[ "$(Sha256 "${temporary_elf}")" == "${EXPECTED_ELF_SHA256}" ]] || \
+[[ "$(Sha256 "${SNAPSHOT_TEMP}")" == "${EXPECTED_ELF_SHA256}" ]] || \
   Fail "firmware ELF changed while the flash snapshot was copied"
 
 # Recheck the complete source/profile/artifact contract after copying. The
@@ -140,22 +148,13 @@ readonly EXPECTED_ELF_SHA256="$(
 if ! "${ARTIFACT_VERIFIER}" "${MODE}" "${PROJECT_ROOT}" >/dev/null; then
   Fail "firmware changed while the flash snapshot was prepared"
 fi
-cmp "${temporary_metadata}" "${METADATA}" >/dev/null || \
+cmp "${SNAPSHOT_METADATA}" "${METADATA}" >/dev/null || \
   Fail "firmware metadata changed while the flash snapshot was prepared"
 [[ "$(Sha256 "${AUTHORITATIVE_ELF}")" == "${EXPECTED_ELF_SHA256}" ]] || \
   Fail "authoritative firmware ELF changed while the flash snapshot was prepared"
 
 readonly SNAPSHOT="${SNAPSHOT_DIRECTORY}/mentor_pi_mcu-${EXPECTED_ELF_SHA256}.elf"
-chmod 0444 "${temporary_elf}"
-if ln "${temporary_elf}" "${SNAPSHOT}" 2>/dev/null; then
-  rm -f -- "${temporary_elf}"
-  temporary_elf=""
-else
-  [[ -f "${SNAPSHOT}" && ! -L "${SNAPSHOT}" ]] || \
-    Fail "could not publish the verified firmware snapshot"
-  [[ "$(Sha256 "${SNAPSHOT}")" == "${EXPECTED_ELF_SHA256}" ]] || \
-    Fail "existing verified firmware snapshot hash mismatch"
-fi
+mv "${SNAPSHOT_TEMP}" "${SNAPSHOT}"
 chmod 0444 "${SNAPSHOT}"
 [[ "$(Sha256 "${SNAPSHOT}")" == "${EXPECTED_ELF_SHA256}" ]] || \
   Fail "verified firmware snapshot hash mismatch"
@@ -167,10 +166,18 @@ if [[ -n "${programmer}" ]]; then
 elif command -v STM32_Programmer_CLI >/dev/null 2>&1; then
   programmer="$(command -v STM32_Programmer_CLI)"
 else
-  readonly MACOS_PROGRAMMER="/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin/STM32_Programmer_CLI"
-  if [[ -x "${MACOS_PROGRAMMER}" ]]; then
-    programmer="${MACOS_PROGRAMMER}"
-  else
+  readonly -a PROGRAMMER_CANDIDATES=(
+    "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin/STM32_Programmer_CLI"
+    "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin/STM32_Programmer_CLI"
+    "/opt/st/stm32cubeprogrammer/bin/STM32_Programmer_CLI"
+  )
+  for candidate in "${PROGRAMMER_CANDIDATES[@]}"; do
+    if [[ -x "${candidate}" ]]; then
+      programmer="${candidate}"
+      break
+    fi
+  done
+  if [[ -z "${programmer}" ]]; then
     Fail "STM32_Programmer_CLI was not found; install STM32CubeProgrammer or set STM32_CUBE_PROGRAMMER_CLI to its executable"
   fi
 fi
@@ -180,7 +187,7 @@ echo "Programming verified ${MODE} firmware over ${SERIAL_PORT}."
 echo "Verified ELF SHA-256: ${EXPECTED_ELF_SHA256}"
 echo "CubeProgrammer UART settings: 115200 baud, 8E1, flow control off."
 if ! "${programmer}" \
-  -c "port=${SERIAL_PORT}" br=115200 \
+  -c "port=${SERIAL_PORT}" br=115200 P=EVEN db=8 sb=1 fc=OFF \
   -w "${SNAPSHOT}" -v; then
   Fail "CubeProgrammer programming or read-back verification failed"
 fi

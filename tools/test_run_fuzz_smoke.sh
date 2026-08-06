@@ -6,6 +6,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly RUNNER="${SCRIPT_DIR}/run_fuzz_smoke.sh"
 readonly PUBLISHER="${SCRIPT_DIR}/publish_fuzz_evidence.sh"
 readonly VERIFIER="${SCRIPT_DIR}/verify_fuzz_evidence.sh"
+readonly FINGERPRINT="${SCRIPT_DIR}/firmware_source_fingerprint.sh"
 readonly PAYLOAD_FILES=(
   "rrclite-fuzz-smoke-report.txt"
   "campaign.log"
@@ -108,6 +109,22 @@ MakeEvidenceSource() {
 [[ -x "${RUNNER}" ]] || Fail "runner is missing or not executable"
 [[ -x "${PUBLISHER}" ]] || Fail "publisher is missing or not executable"
 [[ -x "${VERIFIER}" ]] || Fail "verifier is missing or not executable"
+[[ -x "${FINGERPRINT}" ]] || Fail "firmware fingerprint tool is missing or not executable"
+grep -Fq 'tools/firmware_source_fingerprint.sh --manifest firmware' \
+  "${RUNNER}" || Fail "runner does not reuse the canonical firmware manifest"
+
+if command -v sha256sum >/dev/null 2>&1; then
+  readonly MANIFEST_DIGEST="$(
+    "${FINGERPRINT}" --manifest firmware | sha256sum | awk '{print $1}'
+  )"
+else
+  readonly MANIFEST_DIGEST="$(
+    "${FINGERPRINT}" --manifest firmware | shasum -a 256 | awk '{print $1}'
+  )"
+fi
+readonly FIRMWARE_FINGERPRINT="$("${FINGERPRINT}" firmware)"
+[[ "${MANIFEST_DIGEST}" == "${FIRMWARE_FINGERPRINT}" ]] || \
+  Fail "canonical manifest digest differs from the firmware fingerprint"
 
 readonly PLAN="$(${RUNNER} --runs 10000 --run-id plan-test --print-plan)"
 grep -Fqx 'environment=linux-container' <<<"${PLAN}" || \

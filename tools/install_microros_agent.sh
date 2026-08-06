@@ -6,8 +6,9 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly INSTALL_STATE_VALIDATOR="${SCRIPT_DIR}/verify_microros_agent_install_state.sh"
 readonly INSTALL_IDLE_GUARD="${SCRIPT_DIR}/require_microros_agent_install_idle.sh"
+readonly AGENT_BUILD_HELPER="${SCRIPT_DIR}/build_microros_agent_from_lock.sh"
 readonly AGENT_SOURCE_LOCK="${SCRIPT_DIR}/microros_agent_source.lock"
-readonly ROS_SETUP="/opt/ros/jazzy/setup.bash"
+readonly ROS_SETUP="/opt/ros/humble/setup.bash"
 
 Fail() {
   echo "micro-ROS Agent install error: $*" >&2
@@ -23,25 +24,37 @@ ReadLockValue() {
   printf '%s' "${line#*=}"
 }
 
+[[ "$#" -eq 0 ]] || Fail "this installer accepts no arguments"
+
 [[ -f "${AGENT_SOURCE_LOCK}" && ! -L "${AGENT_SOURCE_LOCK}" ]] ||
   Fail "Agent source lock is missing or symbolic: ${AGENT_SOURCE_LOCK}"
 readonly LOCK_FORMAT="$(ReadLockValue format)"
+readonly LOCK_ROS_DISTRO="$(ReadLockValue ros_distro)"
 readonly AGENT_REPOSITORY="$(ReadLockValue agent_repository)"
 readonly AGENT_COMMIT="$(ReadLockValue agent_commit)"
 readonly MSGS_REPOSITORY="$(ReadLockValue messages_repository)"
 readonly MSGS_COMMIT="$(ReadLockValue messages_commit)"
-[[ "${LOCK_FORMAT}" == "mentor-pi-micro-ros-agent-source-lock-v1" ]] ||
+readonly XRCE_AGENT_REPOSITORY="$(ReadLockValue xrce_agent_repository)"
+readonly XRCE_AGENT_COMMIT="$(ReadLockValue xrce_agent_commit)"
+[[ "${LOCK_FORMAT}" == "mentor-pi-micro-ros-agent-source-lock-v2" ]] ||
   Fail "unsupported Agent source lock format"
+[[ "${LOCK_ROS_DISTRO}" == "humble" ]] ||
+  Fail "Agent source lock targets a different ROS distribution"
 [[ "${AGENT_REPOSITORY}" == \
     "https://github.com/micro-ROS/micro-ROS-Agent.git" ]] ||
   Fail "unexpected Agent repository in source lock"
 [[ "${MSGS_REPOSITORY}" == \
     "https://github.com/micro-ROS/micro_ros_msgs.git" ]] ||
   Fail "unexpected message repository in source lock"
+[[ "${XRCE_AGENT_REPOSITORY}" == \
+    "https://github.com/eProsima/Micro-XRCE-DDS-Agent.git" ]] ||
+  Fail "unexpected XRCE Agent repository in source lock"
 [[ "${AGENT_COMMIT}" =~ ^[0-9a-f]{40}$ ]] ||
   Fail "Agent commit is not a lowercase 40-hex SHA"
 [[ "${MSGS_COMMIT}" =~ ^[0-9a-f]{40}$ ]] ||
   Fail "message commit is not a lowercase 40-hex SHA"
+[[ "${XRCE_AGENT_COMMIT}" =~ ^[0-9a-f]{40}$ ]] ||
+  Fail "XRCE Agent commit is not a lowercase 40-hex SHA"
 
 readonly BUILD_ROOT="/opt/mentor_pi/build/micro_ros_agent_${AGENT_COMMIT}"
 readonly SOURCE_ROOT="${BUILD_ROOT}/src"
@@ -50,17 +63,20 @@ readonly ACTIVE_ROOT="/opt/mentor_pi/micro_ros_agent"
 readonly WRAPPER_TARGET="/opt/mentor_pi/bin/mentor_pi_micro_ros_agent"
 
 if [[ "$(id -u)" != "0" ]]; then
-  Fail "run this installer as root on Ubuntu 24.04"
+  Fail "run this installer as root on Ubuntu 22.04"
 fi
 if [[ ! -x "${INSTALL_IDLE_GUARD}" ]]; then
   Fail "Agent install idle guard is missing at ${INSTALL_IDLE_GUARD}"
 fi
 "${INSTALL_IDLE_GUARD}"
 if [[ ! -r "${ROS_SETUP}" ]]; then
-  Fail "ROS 2 Jazzy is missing at ${ROS_SETUP}"
+  Fail "ROS 2 Humble is missing at ${ROS_SETUP}"
 fi
 if [[ ! -x "${INSTALL_STATE_VALIDATOR}" ]]; then
   Fail "Agent install-state validator is missing at ${INSTALL_STATE_VALIDATOR}"
+fi
+if [[ ! -x "${AGENT_BUILD_HELPER}" ]]; then
+  Fail "Agent source-build helper is missing at ${AGENT_BUILD_HELPER}"
 fi
 if [[ -e "${ACTIVE_ROOT}" && ! -L "${ACTIVE_ROOT}" ]]; then
   Fail "${ACTIVE_ROOT} exists and is not a managed symbolic link"
@@ -70,6 +86,18 @@ readonly HOST_ARCHITECTURE="$(dpkg --print-architecture)"
 "${INSTALL_STATE_VALIDATOR}" \
   --os-release /etc/os-release \
   --architecture "${HOST_ARCHITECTURE}"
+
+# Generated ROS setup hooks are not guaranteed to be nounset-clean. Source the
+# deployment environment exactly once before the first package/source mutation;
+# the resulting environment remains active for rosdep and colcon below.
+set +u
+if ! source "${ROS_SETUP}"; then
+  set -u
+  Fail "could not source ROS 2 Humble setup at ${ROS_SETUP}"
+fi
+set -u
+[[ "${ROS_DISTRO:-}" == "humble" ]] || \
+  Fail "ROS setup must identify ROS_DISTRO=humble"
 
 apt-get update
 apt-get install -y --no-install-recommends \
@@ -83,59 +111,12 @@ apt-get install -y --no-install-recommends \
 if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then
   rosdep init
 fi
-rosdep update --rosdistro jazzy
-
-CloneAndVerify() {
-  local repository="$1"
-  local commit="$2"
-  local destination="$3"
-  if [[ ! -d "${destination}/.git" ]]; then
-    if [[ -e "${destination}" ]]; then
-      Fail "refusing to replace non-Git path ${destination}"
-    fi
-    git init "${destination}"
-    git -C "${destination}" remote add origin "${repository}"
-    git -C "${destination}" fetch --depth 1 origin "${commit}"
-    git -C "${destination}" checkout --detach FETCH_HEAD
-  fi
-  local actual_commit
-  actual_commit="$(git -C "${destination}" rev-parse HEAD)"
-  if [[ "${actual_commit}" != "${commit}" ]]; then
-    Fail "revision mismatch at ${destination}: ${actual_commit}"
-  fi
-}
+rosdep update --rosdistro humble
 
 install -d -m 0755 "${SOURCE_ROOT}"
-CloneAndVerify "${AGENT_REPOSITORY}" "${AGENT_COMMIT}" \
-  "${SOURCE_ROOT}/micro-ROS-Agent"
-CloneAndVerify "${MSGS_REPOSITORY}" "${MSGS_COMMIT}" \
-  "${SOURCE_ROOT}/micro_ros_msgs"
-"${INSTALL_STATE_VALIDATOR}" \
-  --os-release /etc/os-release \
-  --architecture "${HOST_ARCHITECTURE}" \
-  --repository "${SOURCE_ROOT}/micro-ROS-Agent" \
-  --origin "${AGENT_REPOSITORY}" \
-  --commit "${AGENT_COMMIT}" \
-  --repository "${SOURCE_ROOT}/micro_ros_msgs" \
-  --origin "${MSGS_REPOSITORY}" \
-  --commit "${MSGS_COMMIT}"
-
-# The sourced scripts are upstream build environment only; they are not part
-# of the running transport path.
-set +u
-source "${ROS_SETUP}"
-set -u
-rosdep install --rosdistro jazzy --from-paths "${SOURCE_ROOT}" \
-  --ignore-src --as-root pip:false -y
-
-cd "${BUILD_ROOT}"
-colcon --log-base log build \
-  --merge-install \
-  --base-paths "${SOURCE_ROOT}" \
-  --build-base build \
-  --install-base "${INSTALL_ROOT}" \
-  --packages-up-to micro_ros_agent \
-  --cmake-args -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+"${AGENT_BUILD_HELPER}" fetch --work-root "${BUILD_ROOT}"
+"${AGENT_BUILD_HELPER}" build --work-root "${BUILD_ROOT}" \
+  --dependency-mode install
 
 test -x "${INSTALL_ROOT}/lib/micro_ros_agent/micro_ros_agent"
 ln -sfn "${INSTALL_ROOT}" "${ACTIVE_ROOT}"
@@ -163,4 +144,4 @@ if ! grep -Fq "Usage:" "${smoke_output_file}"; then
 fi
 rm -f "${smoke_output_file}"
 trap - EXIT
-echo "Installed pinned Jazzy micro-ROS Agent: ${WRAPPER_TARGET}"
+echo "Installed pinned Humble micro-ROS Agent: ${WRAPPER_TARGET}"

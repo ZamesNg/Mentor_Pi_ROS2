@@ -47,8 +47,9 @@ refreshes no motion lease. No ROS service, host parameter, Agent state, or true
 
 A nonzero target may arm only in an explicitly built commissioning image, in
 the `ACTIVE` session state, after a fresh valid command for that motor. The
-supported build requires both `RRCLITE_MOTOR_COMMISSIONING=1` and the exact
-`RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED` acknowledgement. The image
+supported public command is
+`make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED`; it supplies the
+two exact internal CMake gates and fails closed otherwise. The image
 rejects magnitudes above 0.25 RPS and caps absolute output at 300 permille.
 Entity creation, an Agent ping, or a command retained from an old session is not
 authority to arm. The commissioning image shall be used only with every wheel

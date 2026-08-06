@@ -30,12 +30,16 @@ jobs:
         run: ./tools/check_framework_docs.py
       - name: Test firmware artifact and handoff gates
         run: |
+          ./tools/test_active_build_policy.sh
+          ./tools/test_firmware_dependency_provenance.sh
           ./tools/test_firmware_artifact_verification.sh
           ./tools/test_gitignore_contract.sh
           ./tools/test_host_handoff_tools.sh
           ./tools/test_microros_agent_install_state.sh
+          ./tools/test_microros_source_lock.sh
           ./tools/test_package_board_handoff.sh
           ./tools/test_flash_firmware.sh
+          ./tools/test_pull_pinned_build_images.sh
           ./tools/test_run_fuzz_smoke.sh
 
   format:

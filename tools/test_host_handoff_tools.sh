@@ -40,7 +40,7 @@ mkdir -p "${PLATFORM_ROOT}/etc" "${PLATFORM_ROOT}/usr/lib" \
   "${PLATFORM_ROOT}/fake-bin"
 cat >"${PLATFORM_ROOT}/usr/lib/os-release" <<'EOF'
 ID=ubuntu
-VERSION_ID="24.04"
+VERSION_ID="22.04"
 EOF
 ln -s ../usr/lib/os-release "${PLATFORM_ROOT}/etc/os-release"
 for tool in colcon rosdep cmake c++ python3 sha256sum tar gzip; do
@@ -50,36 +50,36 @@ exit 0
 EOF
   chmod +x "${PLATFORM_ROOT}/fake-bin/${tool}"
 done
-cat >"${PLATFORM_ROOT}/jazzy-setup.bash" <<EOF
-export ROS_DISTRO=jazzy
+cat >"${PLATFORM_ROOT}/humble-setup.bash" <<EOF
+export ROS_DISTRO=humble
 export PATH="${PLATFORM_ROOT}/fake-bin:/usr/bin:/bin"
 EOF
 
 "${ENVIRONMENT_CHECK}" \
   --os-release "${PLATFORM_ROOT}/etc/os-release" \
   --architecture arm64 \
-  --ros-setup "${PLATFORM_ROOT}/jazzy-setup.bash" \
+  --ros-setup "${PLATFORM_ROOT}/humble-setup.bash" \
   --check-tools yes >/dev/null
 rm "${PLATFORM_ROOT}/etc/os-release"
 ln -s ../usr/lib/missing-release "${PLATFORM_ROOT}/etc/os-release"
 ExpectFailure "${ENVIRONMENT_CHECK}" \
   --os-release "${PLATFORM_ROOT}/etc/os-release" \
   --architecture arm64 \
-  --ros-setup "${PLATFORM_ROOT}/jazzy-setup.bash" \
+  --ros-setup "${PLATFORM_ROOT}/humble-setup.bash" \
   --check-tools no
 rm "${PLATFORM_ROOT}/etc/os-release"
 ln -s ../usr/lib "${PLATFORM_ROOT}/etc/os-release"
 ExpectFailure "${ENVIRONMENT_CHECK}" \
   --os-release "${PLATFORM_ROOT}/etc/os-release" \
   --architecture arm64 \
-  --ros-setup "${PLATFORM_ROOT}/jazzy-setup.bash" \
+  --ros-setup "${PLATFORM_ROOT}/humble-setup.bash" \
   --check-tools no
 rm "${PLATFORM_ROOT}/etc/os-release"
 ln -s ../usr/lib/os-release "${PLATFORM_ROOT}/etc/os-release"
 ExpectFailure "${ENVIRONMENT_CHECK}" \
   --os-release "${PLATFORM_ROOT}/etc/os-release" \
   --architecture riscv64 \
-  --ros-setup "${PLATFORM_ROOT}/jazzy-setup.bash" \
+  --ros-setup "${PLATFORM_ROOT}/humble-setup.bash" \
   --check-tools no
 
 MakeFakePrefix() {
@@ -168,16 +168,17 @@ EOF
   local source_fingerprint
   source_fingerprint="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"
   cat >"${prefix}/HOST-BUILD-METADATA.txt" <<EOF
-format=rrclite-host-build-v1
+format=rrclite-host-build-v2
+ubuntu=22.04
 target_os=ubuntu
-target_version=24.04
+target_version=22.04
 architecture=arm64
-ros_distro=jazzy
+ros_distro=humble
 build_type=Release
 source_sha256=${source_fingerprint}
 created_utc=1970-01-01T00:00:00Z
 compiler=fixture
-builder_image=native-ubuntu-24.04
+builder_image=native-ubuntu-22.04
 EOF
 }
 
@@ -211,13 +212,35 @@ readonly HANDOFF="${TEST_ROOT}/host-handoff"
   Fail "current idle guard is missing from handoff"
 [[ -f "${HANDOFF}/agent-installer/tools/microros_agent_source.lock" ]] ||
   Fail "Agent source lock is missing from handoff"
+[[ -x "${HANDOFF}/agent-installer/tools/build_microros_agent_from_lock.sh" ]] ||
+  Fail "shared Agent source-build helper is missing from handoff"
 [[ -f "${HANDOFF}/docs/host-preparation-and-handoff.md" ]] ||
   Fail "host preparation guide is missing from handoff"
 [[ -f "${HANDOFF}/docs/board-arrival-bringup-checklist.md" ]] ||
   Fail "board-arrival checklist is missing from handoff"
 VerifyManifest "${HANDOFF}"
-grep -Fqx 'builder_image=native-ubuntu-24.04' \
+grep -Fqx 'package_format=rrclite-host-handoff-v2' \
+  "${HANDOFF}/HOST-HANDOFF.txt" || Fail "handoff schema was not upgraded"
+grep -Fqx 'ubuntu=22.04' "${HANDOFF}/host/HOST-BUILD-METADATA.txt" ||
+  Fail "host build metadata does not record the exact Ubuntu identity"
+grep -Fqx 'ubuntu=22.04' "${HANDOFF}/HOST-HANDOFF.txt" ||
+  Fail "handoff does not record the exact Ubuntu identity"
+grep -Fqx 'target_os=ubuntu' "${HANDOFF}/HOST-HANDOFF.txt" ||
+  Fail "handoff targets the wrong OS"
+grep -Fqx 'target_version=22.04' "${HANDOFF}/HOST-HANDOFF.txt" ||
+  Fail "handoff targets the wrong Ubuntu version"
+grep -Fqx 'architecture=arm64' "${HANDOFF}/HOST-HANDOFF.txt" ||
+  Fail "handoff did not propagate the release architecture"
+grep -Fqx 'ros_distro=humble' "${HANDOFF}/HOST-HANDOFF.txt" ||
+  Fail "handoff does not bind ROS 2 Humble"
+grep -Fqx 'format=rrclite-agent-handoff-v2' \
+  "${HANDOFF}/AGENT-METADATA.txt" || Fail "Agent schema was not upgraded"
+grep -Fqx 'ros_distro=humble' "${HANDOFF}/AGENT-METADATA.txt" ||
+  Fail "Agent metadata does not bind ROS 2 Humble"
+grep -Fqx 'builder_image=native-ubuntu-22.04' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "builder provenance was not propagated"
+grep -Fqx 'ubuntu=22.04' "${SCRIPT_DIR}/build_host_release.sh" ||
+  Fail "host build metadata producer omits the exact Ubuntu identity"
 
 initial_fingerprint_line="$(grep -n -F \
   'INITIAL_SOURCE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${project_root}")"' \
@@ -267,6 +290,8 @@ cp -R "${PROJECT_ROOT}/src/ros_package_schema" \
 readonly FINGERPRINT_STANDALONE_INPUTS=(
   docs/board-arrival-bringup-checklist.md
   docs/host-preparation-and-handoff.md
+  Makefile
+  tools/build_microros_agent_from_lock.sh
   tools/build_host_handoff_container.sh
   tools/build_host_release.sh
   tools/host_handoff_container_entrypoint.sh
@@ -276,9 +301,13 @@ readonly FINGERPRINT_STANDALONE_INPUTS=(
   tools/package_host_handoff.sh
   tools/prepare_host_build_dependencies.sh
   tools/require_microros_agent_install_idle.sh
+  tools/select_pinned_build_image.sh
   tools/verify_host_build_environment.sh
   tools/verify_host_release_relocation.sh
+  tools/verify_microros_agent_build_container.sh
+  tools/verify_microros_agent_build_in_container.sh
   tools/verify_microros_agent_install_state.sh
+  tools/test_active_build_policy.sh
 )
 for relative in "${FINGERPRINT_STANDALONE_INPUTS[@]}"; do
   cp "${PROJECT_ROOT}/${relative}" "${FINGERPRINT_PROJECT}/${relative}"
@@ -311,15 +340,49 @@ grep -Fq 'POST_STAGING_SOURCE}" == "${CURRENT_SOURCE}' \
   "${PACKAGE_TOOL}" ||
   Fail "handoff packaging does not enforce post-staging source stability"
 
-cp "${GOOD_PREFIX}/HOST-BUILD-METADATA.txt" \
-  "${GOOD_PREFIX}/HOST-BUILD-METADATA.valid"
-sed 's/^builder_image=.*/builder_image=ros:jazzy-ros-base/' \
-  "${GOOD_PREFIX}/HOST-BUILD-METADATA.valid" \
-  >"${GOOD_PREFIX}/HOST-BUILD-METADATA.txt"
-ExpectFailure "${PACKAGE_TOOL}" --host-prefix "${GOOD_PREFIX}" \
-  --output-directory "${TEST_ROOT}/bad-builder" --release-id bad-builder
-mv "${GOOD_PREFIX}/HOST-BUILD-METADATA.valid" \
-  "${GOOD_PREFIX}/HOST-BUILD-METADATA.txt"
+ExpectMetadataMutationFailure() {
+  local mutation="$1"
+  local output_name="$2"
+  cp "${GOOD_PREFIX}/HOST-BUILD-METADATA.txt" \
+    "${GOOD_PREFIX}/HOST-BUILD-METADATA.valid"
+  sed "${mutation}" "${GOOD_PREFIX}/HOST-BUILD-METADATA.valid" \
+    >"${GOOD_PREFIX}/HOST-BUILD-METADATA.txt"
+  ExpectFailure "${PACKAGE_TOOL}" --host-prefix "${GOOD_PREFIX}" \
+    --output-directory "${TEST_ROOT}/${output_name}" \
+    --release-id "${output_name}"
+  mv "${GOOD_PREFIX}/HOST-BUILD-METADATA.valid" \
+    "${GOOD_PREFIX}/HOST-BUILD-METADATA.txt"
+}
 
-bash -n "${ENVIRONMENT_CHECK}" "${RELOCATION_CHECK}" "${PACKAGE_TOOL}"
+ExpectMetadataMutationFailure \
+  's/^builder_image=.*/builder_image=ros:humble-ros-base/' bad-builder
+ExpectMetadataMutationFailure \
+  's/^format=.*/format=rrclite-host-build-v1/' legacy-schema
+ExpectMetadataMutationFailure '/^ubuntu=/d' missing-ubuntu
+ExpectMetadataMutationFailure 's/^ubuntu=.*/ubuntu=24.04/' wrong-ubuntu
+ExpectMetadataMutationFailure 's/^target_os=.*/target_os=debian/' wrong-os
+ExpectMetadataMutationFailure \
+  's/^target_version=.*/target_version=24.04/' wrong-version
+ExpectMetadataMutationFailure \
+  's/^architecture=.*/architecture=riscv64/' wrong-architecture
+ExpectMetadataMutationFailure \
+  's/^ros_distro=.*/ros_distro=rolling/' wrong-distro
+
+for architecture in amd64 arm64; do
+  default_host_image="$(
+    "${SCRIPT_DIR}/build_host_handoff_container.sh" --print-default-image \
+      --architecture "${architecture}"
+  )"
+  [[ "${default_host_image}" =~ ^ros:humble-ros-base@sha256:[0-9a-f]{64}$ ]] ||
+    Fail "default ${architecture} host image is not immutable"
+done
+grep -Fq 'if [[ -z "${image}" ]]' \
+  "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
+  Fail "the host wrapper no longer preserves an explicit --image override"
+grep -Fq '"${IMAGE_ARCH}" == "${architecture}"' \
+  "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
+  Fail "the host wrapper does not verify the local image architecture"
+
+bash -n "${ENVIRONMENT_CHECK}" "${RELOCATION_CHECK}" "${PACKAGE_TOOL}" \
+  "${SCRIPT_DIR}/build_host_handoff_container.sh"
 echo "Host build, relocation, and handoff tool tests passed."

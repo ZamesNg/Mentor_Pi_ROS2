@@ -536,7 +536,7 @@ std::int32_t MicroRosRuntime::ExecuteCreateStep(const EntityCreateStep& step) {
     case EntityCreateStepKind::kExecutorAddSubscription:
       return AddExecutorSubscription(step.index);
     case EntityCreateStepKind::kExecutorPrime: {
-      // Jazzy rclc lazily allocates its wait set on the first spin. Prime it
+      // Humble rclc lazily allocates its wait set on the first spin. Prime it
       // while the creation arena is open so ACTIVE can enforce a hard seal.
       const auto result = static_cast<rcl_ret_t>(InvokeMiddleware(
           MiddlewareBoundary::kExecutorSpin, step.deadline_ms, [this]() {

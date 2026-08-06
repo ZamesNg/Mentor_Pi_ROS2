@@ -26,14 +26,13 @@ nonzero target atomically as `UNSUPPORTED`, and keeps encoder telemetry active
 for passive direction checks. No ROS message, service, parameter, or host-side
 `motion_enabled` value can unlock that image.
 
-Inspect the profile that the supported wrapper would select before building:
+Build and inspect the default profile from the repository root:
 
 ```sh
-./tools/build_firmware.sh --print-motor-profile
+make firmware
 ```
 
-This is a configuration probe; it does not build or inspect an existing
-artifact. With no commissioning environment variables it must report
+With no commissioning acknowledgement it must report
 `mode=LOCKED`, `closed_loop_enabled=0`, and zero speed/output authority.
 
 After manually rotating each wheel with motor power disconnected and confirming
@@ -41,12 +40,10 @@ the raw and normalized encoder signs, a guarded non-release image may be built
 from the repository root with:
 
 ```sh
-RRCLITE_MOTOR_COMMISSIONING=1 \
-RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-  ./tools/build_firmware.sh
+make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
 ```
 
-The same environment with `--print-motor-profile` must report
+The commissioning build must report
 `mode=COMMISSIONING`, `maximum_accepted_rps=0.25`,
 `output_limit_permille=300`, and `release_qualified=0`. Omitting or changing
 the acknowledgement fails even for this non-building probe.
@@ -62,12 +59,13 @@ production image may accept nonzero motion. See
 for the ordered procedure.
 
 Every successful supported build also writes
-`build/stm32/rrclite-build-metadata.txt`. PlatformIO verifies that metadata,
-the pinned generated micro-ROS header/archive tree, the current project source
-fingerprint, the selected motor profile, and the ELF hash before creating an
-immutable upload snapshot. The `nobuild` target and debugger-initiated firmware
-loads are intentionally unsupported; debugger sessions are attach-only after a
-verified upload.
+`build/stm32/rrclite-build-metadata.txt`. The direct CubeProgrammer flash
+wrapper verifies that metadata, the pinned generated micro-ROS header/archive
+tree, the current project source fingerprint, the selected motor profile, and
+the ELF hash before creating an immutable upload snapshot. Flashing an
+unverified artifact and debugger-initiated firmware loads are intentionally
+unsupported. Source-level debugging requires a separate SWD probe; the
+CH9102F/USART1 ROM-bootloader path provides flashing only.
 
 ## Traceability
 
@@ -113,10 +111,11 @@ tree before execution, so generated mutations do not modify source files:
 ./tools/run_fuzz_smoke.sh
 ```
 
-The repository helper is the recommended local entry point, including from an
-Apple Silicon host: it builds and runs inside the pinned Linux/Clang 18
-firmware-builder container. `build/fuzz-smoke-linux/` is disposable working
-storage. A passed run is atomically published under a unique, read-only
+The repository helper is the recommended local entry point on the clean Ubuntu
+24.04 development host: it builds and runs inside the pinned ROS-free Ubuntu
+24.04/Clang 18 firmware-builder container. `build/fuzz-smoke-linux/` is
+disposable working storage. A passed run is atomically published under a
+unique, read-only
 `build/fuzz-evidence/<run-id>/` directory and an existing run ID is never
 replaced. The closed SHA-256 manifest binds the report and log to separate
 production-source, test-input, source-corpus, final-corpus, and Docker
@@ -124,11 +123,13 @@ toolchain digests. Verify a package with
 `./tools/verify_fuzz_evidence.sh build/fuzz-evidence/<run-id>`.
 
 The previously recorded 2026-08-06 long-run observation used the disposable
-single-report layout and was later overwritten by a smoke run. It is not
-accepted current-revision qualification evidence. Its immutable replacement is
-`build/fuzz-evidence/prehardware-20260806-fuzz-qualification-v3/`: 1,666,667
-inputs in each of seven harnesses, 11,666,669 total, with a passing semantic
-preflight and ASan/UBSan campaign. The package binds production fingerprint
+single-report layout and was later overwritten by a smoke run. Its immutable
+replacement, `prehardware-20260806-fuzz-qualification-v3`, ran 1,666,667 inputs
+in each of seven harnesses, 11,666,669 total, with a passing semantic preflight
+and ASan/UBSan campaign. Both records predate the Humble-only dependency
+conversion and expansion of the authoritative source manifest, so they are
+historical evidence only and do not qualify this revision. The retained
+package bound production fingerprint
 `d68c056faf1dd0ce4a83c32caea0f55b57e85579fbaab53f99852889ca410499`
 to test-input digest
 `6c8b4ff9bdf5dd2c4f34ffb53e3c77b5231f5cac4a827fb9e110bf3395bb04c2`
@@ -166,8 +167,9 @@ qualification campaign. The current harnesses assert rejection-state
 preservation for all topic mailboxes, RGB/OLED mergers, and their listed
 controller state paths. The bus UART driver also asserts that an invalid move,
 stop, query, or configure request starts no fake-HAL exchange. The 10-million
-current-revision input-count and sanitizer portion is complete; comprehensive
-no-invalid-hardware-call evidence is still required for
+pre-Humble campaign completed the historical input-count and sanitizer
+portion, but the Humble revision requires a new retained campaign;
+comprehensive no-invalid-hardware-call evidence is also still required for
 `VER-FUZZ-VAL-001`. USART1 input remains opaque to these seven harnesses, so
 they do not complete `VER-FUZZ-TRN-001`; no handwritten XRCE parser is used as
 substitute evidence.

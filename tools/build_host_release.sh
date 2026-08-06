@@ -7,7 +7,7 @@ readonly DEFAULT_PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly ENVIRONMENT_CHECK="${SCRIPT_DIR}/verify_host_build_environment.sh"
 readonly FINGERPRINT_TOOL="${SCRIPT_DIR}/host_source_fingerprint.sh"
 readonly RELOCATION_CHECK="${SCRIPT_DIR}/verify_host_release_relocation.sh"
-readonly ROS_SETUP="/opt/ros/jazzy/setup.bash"
+readonly ROS_SETUP="/opt/ros/humble/setup.bash"
 
 project_root="${DEFAULT_PROJECT_ROOT}"
 output_prefix=""
@@ -60,7 +60,7 @@ set -u
 rosdep check --from-paths \
   "${project_root}/src/mentor_pi_interfaces" \
   "${project_root}/src/mentor_pi_bringup" \
-  --ignore-src --rosdistro jazzy
+  --ignore-src --rosdistro humble
 
 mkdir -p "$(dirname "${output_prefix}")" "$(dirname "${work_directory}")"
 mkdir "${work_directory}"
@@ -95,17 +95,18 @@ readonly POST_TEST_SOURCE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${project_root}")"
 readonly ARCHITECTURE="$(dpkg --print-architecture)"
 readonly CREATED_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 readonly COMPILER_VERSION="$(c++ --version | head -n 1 | tr ' ' '_')"
-readonly BUILDER_IMAGE="${MENTOR_PI_HOST_BUILDER_IMAGE:-native-ubuntu-24.04}"
-if [[ "${BUILDER_IMAGE}" != "native-ubuntu-24.04" &&
+readonly BUILDER_IMAGE="${MENTOR_PI_HOST_BUILDER_IMAGE:-native-ubuntu-22.04}"
+if [[ "${BUILDER_IMAGE}" != "native-ubuntu-22.04" &&
       ! "${BUILDER_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
-  Fail "builder image must be a pinned digest or native-ubuntu-24.04"
+  Fail "builder image must be a pinned digest or native-ubuntu-22.04"
 fi
 cat >"${output_prefix}/HOST-BUILD-METADATA.txt" <<EOF
-format=rrclite-host-build-v1
+format=rrclite-host-build-v2
+ubuntu=22.04
 target_os=ubuntu
-target_version=24.04
+target_version=22.04
 architecture=${ARCHITECTURE}
-ros_distro=jazzy
+ros_distro=humble
 build_type=Release
 source_sha256=${INITIAL_SOURCE_FINGERPRINT}
 created_utc=${CREATED_UTC}

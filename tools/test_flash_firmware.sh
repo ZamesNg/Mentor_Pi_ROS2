@@ -26,14 +26,6 @@ Sha256() {
   fi
 }
 
-FileMode() {
-  if stat -c '%a' "$1" >/dev/null 2>&1; then
-    stat -c '%a' "$1"
-  else
-    stat -f '%Lp' "$1"
-  fi
-}
-
 ExpectFailure() {
   local expected_text="$1"
   shift
@@ -50,7 +42,7 @@ CreateFixture() {
   local mode="${2:-LOCKED}"
   local root="${TEST_ROOT}/${name}"
   local build_root="${root}/firmware/mentor_pi_mcu/build/stm32"
-  mkdir -p "${root}/tools" "${build_root}"
+  mkdir -p "${root}/tools" "${build_root}" "${root}/tmp"
   cp "${FLASH_SOURCE}" "${root}/tools/flash_firmware.sh"
   chmod +x "${root}/tools/flash_firmware.sh"
 
@@ -91,7 +83,28 @@ CreateFixture() {
     '#!/usr/bin/env bash' \
     'set -euo pipefail' \
     ': "${FAKE_PROGRAMMER_LOG:?}"' \
+    ': "${FAKE_PROGRAMMER_SNAPSHOT_LOG:?}"' \
     'printf "%s\n" "$@" >"${FAKE_PROGRAMMER_LOG}"' \
+    'snapshot=""' \
+    'while (($# > 0)); do' \
+    '  if [[ "$1" == "-w" && $# -ge 2 ]]; then' \
+    '    snapshot="$2"' \
+    '    break' \
+    '  fi' \
+    '  shift' \
+    'done' \
+    '[[ -n "${snapshot}" && -f "${snapshot}" && ! -L "${snapshot}" ]]' \
+    'if command -v sha256sum >/dev/null 2>&1; then' \
+    '  read -r snapshot_hash _ < <(sha256sum "${snapshot}")' \
+    'else' \
+    '  read -r snapshot_hash _ < <(shasum -a 256 "${snapshot}")' \
+    'fi' \
+    'if stat -c %a "${snapshot}" >/dev/null 2>&1; then' \
+    '  snapshot_mode="$(stat -c %a "${snapshot}")"' \
+    'else' \
+    '  snapshot_mode="$(stat -f %Lp "${snapshot}")"' \
+    'fi' \
+    'printf "path=%s\nsha256=%s\nmode=%s\n" "${snapshot}" "${snapshot_hash}" "${snapshot_mode}" >"${FAKE_PROGRAMMER_SNAPSHOT_LOG}"' \
     'exit "${FAKE_PROGRAMMER_EXIT_CODE:-0}"' \
     >"${root}/STM32_Programmer_CLI"
   chmod +x "${root}/STM32_Programmer_CLI"
@@ -106,10 +119,12 @@ RunFlash() {
   shift 3
   env \
     FAKE_PROGRAMMER_LOG="${root}/programmer.log" \
+    FAKE_PROGRAMMER_SNAPSHOT_LOG="${root}/programmer-snapshot.log" \
     FAKE_VERIFIER_LOG="${root}/verifier.log" \
     FAKE_VERIFIER_COUNT="${root}/verifier.count" \
     RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
     STM32_CUBE_PROGRAMMER_CLI="${root}/STM32_Programmer_CLI" \
+    TMPDIR="${root}/tmp" \
     "$@" \
     "${root}/tools/flash_firmware.sh" "${mode}" "${port}"
 }
@@ -126,70 +141,72 @@ ExpectFailure "well-formed /dev path" \
   RunFlash "${usage_root}" LOCKED 'port=attacker'
 ExpectFailure "well-formed /dev path" \
   RunFlash "${usage_root}" LOCKED /dev/../tmp/ttyUSB0
+ExpectFailure "existing character device" \
+  RunFlash "${usage_root}" LOCKED /dev/rrclite-port-that-does-not-exist
 
 commissioning_root="$(CreateFixture commissioning COMMISSIONING)"
 ExpectFailure "RRCLITE_COMMISSIONING_FLASH_ACK=" \
-  RunFlash "${commissioning_root}" COMMISSIONING /dev/ttyUSB0
+  RunFlash "${commissioning_root}" COMMISSIONING /dev/null
 
 wrong_mode_root="$(CreateFixture wrong-mode LOCKED)"
 ExpectFailure "metadata mode changed" \
-  RunFlash "${wrong_mode_root}" COMMISSIONING /dev/ttyUSB0 \
+  RunFlash "${wrong_mode_root}" COMMISSIONING /dev/null \
     RRCLITE_COMMISSIONING_FLASH_ACK=MOTORS_RAISED_CURRENT_LIMITED
 
 stale_root="$(CreateFixture stale)"
 printf 'changed\n' \
   >>"${stale_root}/firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf"
 ExpectFailure "ELF changed while the flash snapshot was copied" \
-  RunFlash "${stale_root}" LOCKED /dev/ttyUSB0
+  RunFlash "${stale_root}" LOCKED /dev/null
 [[ ! -e "${stale_root}/programmer.log" ]] || \
   Fail "CubeProgrammer ran for a stale firmware ELF"
 
 first_verifier_root="$(CreateFixture first-verifier)"
 ExpectFailure "artifact verification failed" \
-  RunFlash "${first_verifier_root}" LOCKED /dev/ttyUSB0 \
+  RunFlash "${first_verifier_root}" LOCKED /dev/null \
     FAKE_VERIFIER_FAIL_CALL=1
 [[ ! -e "${first_verifier_root}/programmer.log" ]] || \
   Fail "CubeProgrammer ran after initial artifact verification failed"
 
 second_verifier_root="$(CreateFixture second-verifier)"
 ExpectFailure "firmware changed while the flash snapshot was prepared" \
-  RunFlash "${second_verifier_root}" LOCKED /dev/ttyUSB0 \
+  RunFlash "${second_verifier_root}" LOCKED /dev/null \
     FAKE_VERIFIER_FAIL_CALL=2
 [[ ! -e "${second_verifier_root}/programmer.log" ]] || \
   Fail "CubeProgrammer ran after post-snapshot verification failed"
 
 metadata_race_root="$(CreateFixture metadata-race)"
 ExpectFailure "metadata changed while the flash snapshot was prepared" \
-  RunFlash "${metadata_race_root}" LOCKED /dev/ttyUSB0 \
+  RunFlash "${metadata_race_root}" LOCKED /dev/null \
     FAKE_VERIFIER_MUTATE_METADATA_CALL=2
 [[ ! -e "${metadata_race_root}/programmer.log" ]] || \
   Fail "CubeProgrammer ran after concurrent metadata replacement"
 
-conflict_root="$(CreateFixture conflicting-snapshot)"
-conflict_build="${conflict_root}/firmware/mentor_pi_mcu/build/stm32"
-conflict_hash="$(Sha256 "${conflict_build}/mentor_pi_mcu.elf")"
-mkdir -p "${conflict_build}/verified-artifacts"
-printf 'conflicting bytes\n' \
-  >"${conflict_build}/verified-artifacts/mentor_pi_mcu-${conflict_hash}.elf"
-ExpectFailure "existing verified firmware snapshot hash mismatch" \
-  RunFlash "${conflict_root}" LOCKED /dev/ttyUSB0
-[[ "$(cat "${conflict_build}/verified-artifacts/mentor_pi_mcu-${conflict_hash}.elf")" == \
-  "conflicting bytes" ]] || Fail "a conflicting snapshot was overwritten"
-
 programmer_failure_root="$(CreateFixture programmer-failure)"
 ExpectFailure "programming or read-back verification failed" \
-  RunFlash "${programmer_failure_root}" LOCKED /dev/ttyUSB0 \
+  RunFlash "${programmer_failure_root}" LOCKED /dev/null \
     FAKE_PROGRAMMER_EXIT_CODE=17
+failed_snapshot="$(sed -n 's/^path=//p' \
+  "${programmer_failure_root}/programmer-snapshot.log")"
+[[ -n "${failed_snapshot}" && ! -e "${failed_snapshot}" ]] || \
+  Fail "the temporary snapshot survived a CubeProgrammer failure"
 
 success_root="$(CreateFixture success)"
-RunFlash "${success_root}" LOCKED /dev/serial/by-id/rrclite-test >/dev/null
+RunFlash "${success_root}" LOCKED /dev/null >/dev/null
 success_build="${success_root}/firmware/mentor_pi_mcu/build/stm32"
 success_hash="$(Sha256 "${success_build}/mentor_pi_mcu.elf")"
-success_snapshot="${success_build}/verified-artifacts/mentor_pi_mcu-${success_hash}.elf"
-[[ -f "${success_snapshot}" && ! -L "${success_snapshot}" ]] || \
-  Fail "the digest-named verified snapshot was not published"
-[[ "$(FileMode "${success_snapshot}")" == "444" ]] || \
-  Fail "the verified snapshot is not read-only"
+success_snapshot="$(sed -n 's/^path=//p' \
+  "${success_root}/programmer-snapshot.log")"
+[[ "${success_snapshot}" == \
+  "${success_root}/tmp/rrclite-flash."*/"mentor_pi_mcu-${success_hash}.elf" ]] || \
+  Fail "CubeProgrammer did not receive the expected hash-named snapshot"
+grep -Fqx "sha256=${success_hash}" \
+  "${success_root}/programmer-snapshot.log" || \
+  Fail "the snapshot hash changed before CubeProgrammer ran"
+grep -Fqx 'mode=444' "${success_root}/programmer-snapshot.log" || \
+  Fail "the verified snapshot was not read-only"
+[[ ! -e "${success_snapshot}" && ! -e "$(dirname "${success_snapshot}")" ]] || \
+  Fail "the temporary snapshot survived successful programming"
 [[ "$(cat "${success_root}/verifier.count")" == "2" ]] || \
   Fail "the artifact verifier did not run before and after snapshotting"
 readonly EXPECTED_VERIFIER_LOG="${success_root}/expected-verifier.log"
@@ -202,8 +219,12 @@ cmp "${EXPECTED_VERIFIER_LOG}" "${success_root}/verifier.log" || \
 readonly EXPECTED_PROGRAMMER_LOG="${success_root}/expected-programmer.log"
 printf '%s\n' \
   -c \
-  port=/dev/serial/by-id/rrclite-test \
+  port=/dev/null \
   br=115200 \
+  P=EVEN \
+  db=8 \
+  sb=1 \
+  fc=OFF \
   -w \
   "${success_snapshot}" \
   -v \
@@ -211,10 +232,10 @@ printf '%s\n' \
 cmp "${EXPECTED_PROGRAMMER_LOG}" "${success_root}/programmer.log" || \
   Fail "CubeProgrammer arguments differ from the reviewed UART command"
 
-original_snapshot_hash="$(Sha256 "${success_snapshot}")"
 printf 'later authoritative replacement\n' \
   >"${success_build}/mentor_pi_mcu.elf"
-[[ "$(Sha256 "${success_snapshot}")" == "${original_snapshot_hash}" ]] || \
-  Fail "the verified snapshot changed with the authoritative source"
+grep -Fqx "sha256=${success_hash}" \
+  "${success_root}/programmer-snapshot.log" || \
+  Fail "the recorded flashed hash changed with the authoritative source"
 
 echo "Direct CubeProgrammer firmware flash tests passed."

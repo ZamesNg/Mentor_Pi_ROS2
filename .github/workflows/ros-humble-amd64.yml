@@ -1,0 +1,96 @@
+name: ROS 2 Humble host matrix
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ros-humble-amd64.yml'
+      - 'Makefile'
+      - 'tools/**'
+      - 'src/**'
+      - 'docs/framework/ros-interface-contract.md'
+      - 'docs/host-preparation-and-handoff.md'
+  push:
+    paths:
+      - '.github/workflows/ros-humble-amd64.yml'
+      - 'Makefile'
+      - 'tools/**'
+      - 'src/**'
+      - 'docs/framework/ros-interface-contract.md'
+      - 'docs/host-preparation-and-handoff.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-release:
+    name: Humble Release handoff (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-22.04
+          - architecture: arm64
+            runner: ubuntu-22.04-arm
+    env:
+      HOST_ARCH: ${{ matrix.architecture }}
+      HOST_RELEASE_ID: ci-${{ github.run_id }}-${{ matrix.architecture }}
+      HOST_OUTPUT: build/host-handoff/ci-${{ github.run_id }}-${{ matrix.architecture }}
+      AGENT_EVIDENCE_ID: ci-${{ github.run_id }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify native runner and Docker
+        run: |
+          test "$(dpkg --print-architecture)" = "${HOST_ARCH}"
+          docker version
+          docker info
+      - name: Pull exact Humble host image
+        run: |
+          host_image="$(./tools/build_host_handoff_container.sh \
+            --print-default-image --architecture "${HOST_ARCH}")"
+          test -n "${host_image}"
+          docker pull --platform "linux/${HOST_ARCH}" "${host_image}"
+          agent_image="$(./tools/verify_microros_agent_build_container.sh \
+            --print-default-image --architecture "${HOST_ARCH}")"
+          test -n "${agent_image}"
+          docker pull --platform "linux/${HOST_ARCH}" "${agent_image}"
+      - name: Build, test, package, and relocate host release
+        run: make host
+      - name: Verify host handoff identity and manifest
+        run: |
+          test -f "${HOST_OUTPUT}/HOST-HANDOFF.txt"
+          test -f "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
+          grep -Fqx 'package_format=rrclite-host-handoff-v2' \
+            "${HOST_OUTPUT}/HOST-HANDOFF.txt"
+          grep -Fqx 'ubuntu=22.04' "${HOST_OUTPUT}/HOST-HANDOFF.txt"
+          grep -Fqx 'ros_distro=humble' "${HOST_OUTPUT}/HOST-HANDOFF.txt"
+          grep -Fqx "architecture=${HOST_ARCH}" \
+            "${HOST_OUTPUT}/HOST-HANDOFF.txt"
+          grep -Fqx 'format=rrclite-host-build-v2' \
+            "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
+          grep -Fqx 'ubuntu=22.04' \
+            "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
+          grep -Fqx 'ros_distro=humble' \
+            "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
+          grep -Fqx "architecture=${HOST_ARCH}" \
+            "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
+          (cd "${HOST_OUTPUT}" && sha256sum --check SHA256SUMS)
+      - name: Build pinned native Humble Agent
+        run: make agent
+      - name: Upload Agent compatibility evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: micro-ros-agent-${{ matrix.architecture }}
+          path: build/microros-agent-verification/${{ env.AGENT_EVIDENCE_ID }}-${{ matrix.architecture }}
+          if-no-files-found: error
+          retention-days: 14

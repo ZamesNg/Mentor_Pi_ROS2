@@ -50,9 +50,30 @@ done
 [[ "${work_directory}" == /* && -d "${work_directory}" ]] || Usage
 [[ -x "${prefix}/lib/mentor_pi_bringup/promote_host_release" ]] ||
   Fail "release promoter is missing"
+readonly BUILD_METADATA="${prefix}/HOST-BUILD-METADATA.txt"
+[[ -f "${BUILD_METADATA}" && ! -L "${BUILD_METADATA}" ]] ||
+  Fail "release build metadata is missing or symbolic"
+architecture_lines="$(grep -Ec '^architecture=' "${BUILD_METADATA}" || true)"
+[[ "${architecture_lines}" == "1" ]] ||
+  Fail "release build metadata must contain exactly one architecture entry"
+readonly ARCHITECTURE="$(grep -E '^architecture=' "${BUILD_METADATA}" | cut -d= -f2-)"
+[[ "${ARCHITECTURE}" == "amd64" || "${ARCHITECTURE}" == "arm64" ]] ||
+  Fail "release build metadata has unsupported architecture ${ARCHITECTURE}"
 
 relocation_root="$(mktemp -d "${work_directory}/relocation.XXXXXX")"
+mkdir -p "${relocation_root}/environment"
+cat >"${relocation_root}/environment/os-release" <<'EOF'
+ID=ubuntu
+VERSION_ID="22.04"
+EOF
+cat >"${relocation_root}/environment/humble-setup.bash" <<'EOF'
+: "${AMENT_TRACE_SETUP_FILES:=}"
+export ROS_DISTRO=humble
+EOF
 MENTOR_PI_DEPLOYMENT_TEST_ROOT="${relocation_root}" \
+MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE="${relocation_root}/environment/os-release" \
+MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE="${ARCHITECTURE}" \
+MENTOR_PI_DEPLOYMENT_TEST_ROS_SETUP="${relocation_root}/environment/humble-setup.bash" \
   "${prefix}/lib/mentor_pi_bringup/promote_host_release" \
     --staged-prefix "${prefix}" --release-id relocation-smoke
 readonly ACTIVE_PREFIX="${relocation_root}/opt/mentor_pi/host"

@@ -13,6 +13,17 @@ readonly EVIDENCE_ROOT_RELATIVE="build/fuzz-evidence"
 readonly MAXIMUM_RUNS_PER_HARNESS=10000000
 readonly HARNESS_COUNT=7
 
+declare -a docker_build_command=(docker build)
+for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
+    http_proxy https_proxy no_proxy; do
+  if [[ -n "${!proxy_variable:-}" ]]; then
+    docker_build_command+=(
+      --build-arg "${proxy_variable}=${!proxy_variable}"
+    )
+  fi
+done
+readonly -a docker_build_command
+
 RUNS_PER_HARNESS=10000
 PRINT_PLAN=0
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -104,7 +115,8 @@ docker info >/dev/null 2>&1 || Fail "Docker Desktop/Engine is not running"
    ! -L "${PROJECT_ROOT}/${EVIDENCE_DIRECTORY_RELATIVE}" ]] || \
   Fail "evidence run already exists and will not be overwritten: ${RUN_ID}"
 
-docker build --file "${DOCKERFILE}" --tag "${IMAGE}" \
+"${docker_build_command[@]}" \
+  --file "${DOCKERFILE}" --tag "${IMAGE}" \
   "${PROJECT_ROOT}/tools/docker"
 readonly IMAGE_ID="$(docker image inspect --format '{{.Id}}' "${IMAGE}")"
 [[ "${IMAGE_ID}" == sha256:* ]] || Fail "could not resolve Docker image ID"
@@ -120,32 +132,7 @@ docker run --rm --network=none \
   bash -euc '
     set -o pipefail
     write_production_source_manifest() {
-      {
-        printf "%s\0" \
-          src/mentor_pi_interfaces/CMakeLists.txt \
-          src/mentor_pi_interfaces/package.xml \
-          firmware/mentor_pi_mcu/CMakeLists.txt \
-          tools/build_firmware.sh \
-          tools/docker/firmware-builder.Dockerfile \
-          tools/firmware_source_fingerprint.sh
-        find \
-          src/mentor_pi_interfaces/include \
-          src/mentor_pi_interfaces/msg \
-          src/mentor_pi_interfaces/srv \
-          firmware/mentor_pi_mcu/app \
-          firmware/mentor_pi_mcu/config \
-          firmware/mentor_pi_mcu/drivers \
-          firmware/mentor_pi_mcu/include \
-          firmware/mentor_pi_mcu/linker \
-          firmware/mentor_pi_mcu/platform \
-          firmware/mentor_pi_mcu/src \
-          firmware/mentor_pi_mcu/target/stm32 \
-          -type f \
-          ! -name "*.pyc" \
-          ! -name ".DS_Store" \
-          ! -path "*/__pycache__/*" \
-          -print0
-      } | LC_ALL=C sort -zu | xargs -0 sha256sum
+      tools/firmware_source_fingerprint.sh --manifest firmware
     }
     write_test_input_manifest() {
       {

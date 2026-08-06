@@ -58,7 +58,7 @@ set(RRCLITE_CUBE_ROOT
   CACHE PATH "Pinned STM32CubeF4 v1.27.1 source tree")
 set(RRCLITE_MICROROS_ROOT
   "${RRCLITE_MCU_ROOT}/build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros"
-  CACHE PATH "Generated Jazzy libmicroros directory")
+  CACHE PATH "Generated Humble libmicroros directory")
 set(RRCLITE_EXPECTED_GCC_VERSION "13.2.1" CACHE STRING
   "Exact Arm GNU compiler version used for qualified firmware builds")
 option(RRCLITE_MOTOR_COMMISSIONING
@@ -80,7 +80,7 @@ endif()
 set(RRCLITE_CUBE_COMMIT
   "52757b5e33259a088509a777a9e3a5b971194c7d")
 set(RRCLITE_MICROROS_UTILS_COMMIT
-  "a5b2127495ae0ab53d7a1360beaf17822309a3cc")
+  "bd531b273c1bcd070b3143c5642128ec75a6f04e")
 set(RRCLITE_MICROROS_UTILS_ROOT
   "${RRCLITE_MCU_ROOT}/third_party/micro_ros_stm32cubemx_utils")
 set(RRCLITE_LINKER_SCRIPT

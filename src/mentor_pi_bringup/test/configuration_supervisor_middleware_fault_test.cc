@@ -104,7 +104,7 @@ class WithholdingControllerPeer {
                std::shared_ptr<SetMotorModel::Response> response) {
           HandleMotorRequest(*request, response.get());
         },
-        rclcpp::ServicesQoS{}, service_callback_group_);
+        rmw_qos_profile_services_default, service_callback_group_);
     pwm_service_ = node_->create_service<SetPwmServoOffsets>(
         "pwm_servos/set_offsets",
         [this](const std::shared_ptr<SetPwmServoOffsets::Request>,
@@ -116,7 +116,7 @@ class WithholdingControllerPeer {
           response->result.code = Result::OK;
           response->applied_mask = SetPwmServoOffsets::Request::ALL_SERVOS;
         },
-        rclcpp::ServicesQoS{}, service_callback_group_);
+        rmw_qos_profile_services_default, service_callback_group_);
     battery_service_ = node_->create_service<SetBatteryThreshold>(
         "battery/set_low_threshold",
         [this](const std::shared_ptr<SetBatteryThreshold::Request> request,
@@ -128,7 +128,7 @@ class WithholdingControllerPeer {
           response->result.code = Result::OK;
           response->active_threshold_mv = request->threshold_mv;
         },
-        rclcpp::ServicesQoS{}, service_callback_group_);
+        rmw_qos_profile_services_default, service_callback_group_);
   }
 
   WithholdingControllerPeer(const WithholdingControllerPeer&) = delete;

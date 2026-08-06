@@ -39,7 +39,7 @@ mkdir -p "${SYSTEM_ROOT}/etc/default" \
 
 cat >"${SYSTEM_ROOT}/etc/os-release" <<'EOF'
 ID=ubuntu
-VERSION_ID="24.04"
+VERSION_ID="22.04"
 EOF
 printf '%s\n' 'ROS_DOMAIN_ID=37' \
   >"${SYSTEM_ROOT}/etc/default/mentor-pi"
