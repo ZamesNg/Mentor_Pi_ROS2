@@ -61,8 +61,7 @@ bash -n "${PROJECT_ROOT}"/tools/*.sh
 "${PROJECT_ROOT}/tools/test_firmware_artifact_verification.sh"
 "${PROJECT_ROOT}/tools/test_microros_agent_install_state.sh"
 "${PROJECT_ROOT}/tools/test_package_board_handoff.sh"
-"${PROJECT_ROOT}/tools/test_platformio_uart_upload.sh"
-python3 "${PROJECT_ROOT}/tools/test_platformio_extra.py"
+"${PROJECT_ROOT}/tools/test_flash_firmware.sh"
 
 RunCmakeSuite() {
   local name="$1"

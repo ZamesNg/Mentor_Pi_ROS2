@@ -35,7 +35,6 @@ done < <(
     -not -path '*/build/*' \
     -not -path '*/generated/*' \
     -not -path '*/third_party/*' \
-    -not -path '*/.pio/*' \
     -print0
 )
 

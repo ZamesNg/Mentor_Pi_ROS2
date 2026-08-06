@@ -20,10 +20,6 @@ Testing/
 # Local inspection and rendering scratch space.
 tmp/
 
-# PlatformIO outputs.
-.pio/
-**/.pio/
-
 # Downloaded firmware dependencies and generated micro-ROS library.
 firmware/mentor_pi_mcu/third_party/
 firmware/mentor_pi_mcu/generated/

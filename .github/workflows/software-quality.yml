@@ -35,8 +35,8 @@ jobs:
           ./tools/test_host_handoff_tools.sh
           ./tools/test_microros_agent_install_state.sh
           ./tools/test_package_board_handoff.sh
+          ./tools/test_flash_firmware.sh
           ./tools/test_run_fuzz_smoke.sh
-          python3 tools/test_platformio_extra.py
 
   format:
     name: clang-format 18

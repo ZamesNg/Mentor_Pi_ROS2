@@ -26,7 +26,6 @@ CLI_EXAMPLES_PATH = PROJECT_ROOT / "docs/ros2-cli-examples.md"
 
 EXCLUDED_DIRECTORY_NAMES = {
     ".git",
-    ".pio",
     "__pycache__",
     "build",
     "generated",
