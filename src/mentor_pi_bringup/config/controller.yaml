@@ -1,0 +1,5 @@
+/mentor_pi/configuration_supervisor:
+  ros__parameters:
+    motor_model: "JGA27"
+    pwm_servo_offsets_us: [0, 0, 0, 0]
+    battery_low_threshold_mv: 6300

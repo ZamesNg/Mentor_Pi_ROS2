@@ -1,0 +1,38 @@
+# Canonical repository URL (without a trailing .git), then detached commit.
+# Keep this sorted. tools/apply_microros_source_lock.sh rejects missing and
+# unexpected repositories in the generated firmware workspace.
+https://github.com/ament/ament_cmake 5741cff5b9f83253bf3521bd8f44108fde3504ad
+https://github.com/ament/ament_index 2ccdcb8fd19a364fc793273b5793459207a440b9
+https://github.com/ament/ament_lint 9121ac787058642730206a52daba614f9c86b0fb
+https://github.com/ament/ament_package ee3c5eda4fbc4df2c7a135d0ac1385e4a53fa0ee
+https://github.com/ament/googletest 449327bfc17e58db5ce53955b8e250427909a1c8
+https://github.com/ament/uncrustify_vendor e3492bf8846c36e8686a11f2af45f361be8a790b
+https://github.com/eProsima/Micro-CDR ed4fd513a24a53b93d548d342cb7aa0a18716f04
+https://github.com/eProsima/Micro-XRCE-DDS-Client 83f129a80770a09aac9e823896ecbf6a0eddf0fc
+https://github.com/micro-ROS/micro_ros_msgs e65ab21bd0733ebff2af6317d573cc584efa5893
+https://github.com/micro-ROS/micro_ros_utilities 097bde134ded13eb142bf89a49804b618deedb57
+https://github.com/micro-ROS/rcl 101c8f459a384aba727e284965166d436571adb7
+https://github.com/micro-ROS/rcutils 4584427a1f1283bbafbccadd5b63ffa320af623a
+https://github.com/micro-ROS/rmw-microxrcedds a698d4e9fc7f6780c44cc900a279d3f2d0c90856
+https://github.com/micro-ROS/rosidl_typesupport 352f208e29f33d7a5e78f4aec38ac0056d9ff23e
+https://github.com/micro-ROS/rosidl_typesupport_microxrcedds 9672e11175e616bc3fb7449288d0868ab36419bf
+https://github.com/ros-controls/control_msgs cb03ad335b885e718821eb7ed027e610d747432f
+https://github.com/ros2/ament_cmake_ros 8f51937fc9a802d11e8b3df2a65aa28cdd888fde
+https://github.com/ros2/common_interfaces a941f14bb318d8d904505ed935ccbb97f24a70a4
+https://github.com/ros2/example_interfaces 4ed406d1277df78be01a31005306d69e7592a993
+https://github.com/ros2/libyaml_vendor 57b7deca1fa34ea95a6456c0cc08070c4ab389c2
+https://github.com/ros2/rcl 22c0b957140035c675f0a061daaab5fd6b2080e7
+https://github.com/ros2/rcl_interfaces 7aa3caf43377ea6ad615bc1040832e2c7566bfbe
+https://github.com/ros2/rcl_logging 727920c2592be6deb6983f0fe1b57cbc929cbb70
+https://github.com/ros2/rclc 45ef3de567588652c7f05017a91ea29921dd6862
+https://github.com/ros2/rcpputils 67590324311ce4c60fef774205d55c93fe3cf1b6
+https://github.com/ros2/rmw 9f42ff0f18c8c4fd2a84a7c27d11ec8371e968ea
+https://github.com/ros2/rmw_implementation 23fe893a860545da06ec98d0a22fdc8554d5c0ac
+https://github.com/ros2/ros2_tracing 615d3dc1ea9ce39784f36ab8bce3b362cd530a07
+https://github.com/ros2/rosidl 85fa592b698b0f665e3120f48fac0d35e2f7d8a4
+https://github.com/ros2/rosidl_core c6eb22b0e77cf57b19e9c6ffd114a00749404215
+https://github.com/ros2/rosidl_dds 8d6fdb365792c81861cf1d49da2d265e91dca86d
+https://github.com/ros2/rosidl_defaults 9749b5919add7e5960cd931ec547d45f06bd0025
+https://github.com/ros2/rosidl_dynamic_typesupport cb8c54d12c678daa70410bb0626ed8626f561e45
+https://github.com/ros2/test_interface_files 1c92e082fe14f90b772d308d113e510ad2c79fb9
+https://github.com/ros2/unique_identifier_msgs 901599ee92c2ee949f42a5c5d821c92b3e515d69

@@ -1,0 +1,5 @@
+format=mentor-pi-micro-ros-agent-source-lock-v1
+agent_repository=https://github.com/micro-ROS/micro-ROS-Agent.git
+agent_commit=52abdf5a9897637b2539cb1c239e1ec4fa92e01c
+messages_repository=https://github.com/micro-ROS/micro_ros_msgs.git
+messages_commit=e65ab21bd0733ebff2af6317d573cc584efa5893

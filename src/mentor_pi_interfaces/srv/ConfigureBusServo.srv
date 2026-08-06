@@ -1,0 +1,23 @@
+uint16 SET_ID=1
+uint16 SET_OFFSET=2
+uint16 SAVE_OFFSET=4
+uint16 SET_POSITION_LIMITS=8
+uint16 SET_VOLTAGE_LIMITS=16
+uint16 SET_TEMPERATURE_LIMIT=32
+uint16 SET_TORQUE=64
+uint16 ALL_UPDATES=127
+
+uint8 servo_id
+uint16 update_mask
+uint8 new_id
+int8 offset
+uint16 position_min
+uint16 position_max
+uint16 voltage_min_mv
+uint16 voltage_max_mv
+uint8 temperature_limit_c
+bool torque_enabled
+---
+mentor_pi_interfaces/Result result
+uint16 applied_mask
+uint8 effective_id

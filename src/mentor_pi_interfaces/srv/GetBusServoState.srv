@@ -1,0 +1,16 @@
+uint16 FIELD_ID=1
+uint16 FIELD_POSITION=2
+uint16 FIELD_OFFSET=4
+uint16 FIELD_VOLTAGE=8
+uint16 FIELD_TEMPERATURE=16
+uint16 FIELD_POSITION_LIMITS=32
+uint16 FIELD_VOLTAGE_LIMITS=64
+uint16 FIELD_TEMPERATURE_LIMIT=128
+uint16 FIELD_TORQUE=256
+uint16 ALL_FIELDS=511
+
+uint8 servo_id
+uint16 fields
+---
+mentor_pi_interfaces/Result result
+mentor_pi_interfaces/BusServoState state

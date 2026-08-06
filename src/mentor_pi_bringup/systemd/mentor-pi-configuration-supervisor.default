@@ -1,0 +1,6 @@
+# Overrides consumed only by mentor-pi-configuration-supervisor.service.
+# The launcher sources this merged ROS 2 workspace and immediately execs the
+# compiled C++ node with the deployment configuration below.
+MENTOR_PI_ROS_SETUP=/opt/mentor_pi/host/setup.bash
+MENTOR_PI_SUPERVISOR_EXECUTABLE=/opt/mentor_pi/host/lib/mentor_pi_bringup/configuration_supervisor
+MENTOR_PI_CONTROLLER_CONFIG=/etc/mentor-pi/controller.yaml

@@ -1,0 +1,8 @@
+[Unit]
+Description=Mentor Pi MCU Agent and configuration supervisor
+Requires=mentor-pi-runtime.service
+Wants=mentor-pi-agent.service mentor-pi-configuration-supervisor.service
+After=mentor-pi-runtime.service
+
+[Install]
+WantedBy=multi-user.target

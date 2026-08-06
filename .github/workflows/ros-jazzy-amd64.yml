@@ -1,0 +1,61 @@
+name: ROS 2 Jazzy amd64
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ros-jazzy-amd64.yml'
+      - 'src/**'
+      - 'docs/framework/ros-interface-contract.md'
+  push:
+    paths:
+      - '.github/workflows/ros-jazzy-amd64.yml'
+      - 'src/**'
+      - 'docs/framework/ros-interface-contract.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  colcon:
+    name: Jazzy build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install ROS 2 Jazzy and ROS build tools
+        uses: ros-tooling/setup-ros@649ef6bcd696da05bc27ceb3fab69d810c0daeab # 0.7.19
+        with:
+          required-ros-distributions: jazzy
+      - name: Resolve package dependencies
+        run: |
+          test "$(dpkg --print-architecture)" = amd64
+          rosdep install \
+            --from-paths src \
+            --ignore-src \
+            --rosdistro jazzy \
+            -y
+      - name: Build ROS packages
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build \
+            --packages-up-to mentor_pi_bringup \
+            --event-handlers console_direct+ \
+            --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
+      - name: Test ROS packages
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          colcon test \
+            --packages-select mentor_pi_interfaces mentor_pi_bringup \
+            --event-handlers console_direct+
+          colcon test-result --verbose

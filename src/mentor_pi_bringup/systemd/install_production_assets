@@ -1,0 +1,306 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly SERIAL_GROUP="mentor-pi-serial"
+readonly SERVICE_USER="mentor-pi"
+readonly UDEV_RULE_NAME="99-mentor-pi-mcu.rules"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly INSTALL_IDLE_GUARD="${SCRIPT_DIR}/require_controller_target_inactive"
+
+mode=""
+ros_domain_id=""
+identity_kind=""
+identity_value=""
+device=""
+share_dir=""
+
+Usage() {
+  cat >&2 <<'EOF'
+Usage: install_production_assets --mode first-install|upgrade \
+  --ros-domain-id 0..232 --identity-kind serial|id-path \
+  --identity-value VALUE --device /dev/ttyUSBX [--share-dir PATH]
+EOF
+  exit 2
+}
+
+while (($# > 0)); do
+  case "$1" in
+    --mode) mode="${2:-}"; shift 2 ;;
+    --ros-domain-id) ros_domain_id="${2:-}"; shift 2 ;;
+    --identity-kind) identity_kind="${2:-}"; shift 2 ;;
+    --identity-value) identity_value="${2:-}"; shift 2 ;;
+    --device) device="${2:-}"; shift 2 ;;
+    --share-dir) share_dir="${2:-}"; shift 2 ;;
+    *) Usage ;;
+  esac
+done
+
+[[ "${mode}" == "first-install" || "${mode}" == "upgrade" ]] || Usage
+if [[ ! "${ros_domain_id}" =~ ^(0|[1-9][0-9]{0,2})$ ]] ||
+    ((ros_domain_id > 232)); then
+  echo "ROS domain must be an integer in [0, 232]." >&2
+  exit 2
+fi
+[[ "${identity_kind}" == "serial" || "${identity_kind}" == "id-path" ]] || \
+  Usage
+if [[ ! "${identity_value}" =~ ^[A-Za-z0-9._:+/@-]+$ ]]; then
+  echo "Device identity contains unsupported udev-match characters." >&2
+  exit 2
+fi
+[[ "${device}" == /dev/* ]] || Usage
+
+readonly TEST_ROOT="${MENTOR_PI_DEPLOYMENT_TEST_ROOT:-}"
+if [[ -z "${TEST_ROOT}" && "$(id -u)" != "0" ]]; then
+  echo "Run install_production_assets as root." >&2
+  exit 1
+fi
+if [[ -z "${TEST_ROOT}" ]]; then
+  exec 8>/run/lock/mentor-pi-production-install.lock
+  if ! /usr/bin/flock -n 8; then
+    echo "Another Mentor Pi production installation is already running." >&2
+    exit 1
+  fi
+fi
+if [[ -z "${TEST_ROOT}" ]]; then
+  [[ -x "${INSTALL_IDLE_GUARD}" ]] || {
+    echo "Deployment idle guard is missing at ${INSTALL_IDLE_GUARD}." >&2
+    exit 1
+  }
+  "${INSTALL_IDLE_GUARD}"
+fi
+
+if [[ -z "${share_dir}" ]]; then
+  share_dir="$(cd "${SCRIPT_DIR}/../.." && pwd)/share/mentor_pi_bringup"
+fi
+readonly SHARE_DIR="${share_dir}"
+readonly UDEVADM="${MENTOR_PI_UDEVADM:-/usr/bin/udevadm}"
+readonly SYS_CLASS_TTY="${MENTOR_PI_SYS_CLASS_TTY:-/sys/class/tty}"
+
+for source_file in config/controller.yaml \
+    systemd/mentor-pi-configuration-supervisor.default \
+    systemd/mentor-pi-runtime.service \
+    systemd/mentor-pi-agent.service \
+    systemd/mentor-pi-configuration-supervisor.service \
+    systemd/mentor-pi-controller.target \
+    udev/99-mentor-pi-mcu.rules.in; do
+  [[ -f "${SHARE_DIR}/${source_file}" ]] || {
+    echo "Deployment release is missing ${source_file}." >&2
+    exit 1
+  }
+done
+
+Destination() {
+  printf '%s%s' "${TEST_ROOT}" "$1"
+}
+
+PropertyValue() {
+  local properties="$1"
+  local name="$2"
+  sed -n "s/^${name}=//p" <<<"${properties}" | head -n 1
+}
+
+IdentityMatches() {
+  local properties="$1"
+  local observed=""
+  if [[ "$(PropertyValue "${properties}" ID_VENDOR_ID)" != "1a86" ||
+        "$(PropertyValue "${properties}" ID_MODEL_ID)" != "55d4" ]]; then
+    return 1
+  fi
+  if [[ "${identity_kind}" == "serial" ]]; then
+    observed="$(PropertyValue "${properties}" ID_SERIAL_SHORT)"
+  else
+    observed="$(PropertyValue "${properties}" ID_PATH)"
+  fi
+  [[ "${observed}" == "${identity_value}" ]]
+}
+
+VerifyConnectedIdentity() {
+  [[ -x "${UDEVADM}" ]] || {
+    echo "udevadm is required at ${UDEVADM}." >&2
+    exit 1
+  }
+  local selected_properties=""
+  if ! selected_properties="$(${UDEVADM} info --query=property \
+      --name="${device}" 2>/dev/null)" ||
+      ! IdentityMatches "${selected_properties}"; then
+    echo "${device} is not the requested uniquely identified CH9102F." >&2
+    exit 1
+  fi
+
+  local match_count=0
+  local tty_path=""
+  local properties=""
+  shopt -s nullglob
+  for tty_path in "${SYS_CLASS_TTY}"/*; do
+    if properties="$(${UDEVADM} info --query=property \
+        --name="/dev/$(basename "${tty_path}")" 2>/dev/null)" &&
+        IdentityMatches "${properties}"; then
+      ((match_count += 1))
+    fi
+  done
+  shopt -u nullglob
+  if ((match_count != 1)); then
+    echo "Expected exactly one connected CH9102F with identity " \
+      "${identity_value}; found ${match_count}." >&2
+    exit 1
+  fi
+}
+
+SetupServiceAccount() {
+  [[ -n "${TEST_ROOT}" ]] && return
+  if ! getent group "${SERIAL_GROUP}" >/dev/null; then
+    groupadd --system "${SERIAL_GROUP}"
+  fi
+  local serial_gid=""
+  serial_gid="$(getent group "${SERIAL_GROUP}" | cut -d: -f3)"
+  local account=""
+  local primary_gid=""
+  while IFS=: read -r account _ _ primary_gid _; do
+    if [[ "${primary_gid}" == "${serial_gid}" &&
+          "${account}" != "${SERVICE_USER}" ]]; then
+      echo "Refusing primary ${SERIAL_GROUP} membership for ${account}." >&2
+      exit 1
+    fi
+  done < <(getent passwd)
+
+  local member=""
+  local members=""
+  local -a member_list=()
+  members="$(getent group "${SERIAL_GROUP}" | cut -d: -f4)"
+  IFS=',' read -r -a member_list <<<"${members}"
+  for member in "${member_list[@]}"; do
+    if [[ -n "${member}" && "${member}" != "${SERVICE_USER}" ]]; then
+      echo "Refusing shared ${SERIAL_GROUP} membership for ${member}." >&2
+      exit 1
+    fi
+  done
+
+  if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir /nonexistent \
+      --shell /usr/sbin/nologin "${SERVICE_USER}"
+  fi
+  usermod --append --groups "${SERIAL_GROUP}" "${SERVICE_USER}"
+  if id -nG "${SERVICE_USER}" | tr ' ' '\n' | grep -Fqx dialout; then
+    gpasswd --delete "${SERVICE_USER}" dialout >/dev/null
+  fi
+}
+
+InstallFile() {
+  local source="$1"
+  local destination="$2"
+  if [[ -n "${TEST_ROOT}" ]]; then
+    install -m 0644 "${source}" "${destination}"
+  else
+    install -o root -g root -m 0644 "${source}" "${destination}"
+  fi
+}
+
+HardenSiteFile() {
+  local path="$1"
+  [[ -n "${TEST_ROOT}" ]] && return
+  chown root:root "${path}"
+  chmod 0644 "${path}"
+}
+
+RequireExactSharedIdentity() {
+  local shared_file="$1"
+  local active_lines=""
+  active_lines="$(grep -Ev '^[[:space:]]*(#|$)' "${shared_file}" || true)"
+  if [[ "${active_lines}" != "ROS_DOMAIN_ID=${ros_domain_id}" ]]; then
+    echo "${shared_file} must contain only ROS_DOMAIN_ID=${ros_domain_id}." \
+      >&2
+    exit 1
+  fi
+}
+
+VerifyConnectedIdentity
+
+readonly TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mentor-pi-install.XXXXXX")"
+Cleanup() {
+  rm -rf -- "${TEMP_ROOT}"
+}
+trap Cleanup EXIT
+
+if [[ "${identity_kind}" == "serial" ]]; then
+  selector="ATTRS{serial}==\"${identity_value}\""
+else
+  selector="ENV{ID_PATH}==\"${identity_value}\""
+fi
+readonly selector
+sed "s|@MENTOR_PI_DEVICE_IDENTITY@|${selector}|" \
+  "${SHARE_DIR}/udev/99-mentor-pi-mcu.rules.in" \
+  >"${TEMP_ROOT}/${UDEV_RULE_NAME}"
+if grep -Fq '@MENTOR_PI_DEVICE_IDENTITY@' \
+    "${TEMP_ROOT}/${UDEV_RULE_NAME}"; then
+  echo "udev template rendering failed." >&2
+  exit 1
+fi
+printf 'ROS_DOMAIN_ID=%s\n' "${ros_domain_id}" \
+  >"${TEMP_ROOT}/mentor-pi.default"
+
+readonly ETC_MENTOR_PI="$(Destination /etc/mentor-pi)"
+readonly ETC_DEFAULT="$(Destination /etc/default)"
+readonly ETC_UDEV="$(Destination /etc/udev/rules.d)"
+readonly ETC_SYSTEMD="$(Destination /etc/systemd/system)"
+mkdir -p "${ETC_MENTOR_PI}" "${ETC_DEFAULT}" "${ETC_UDEV}" \
+  "${ETC_SYSTEMD}"
+
+readonly CONTROLLER_DEST="${ETC_MENTOR_PI}/controller.yaml"
+readonly SHARED_DEST="${ETC_DEFAULT}/mentor-pi"
+readonly SUPERVISOR_DEST="${ETC_DEFAULT}/mentor-pi-configuration-supervisor"
+readonly UDEV_DEST="${ETC_UDEV}/${UDEV_RULE_NAME}"
+
+if [[ "${mode}" == "first-install" ]]; then
+  for destination in "${CONTROLLER_DEST}" "${SHARED_DEST}" \
+      "${SUPERVISOR_DEST}" "${UDEV_DEST}"; do
+    if [[ -e "${destination}" || -L "${destination}" ]]; then
+      echo "First install refuses existing site file ${destination}." >&2
+      exit 1
+    fi
+  done
+  SetupServiceAccount
+  InstallFile "${SHARE_DIR}/config/controller.yaml" "${CONTROLLER_DEST}"
+  InstallFile "${TEMP_ROOT}/mentor-pi.default" "${SHARED_DEST}"
+  InstallFile \
+    "${SHARE_DIR}/systemd/mentor-pi-configuration-supervisor.default" \
+    "${SUPERVISOR_DEST}"
+  InstallFile "${TEMP_ROOT}/${UDEV_RULE_NAME}" "${UDEV_DEST}"
+else
+  for required in "${CONTROLLER_DEST}" "${SHARED_DEST}" \
+      "${SUPERVISOR_DEST}" "${UDEV_DEST}"; do
+    [[ -f "${required}" && ! -L "${required}" ]] || {
+      echo "Upgrade requires existing regular site file ${required}." >&2
+      exit 1
+    }
+  done
+  RequireExactSharedIdentity "${SHARED_DEST}"
+  if grep -Eq '^[[:space:]]*ROS_' "${SUPERVISOR_DEST}"; then
+    echo "Service-specific defaults must not contain ROS_* variables." >&2
+    exit 1
+  fi
+  if ! cmp -s "${TEMP_ROOT}/${UDEV_RULE_NAME}" "${UDEV_DEST}"; then
+    echo "Upgrade refuses an implicit USB identity change in ${UDEV_DEST}." \
+      >&2
+    exit 1
+  fi
+  SetupServiceAccount
+  for site_file in "${CONTROLLER_DEST}" "${SHARED_DEST}" \
+      "${SUPERVISOR_DEST}" "${UDEV_DEST}"; do
+    HardenSiteFile "${site_file}"
+  done
+  echo "Preserved reviewed site configuration and ROS/device identity."
+fi
+
+for unit in mentor-pi-runtime.service mentor-pi-agent.service \
+    mentor-pi-configuration-supervisor.service mentor-pi-controller.target; do
+  InstallFile "${SHARE_DIR}/systemd/${unit}" "${ETC_SYSTEMD}/${unit}"
+done
+
+if [[ -z "${TEST_ROOT}" ]]; then
+  "${UDEVADM}" control --reload-rules
+  "${UDEVADM}" trigger --subsystem-match=tty
+  systemctl daemon-reload
+fi
+
+echo "Installed Mentor Pi production assets in ${mode} mode."

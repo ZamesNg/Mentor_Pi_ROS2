@@ -1,0 +1,5 @@
+/mentor_pi/configuration_supervisor:
+  ros__parameters:
+    motor_model: "JGB37"
+    pwm_servo_offsets_us: [-100, -50, 50, 100]
+    battery_low_threshold_mv: 9000

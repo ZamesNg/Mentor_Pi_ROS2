@@ -1,0 +1,24 @@
+uint16 FIELD_ID=1
+uint16 FIELD_POSITION=2
+uint16 FIELD_OFFSET=4
+uint16 FIELD_VOLTAGE=8
+uint16 FIELD_TEMPERATURE=16
+uint16 FIELD_POSITION_LIMITS=32
+uint16 FIELD_VOLTAGE_LIMITS=64
+uint16 FIELD_TEMPERATURE_LIMIT=128
+uint16 FIELD_TORQUE=256
+uint16 ALL_FIELDS=511
+
+uint16 valid_fields
+uint8 requested_id
+uint8 reported_id
+int16 position
+int8 offset
+uint16 voltage_mv
+uint8 temperature_c
+uint16 position_min
+uint16 position_max
+uint16 voltage_min_mv
+uint16 voltage_max_mv
+uint8 temperature_limit_c
+bool torque_enabled

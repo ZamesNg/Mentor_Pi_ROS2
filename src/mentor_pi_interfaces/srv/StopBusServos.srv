@@ -1,0 +1,5 @@
+uint8 count
+uint8[16] servo_id
+---
+mentor_pi_interfaces/Result result
+uint8 commands_transmitted

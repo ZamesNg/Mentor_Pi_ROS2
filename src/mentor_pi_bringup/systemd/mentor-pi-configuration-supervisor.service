@@ -1,0 +1,47 @@
+[Unit]
+Description=Mentor Pi ROS 2 configuration supervisor
+PartOf=mentor-pi-controller.target
+Requires=mentor-pi-runtime.service
+Wants=mentor-pi-agent.service
+After=network.target mentor-pi-runtime.service mentor-pi-agent.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=mentor-pi
+Environment=ROS_LOG_DIR=/var/log/mentor-pi
+Environment=XDG_RUNTIME_DIR=/run/mentor-pi
+Environment=MENTOR_PI_ROS_SETUP=/opt/mentor_pi/host/setup.bash
+Environment=MENTOR_PI_SUPERVISOR_EXECUTABLE=/opt/mentor_pi/host/lib/mentor_pi_bringup/configuration_supervisor
+Environment=MENTOR_PI_CONTROLLER_CONFIG=/etc/mentor-pi/controller.yaml
+EnvironmentFile=-/etc/default/mentor-pi-configuration-supervisor
+EnvironmentFile=/etc/default/mentor-pi
+ExecStart=/opt/mentor_pi/host/lib/mentor_pi_bringup/run_configuration_supervisor
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+KillSignal=SIGINT
+UMask=0027
+ReadWritePaths=/run/mentor-pi /var/log/mentor-pi
+NoNewPrivileges=true
+PrivateTmp=true
+DevicePolicy=closed
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mentor-pi-configuration-supervisor
+
+[Install]
+WantedBy=mentor-pi-controller.target

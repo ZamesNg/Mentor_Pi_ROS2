@@ -1,0 +1,83 @@
+name: Pinned firmware reproducibility
+
+on:
+  pull_request:
+    paths:
+      - '.clang-tidy'
+      - '.github/workflows/firmware-reproducibility.yml'
+      - 'firmware/**'
+      - 'src/mentor_pi_interfaces/**'
+      - 'tools/bootstrap_firmware_dependencies.sh'
+      - 'tools/build_firmware.sh'
+      - 'tools/build_microros_library.sh'
+      - 'tools/check_firmware_reproducibility.sh'
+      - 'tools/run_firmware_target_ci.sh'
+      - 'tools/run_firmware_target_ci_container.sh'
+      - 'tools/firmware_source_fingerprint.sh'
+      - 'tools/microros_artifact_fingerprint.sh'
+      - 'tools/verify_firmware_artifact.sh'
+      - 'tools/docker/**'
+  push:
+    paths:
+      - '.clang-tidy'
+      - '.github/workflows/firmware-reproducibility.yml'
+      - 'firmware/**'
+      - 'src/mentor_pi_interfaces/**'
+      - 'tools/bootstrap_firmware_dependencies.sh'
+      - 'tools/build_firmware.sh'
+      - 'tools/build_microros_library.sh'
+      - 'tools/check_firmware_reproducibility.sh'
+      - 'tools/run_firmware_target_ci.sh'
+      - 'tools/run_firmware_target_ci_container.sh'
+      - 'tools/firmware_source_fingerprint.sh'
+      - 'tools/microros_artifact_fingerprint.sh'
+      - 'tools/verify_firmware_artifact.sh'
+      - 'tools/docker/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  locked-image:
+    name: Locked reproducibility and STM32 target analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify Docker availability
+        run: |
+          docker version
+          docker info
+      - name: Fetch pinned firmware dependencies
+        run: ./tools/bootstrap_firmware_dependencies.sh
+      - name: Generate and verify pinned micro-ROS library
+        run: ./tools/build_microros_library.sh
+      - name: Compare two clean locked firmware builds
+        run: ./tools/check_firmware_reproducibility.sh
+      - name: Build Debug target and analyze STM32 translation units
+        run: ./tools/run_firmware_target_ci.sh
+      - name: Upload firmware and reproducibility report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rrclite-v2-locked-firmware
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf
+            firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.hex
+            firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.bin
+            firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.map
+            firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt
+            build/firmware-reproducibility/firmware-reproducibility.txt
+            build/firmware-target-debug/firmware-target-analysis.txt
+            build/firmware-target-debug/analyzed-first-party-sources.txt
+            build/firmware-target-debug/locked-required-strong-vector-symbols.txt
+            build/firmware-target-debug/debug-required-strong-vector-symbols.txt

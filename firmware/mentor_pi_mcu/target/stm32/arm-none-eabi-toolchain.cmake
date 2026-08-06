@@ -1,0 +1,27 @@
+set(CMAKE_SYSTEM_NAME Generic)
+set(CMAKE_SYSTEM_PROCESSOR arm)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+
+set(TOOLCHAIN_PREFIX arm-none-eabi)
+set(CMAKE_C_COMPILER ${TOOLCHAIN_PREFIX}-gcc)
+set(CMAKE_CXX_COMPILER ${TOOLCHAIN_PREFIX}-g++)
+set(CMAKE_ASM_COMPILER ${TOOLCHAIN_PREFIX}-gcc)
+set(CMAKE_AR ${TOOLCHAIN_PREFIX}-ar)
+set(CMAKE_NM ${TOOLCHAIN_PREFIX}-nm CACHE INTERNAL "")
+set(CMAKE_OBJCOPY ${TOOLCHAIN_PREFIX}-objcopy CACHE INTERNAL "")
+set(CMAKE_OBJDUMP ${TOOLCHAIN_PREFIX}-objdump CACHE INTERNAL "")
+set(CMAKE_SIZE ${TOOLCHAIN_PREFIX}-size CACHE INTERNAL "")
+
+set(RRCLITE_CPU_FLAGS
+  -mcpu=cortex-m4
+  -mthumb
+  -mfpu=fpv4-sp-d16
+  -mfloat-abi=hard
+)
+
+add_compile_options(
+  ${RRCLITE_CPU_FLAGS}
+  -ffunction-sections
+  -fdata-sections
+)
+add_link_options(${RRCLITE_CPU_FLAGS})

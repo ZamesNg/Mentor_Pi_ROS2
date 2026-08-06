@@ -1,0 +1,43 @@
+# Local legacy evidence. The v2 build must not depend on this directory.
+docs/reference/
+
+# macOS metadata.
+.DS_Store
+**/.DS_Store
+__pycache__/
+*.pyc
+
+# ROS 2 / colcon outputs.
+build/
+install/
+log/
+
+# CMake and native test outputs.
+cmake-build-*/
+**/cmake-build-*/
+Testing/
+
+# Local inspection and rendering scratch space.
+tmp/
+
+# PlatformIO outputs.
+.pio/
+**/.pio/
+
+# Downloaded firmware dependencies and generated micro-ROS library.
+firmware/mentor_pi_mcu/third_party/
+firmware/mentor_pi_mcu/generated/
+firmware/mentor_pi_mcu/.deps/
+
+# Compiler and analysis artifacts.
+compile_commands.json
+*.gcda
+*.gcno
+*.profraw
+*.profdata
+
+# Editor-local files.
+.vscode/
+.idea/
+*.swp
+*~

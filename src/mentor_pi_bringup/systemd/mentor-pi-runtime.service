@@ -1,0 +1,34 @@
+[Unit]
+Description=Mentor Pi shared runtime and ROS logging directories
+PartOf=mentor-pi-controller.target
+Before=mentor-pi-agent.service mentor-pi-configuration-supervisor.service
+
+[Service]
+Type=oneshot
+User=mentor-pi
+RuntimeDirectory=mentor-pi
+RuntimeDirectoryMode=0700
+LogsDirectory=mentor-pi
+LogsDirectoryMode=0750
+ExecStart=/usr/bin/test -w /run/mentor-pi
+ExecStart=/usr/bin/test -w /var/log/mentor-pi
+RemainAfterExit=yes
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=mentor-pi-controller.target

@@ -1,0 +1,11 @@
+uint8 MODEL_JGB520=0
+uint8 MODEL_JGB37=1
+uint8 MODEL_JGA27=2
+uint8 MODEL_JGB528=3
+
+uint8 model
+---
+mentor_pi_interfaces/Result result
+uint8 active_model
+uint32 ticks_per_revolution
+float32 max_rps

@@ -1,0 +1,4 @@
+uint16 threshold_mv
+---
+mentor_pi_interfaces/Result result
+uint16 active_threshold_mv

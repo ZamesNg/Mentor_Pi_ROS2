@@ -1,0 +1,3 @@
+# Required authoritative ROS identity loaded last by the Mentor Pi Agent and
+# configuration supervisor. Service-specific files must not contain ROS_* keys.
+ROS_DOMAIN_ID=0

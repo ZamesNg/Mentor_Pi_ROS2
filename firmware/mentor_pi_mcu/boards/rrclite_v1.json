@@ -1,0 +1,35 @@
+{
+  "build": {
+    "core": "stm32",
+    "cpu": "cortex-m4",
+    "extra_flags": "-DSTM32F407xx -DSTM32F407VETx -DMENTOR_PI_RRCLITE_V1",
+    "f_cpu": "168000000L",
+    "mcu": "stm32f407vet6",
+    "product_line": "STM32F407xx"
+  },
+  "debug": {
+    "default_tools": [
+      "stlink"
+    ],
+    "jlink_device": "STM32F407VE",
+    "onboard_tools": [],
+    "openocd_target": "stm32f4x",
+    "svd_path": "STM32F407xx.svd"
+  },
+  "frameworks": [
+    "stm32cube"
+  ],
+  "name": "Mentor Pi RRCLite V1.0",
+  "upload": {
+    "maximum_ram_size": 196608,
+    "maximum_size": 524288,
+    "protocol": "stlink",
+    "protocols": [
+      "stlink",
+      "jlink",
+      "custom"
+    ]
+  },
+  "url": "https://github.com/Hiwonder/MentorPi",
+  "vendor": "Mentor Pi"
+}
