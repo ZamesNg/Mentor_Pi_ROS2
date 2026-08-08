@@ -8,6 +8,9 @@ readonly ARTIFACT_VERIFIER="${SCRIPT_DIR}/verify_firmware_artifact.sh"
 readonly REQUIRED_UART_ACK="ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED"
 readonly REQUIRED_COMMISSIONING_ACK="MOTORS_RAISED_CURRENT_LIMITED"
 readonly TEMPORARY_PARENT="${TMPDIR:-/tmp}"
+readonly AUTOMATIC_BOOT_CONTROL="${RRCLITE_AUTOMATIC_BOOT_CONTROL:-0}"
+readonly PREFLIGHT_TIMEOUT_SEC="${RRCLITE_PROGRAMMER_PREFLIGHT_TIMEOUT_SEC:-15}"
+readonly FLASH_TIMEOUT_SEC="${RRCLITE_PROGRAMMER_FLASH_TIMEOUT_SEC:-300}"
 
 temporary_directory=""
 
@@ -53,13 +56,13 @@ ReadMetadata() {
 
 Usage() {
   cat <<'EOF'
-Usage: ./tools/flash_firmware.sh LOCKED|COMMISSIONING /dev/SERIAL_PORT
+Usage: ./tools/flash_firmware.sh LOCKED|COMMISSIONING|COMMISSIONING_PID /dev/SERIAL_PORT
 
 Before flashing:
   1. Disconnect motor and servo power.
   2. Connect the USB-C port labelled UART1 / USB serial 1 (not 5V5A OUT).
-  3. Hold BOOT, press and release RST, then release BOOT.
-  4. Set the exact acknowledgement only after completing those steps:
+  3. Enter the ROM bootloader automatically or with BOOT/RST.
+  4. Set the exact acknowledgement only after confirming actuator power is off:
 
        RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED
 
@@ -70,6 +73,9 @@ Commissioning firmware also requires raised wheels and current limiting:
 The factory ROM bootloader uses 115200 baud, 8E1, and no flow control. The
 running RRCLite application returns to its separately configured 1000000-baud
 8N1 transport after BOOT is released and the board is reset.
+
+Set RRCLITE_AUTOMATIC_BOOT_CONTROL=1 and RRCLITE_CH9102_BOOT_CONTROL to the
+reviewed helper executable to enter and leave the bootloader automatically.
 EOF
 }
 
@@ -81,24 +87,29 @@ readonly MODE="$1"
 readonly SERIAL_PORT="$2"
 
 case "${MODE}" in
-  LOCKED | COMMISSIONING)
+  LOCKED | COMMISSIONING | COMMISSIONING_PID)
     ;;
   *)
     Usage >&2
-    Fail "mode must be LOCKED or COMMISSIONING"
+    Fail "mode must be LOCKED, COMMISSIONING, or COMMISSIONING_PID"
     ;;
 esac
+[[ "${AUTOMATIC_BOOT_CONTROL}" == "0" || \
+  "${AUTOMATIC_BOOT_CONTROL}" == "1" ]] || \
+  Fail "RRCLITE_AUTOMATIC_BOOT_CONTROL must be 0 or 1"
+[[ "${PREFLIGHT_TIMEOUT_SEC}" =~ ^[1-9][0-9]{0,2}$ && \
+  "${FLASH_TIMEOUT_SEC}" =~ ^[1-9][0-9]{0,3}$ ]] || \
+  Fail "CubeProgrammer timeouts must be positive integer seconds"
 
 [[ "${RRCLITE_UART_BOOTLOADER_ACK:-}" == "${REQUIRED_UART_ACK}" ]] || {
   Usage >&2
   Fail "set RRCLITE_UART_BOOTLOADER_ACK=${REQUIRED_UART_ACK} only after entering the ROM bootloader with all actuators disconnected"
 }
-if [[ "${MODE}" == "COMMISSIONING" ]]; then
+if [[ "${MODE}" == "COMMISSIONING" || "${MODE}" == "COMMISSIONING_PID" ]]; then
   [[ "${RRCLITE_COMMISSIONING_FLASH_ACK:-}" == \
     "${REQUIRED_COMMISSIONING_ACK}" ]] || \
     Fail "commissioning flash requires RRCLITE_COMMISSIONING_FLASH_ACK=${REQUIRED_COMMISSIONING_ACK} after raising all wheels and enabling the current limit"
 fi
-
 [[ "${SERIAL_PORT}" =~ ^/dev/[A-Za-z0-9._/+:-]+$ && \
   "${SERIAL_PORT}" != *"/../"* && "${SERIAL_PORT}" != */.. && \
   "${SERIAL_PORT}" != *"/./"* && "${SERIAL_PORT}" != */. ]] || \
@@ -132,7 +143,11 @@ cp "${METADATA}" "${SNAPSHOT_METADATA}"
 cp "${AUTHORITATIVE_ELF}" "${SNAPSHOT_TEMP}"
 
 readonly SNAPSHOT_MODE="$(ReadMetadata "${SNAPSHOT_METADATA}" motor_mode)"
-[[ "${SNAPSHOT_MODE}" == "${MODE}" ]] || \
+readonly SNAPSHOT_ARTIFACT_MODE="$(
+  ReadMetadata "${SNAPSHOT_METADATA}" artifact_mode
+)"
+[[ "${SNAPSHOT_MODE}" == "${MODE}" && \
+  "${SNAPSHOT_ARTIFACT_MODE}" == "NORMAL" ]] || \
   Fail "firmware metadata mode changed while the flash snapshot was prepared"
 readonly EXPECTED_ELF_SHA256="$(
   ReadMetadata "${SNAPSHOT_METADATA}" elf_sha256
@@ -167,6 +182,7 @@ elif command -v STM32_Programmer_CLI >/dev/null 2>&1; then
   programmer="$(command -v STM32_Programmer_CLI)"
 else
   readonly -a PROGRAMMER_CANDIDATES=(
+    "${HOME}/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin/STM32_Programmer_CLI"
     "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin/STM32_Programmer_CLI"
     "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin/STM32_Programmer_CLI"
     "/opt/st/stm32cubeprogrammer/bin/STM32_Programmer_CLI"
@@ -183,14 +199,40 @@ else
 fi
 readonly programmer
 
+boot_control="${RRCLITE_CH9102_BOOT_CONTROL:-}"
+if [[ "${AUTOMATIC_BOOT_CONTROL}" == "1" ]]; then
+  [[ -x "${boot_control}" ]] || \
+    Fail "automatic boot control helper is missing or not executable"
+  echo "Entering the STM32 ROM bootloader through CH9102F DTR/RTS."
+  if ! "${boot_control}" --device "${SERIAL_PORT}" --mode bootloader; then
+    Fail "automatic CH9102F ROM-bootloader entry failed"
+  fi
+  echo "Probing the STM32 ROM bootloader before programming."
+  if ! timeout --foreground "${PREFLIGHT_TIMEOUT_SEC}" "${programmer}" \
+    -c "port=${SERIAL_PORT}" br=115200 P=EVEN db=8 sb=1 fc=OFF \
+    rts=low dtr=low; then
+    echo "RRCLite automatic bootloader activation failed before programming." >&2
+    exit 3
+  fi
+fi
+
 echo "Programming verified ${MODE} firmware over ${SERIAL_PORT}."
 echo "Verified ELF SHA-256: ${EXPECTED_ELF_SHA256}"
-echo "CubeProgrammer UART settings: 115200 baud, 8E1, flow control off."
-if ! "${programmer}" \
+echo "CubeProgrammer UART settings: 115200 baud, 8E1, flow control off, DTR/RTS low."
+if ! timeout --foreground "${FLASH_TIMEOUT_SEC}" "${programmer}" \
   -c "port=${SERIAL_PORT}" br=115200 P=EVEN db=8 sb=1 fc=OFF \
+  rts=low dtr=low \
   -w "${SNAPSHOT}" -v; then
   Fail "CubeProgrammer programming or read-back verification failed"
 fi
 
 echo "Firmware programming and read-back verification succeeded."
-echo "Release BOOT and press RST normally to run the image."
+if [[ "${AUTOMATIC_BOOT_CONTROL}" == "1" ]]; then
+  echo "Resetting into the verified application through CH9102F DTR/RTS."
+  if ! "${boot_control}" --device "${SERIAL_PORT}" --mode application; then
+    Fail "firmware is verified, but the automatic normal-boot reset failed"
+  fi
+  echo "Verified application reset completed; no BOOT or RST press is needed."
+else
+  echo "Release BOOT and briefly press RST to run the verified image."
+fi

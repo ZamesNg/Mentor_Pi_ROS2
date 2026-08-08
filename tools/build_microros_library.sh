@@ -5,8 +5,7 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly FIRMWARE_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu"
-readonly INTERFACE_ROOT="${PROJECT_ROOT}/src/mentor_pi_interfaces"
-readonly ROS_PACKAGE_SCHEMA_ROOT="${PROJECT_ROOT}/src/ros_package_schema"
+readonly INTERFACE_ROOT="${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces"
 readonly SOURCE_UTILS="${FIRMWARE_ROOT}/third_party/micro_ros_stm32cubemx_utils"
 readonly SOURCE_UTILS_REPOSITORY="https://github.com/micro-ROS/micro_ros_stm32cubemx_utils.git"
 readonly SOURCE_UTILS_COMMIT="bd531b273c1bcd070b3143c5642128ec75a6f04e"
@@ -36,6 +35,15 @@ declare -a docker_run_command=(docker run --rm)
 for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
     http_proxy https_proxy no_proxy; do
   if [[ -n "${!proxy_variable:-}" ]]; then
+    if [[ "${proxy_variable}" != "NO_PROXY" &&
+          "${proxy_variable}" != "no_proxy" ]]; then
+      case "${!proxy_variable}" in
+        *://127.0.0.1:*|*://localhost:*|*://\[::1\]:*)
+          echo "Not forwarding host-loopback ${proxy_variable} into Docker."
+          continue
+          ;;
+      esac
+    fi
     docker_build_command+=(
       --build-arg "${proxy_variable}=${!proxy_variable}"
     )
@@ -85,10 +93,6 @@ if [[ ! -f "${INTERFACE_ROOT}/package.xml" ]]; then
   echo "mentor_pi_interfaces is missing: ${INTERFACE_ROOT}" >&2
   exit 1
 fi
-if [[ ! -d "${ROS_PACKAGE_SCHEMA_ROOT}" ]]; then
-  echo "Offline ROS package schema is missing: ${ROS_PACKAGE_SCHEMA_ROOT}" >&2
-  exit 1
-fi
 if [[ ! -f "${SOURCE_LOCK}" || \
     ("${capture_source_lock}" == "0" && \
      "${capture_artifact_hashes}" == "0" && \
@@ -128,9 +132,6 @@ readonly EXTRA_PACKAGES="${BUILD_ROOT}/microros_component/extra_packages"
 mkdir -p "${EXTRA_PACKAGES}/mentor_pi_interfaces"
 cp -a "${INTERFACE_ROOT}/." \
   "${EXTRA_PACKAGES}/mentor_pi_interfaces/"
-mkdir -p "${EXTRA_PACKAGES}/ros_package_schema"
-cp -a "${ROS_PACKAGE_SCHEMA_ROOT}/." \
-  "${EXTRA_PACKAGES}/ros_package_schema/"
 cp \
   "${FIRMWARE_ROOT}/config/microros_colcon.meta" \
   "${BUILD_UTILS}/microros_static_library_ide/library_generation/colcon.meta"
@@ -193,9 +194,13 @@ test -f \
   "${LIBRARY_DIR}/include/mentor_pi_interfaces/msg/motor_command.h"
 test -f \
   "${LIBRARY_DIR}/include/mentor_pi_interfaces/srv/set_motor_model.h"
+test -f \
+  "${LIBRARY_DIR}/include/mentor_pi_interfaces/srv/set_motor_pid.h"
 grep -q '^mentor_pi_interfaces/MotorCommand.msg$' \
   "${LIBRARY_DIR}/available_ros2_types"
 grep -q '^mentor_pi_interfaces/SetMotorModel.srv$' \
+  "${LIBRARY_DIR}/available_ros2_types"
+grep -q '^mentor_pi_interfaces/SetMotorPid.srv$' \
   "${LIBRARY_DIR}/available_ros2_types"
 readonly NORMALIZED_EXPECTED="$(mktemp)"
 readonly NORMALIZED_ACTUAL="$(mktemp)"

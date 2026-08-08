@@ -24,18 +24,17 @@ using mentor_pi_mcu::platform::stm32::g_dma_usart1_tx;
 using mentor_pi_mcu::platform::stm32::RecordMspError;
 
 constexpr std::uint32_t kMotorReleaseIrqPriority = 5U;
-constexpr std::uint32_t kRxDmaAccountingIrqPriority = 4U;
 constexpr std::uint32_t kTransportIrqPriority = 6U;
 constexpr std::uint32_t kBusServoIrqPriority = 7U;
 constexpr std::uint32_t kPeripheralIrqPriority = 8U;
 
 #if defined(configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY)
-static_assert(kRxDmaAccountingIrqPriority <
-                  configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY,
-              "RX DMA top half must remain above the FreeRTOS syscall ceiling");
 static_assert(kMotorReleaseIrqPriority >=
                   configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY,
               "TIM7 must be callable through FreeRTOS FromISR APIs");
+static_assert(kTransportIrqPriority >=
+                  configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY,
+              "USART1 HAL DMA callbacks must be FreeRTOS FromISR-safe");
 #endif
 
 bool InitializeDma(DMA_HandleTypeDef* dma) {
@@ -72,20 +71,6 @@ extern "C" void HAL_UART_MspInit(UART_HandleTypeDef* uart) {
     gpio.Alternate = GPIO_AF7_USART1;
     HAL_GPIO_Init(GPIOA, &gpio);
 
-    g_dma_usart1_rx.Instance = DMA2_Stream2;
-    g_dma_usart1_rx.Init.Channel = DMA_CHANNEL_4;
-    g_dma_usart1_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
-    g_dma_usart1_rx.Init.PeriphInc = DMA_PINC_DISABLE;
-    g_dma_usart1_rx.Init.MemInc = DMA_MINC_ENABLE;
-    g_dma_usart1_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
-    g_dma_usart1_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
-    g_dma_usart1_rx.Init.Mode = DMA_CIRCULAR;
-    g_dma_usart1_rx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
-    g_dma_usart1_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
-    if (InitializeDma(&g_dma_usart1_rx)) {
-      __HAL_LINKDMA(uart, hdmarx, g_dma_usart1_rx);
-    }
-
     g_dma_usart1_tx.Instance = DMA2_Stream7;
     g_dma_usart1_tx.Init.Channel = DMA_CHANNEL_4;
     g_dma_usart1_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
@@ -100,12 +85,26 @@ extern "C" void HAL_UART_MspInit(UART_HandleTypeDef* uart) {
       __HAL_LINKDMA(uart, hdmatx, g_dma_usart1_tx);
     }
 
-    HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, kRxDmaAccountingIrqPriority, 0U);
-    HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
+    g_dma_usart1_rx.Instance = DMA2_Stream2;
+    g_dma_usart1_rx.Init.Channel = DMA_CHANNEL_4;
+    g_dma_usart1_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
+    g_dma_usart1_rx.Init.PeriphInc = DMA_PINC_DISABLE;
+    g_dma_usart1_rx.Init.MemInc = DMA_MINC_ENABLE;
+    g_dma_usart1_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+    g_dma_usart1_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+    g_dma_usart1_rx.Init.Mode = DMA_CIRCULAR;
+    g_dma_usart1_rx.Init.Priority = DMA_PRIORITY_HIGH;
+    g_dma_usart1_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+    if (InitializeDma(&g_dma_usart1_rx)) {
+      __HAL_LINKDMA(uart, hdmarx, g_dma_usart1_rx);
+    }
+
     HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, kTransportIrqPriority, 0U);
     HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
     HAL_NVIC_SetPriority(USART1_IRQn, kTransportIrqPriority, 0U);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
+    HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, kTransportIrqPriority, 0U);
+    HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
     return;
   }
 

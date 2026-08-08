@@ -260,7 +260,7 @@ void CheckPeripherals(const std::uint8_t* data, std::size_t size) {
   FuzzInput input(data, size);
   const LedCommand led{input.ReadU8(), input.ReadU16(), input.ReadU16(),
                        input.ReadU16()};
-  const Result expected_led = led.led_id >= 1U && led.led_id <= kLedCount
+  const Result expected_led = led.led_id >= 1U && led.led_id <= kHostLedCount
                                   ? OkResult()
                                   : Result{ResultCode::kOutOfRange, led.led_id};
   Require(Equal(ValidateLedCommand(led), expected_led));
@@ -282,7 +282,7 @@ void CheckPeripherals(const std::uint8_t* data, std::size_t size) {
     rgb.blue[pixel] = input.ReadU8();
   }
   Require(Equal(ValidateRgbCommand(rgb),
-                ExpectedMask(rgb.update_mask, kAllRgbPixelMask)));
+                ExpectedMask(rgb.update_mask, kHostRgbPixelMask)));
 
   OledCommand oled{};
   oled.update_mask = input.ReadU8();

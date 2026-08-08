@@ -1,0 +1,13 @@
+vehicle:
+  robot_name: mentor_pi
+  vehicle_type: ackermann
+hardware:
+  feedback_timeout_ms: 100
+  steering_pwm_channel: 3
+  steering_pwm_min_us: 500
+  steering_pwm_center_us: 1500
+  steering_pwm_max_us: 2500
+  steering_angle_min_rad: -1.5
+  steering_angle_max_rad: 1.5
+  steering_inverted: true
+  steering_duration_ms: 20

@@ -15,6 +15,7 @@ extern "C" {
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "task.h"
+#include "uxr/client/transport.h"
 }
 
 #include "mentor_pi_mcu/domain/circular_dma_position.h"
@@ -28,23 +29,21 @@ extern "C" {
 namespace mentor_pi_mcu::platform::stm32 {
 namespace {
 
-static_assert((kUsart1RxRingSizeBytes & (kUsart1RxRingSizeBytes - 1U)) == 0U,
-              "USART1 RX ring must be a power of two");
+static_assert((kUsart1RxDmaRingSizeBytes & (kUsart1RxDmaRingSizeBytes - 1U)) ==
+                  0U,
+              "USART1 RX DMA ring must be a power of two");
 static_assert(kUsart1TxBounceSizeBytes >= kXrceTransportMtuBytes,
               "TX bounce must hold a complete XRCE transport write");
 
-MENTOR_PI_DMA_BUFFER std::uint8_t g_rx_ring[kUsart1RxRingSizeBytes];
+MENTOR_PI_DMA_BUFFER std::uint8_t g_rx_dma_ring[kUsart1RxDmaRingSizeBytes];
 MENTOR_PI_DMA_BUFFER std::uint8_t g_tx_bounce[kUsart1TxBounceSizeBytes];
 
 StaticSemaphore_t g_tx_semaphore_storage{};
 SemaphoreHandle_t g_tx_semaphore = nullptr;
 
-// DMA2 Stream 2 is the sole incrementing writer while a session is open. Open
-// resets this state only with that IRQ disabled. Its priority is deliberately
-// above the FreeRTOS syscall ceiling, so it never touches RTOS state or shared
-// RMW flags.
+// HAL's half/full callbacks are the sole incrementing writer while circular RX
+// is active. Open resets the epoch only while the RX IRQ is disabled.
 volatile std::uint32_t g_rx_dma_boundary_count = 0U;
-volatile bool g_rx_dma_top_half_error = false;
 volatile std::uint32_t g_maximum_wait_us = 0U;
 volatile std::uint64_t g_tx_wire_bytes = 0U;
 volatile std::size_t g_active_tx_length = 0U;
@@ -58,8 +57,8 @@ std::uint8_t ErrorBit(Usart1Error error) {
 
 using Usart1RxDmaPosition =
     mentor_pi::mcu::CircularDmaPosition<static_cast<std::uint32_t>(
-        kUsart1RxRingSizeBytes)>;
-using Usart1RxRing = mentor_pi::mcu::CircularRxRing<kUsart1RxRingSizeBytes>;
+        kUsart1RxDmaRingSizeBytes)>;
+using Usart1RxRing = mentor_pi::mcu::CircularRxRing<kUsart1RxDmaRingSizeBytes>;
 
 Usart1RxRing g_rx_state{};
 
@@ -70,22 +69,25 @@ struct DmaProducerSample {
 
 std::uint64_t SaturatingAdd64(std::uint64_t value, std::uint32_t increment) {
   constexpr std::uint64_t kMaximum = std::numeric_limits<std::uint64_t>::max();
-  if (kMaximum - value < increment) {
-    return kMaximum;
-  }
-  return value + increment;
+  return kMaximum - value < increment ? kMaximum : value + increment;
 }
 
 std::uint32_t StableDmaCursor() {
   std::uint32_t previous = __HAL_DMA_GET_COUNTER(&g_dma_usart1_rx);
-  for (std::size_t attempt = 0; attempt < 4U; ++attempt) {
+  for (std::size_t attempt = 0U; attempt < 4U; ++attempt) {
     const std::uint32_t current = __HAL_DMA_GET_COUNTER(&g_dma_usart1_rx);
     if (current == previous) {
-      return static_cast<std::uint32_t>(kUsart1RxRingSizeBytes) - current;
+      if (current > kUsart1RxDmaRingSizeBytes) {
+        return static_cast<std::uint32_t>(kUsart1RxDmaRingSizeBytes + 1U);
+      }
+      return static_cast<std::uint32_t>(kUsart1RxDmaRingSizeBytes) - current;
     }
     previous = current;
   }
-  return static_cast<std::uint32_t>(kUsart1RxRingSizeBytes) - previous;
+  if (previous > kUsart1RxDmaRingSizeBytes) {
+    return static_cast<std::uint32_t>(kUsart1RxDmaRingSizeBytes + 1U);
+  }
+  return static_cast<std::uint32_t>(kUsart1RxDmaRingSizeBytes) - previous;
 }
 
 DmaProducerSample StableDmaProducerPosition() {
@@ -101,26 +103,32 @@ DmaProducerSample StableDmaProducerPosition() {
   return {g_rx_state.previous_dma_position(), false};
 }
 
-void UpdateProducerLocked() {
-  const DmaProducerSample sample = StableDmaProducerPosition();
-  const Usart1RxRing::ProducerUpdate update =
-      g_rx_state.UpdateProducer(sample.position, sample.consistent);
-  if (!update.consistent) {
+bool UpdateProducerFromTask() {
+  DmaProducerSample sample = StableDmaProducerPosition();
+  if (!sample.consistent) {
+    // A boundary can occur between the epoch and NDTR reads. Leaving task
+    // context once lets the normal-priority HAL callback repair the epoch.
+    taskYIELD();
+    sample = StableDmaProducerPosition();
+  }
+  if (!sample.consistent) {
+    taskENTER_CRITICAL();
     g_error_flags |= ErrorBit(Usart1Error::kDma);
-    return;
-  }
-  if (update.overrun) {
-    g_error_flags |= ErrorBit(Usart1Error::kRxRingOverrun);
-  }
-}
-
-void UpdateProducerFromTask() {
-  taskENTER_CRITICAL();
-  UpdateProducerLocked();
-  taskEXIT_CRITICAL();
-  if (g_error_flags != 0U || g_rx_dma_top_half_error) {
+    taskEXIT_CRITICAL();
     EmergencyStopMotors();
+    return false;
   }
+
+  const Usart1RxRing::ProducerUpdate update =
+      g_rx_state.UpdateProducer(sample.position, true);
+  if (update.overrun) {
+    taskENTER_CRITICAL();
+    g_error_flags |= ErrorBit(Usart1Error::kRxRingOverrun);
+    taskEXIT_CRITICAL();
+    EmergencyStopMotors();
+    return false;
+  }
+  return true;
 }
 
 void LatchTaskError(Usart1Error error) {
@@ -128,12 +136,6 @@ void LatchTaskError(Usart1Error error) {
   g_error_flags |= ErrorBit(error);
   taskEXIT_CRITICAL();
   EmergencyStopMotors();
-}
-
-std::uint32_t WriteDeadlineMs(std::size_t length) {
-  // ceil(10 bits * bytes * 1000 / 1,000,000 baud) + 2 ms.
-  const std::size_t serial_time_ms = (length + 99U) / 100U;
-  return static_cast<std::uint32_t>(serial_time_ms + 2U);
 }
 
 void UpdateMaximumWait(std::uint32_t start_cycles) {
@@ -156,6 +158,11 @@ Status ReinitializeUsartIfNeeded() {
   return HAL_UART_Init(&g_usart1) == HAL_OK ? Status::kOk : Status::kIoError;
 }
 
+void DrainTxCompletionSemaphore() {
+  while (xSemaphoreTake(g_tx_semaphore, 0U) == pdTRUE) {
+  }
+}
+
 }  // namespace
 
 Status OpenUsart1Transport() {
@@ -172,54 +179,71 @@ Status OpenUsart1Transport() {
       return Status::kIoError;
     }
   }
-  while (xSemaphoreTake(g_tx_semaphore, 0U) == pdTRUE) {
-  }
+  DrainTxCompletionSemaphore();
 
-  // This IRQ is above BASEPRI and therefore is not masked by a FreeRTOS task
-  // critical section. Disable it explicitly before resetting its single-writer
-  // epoch state.
   HAL_NVIC_DisableIRQ(DMA2_Stream2_IRQn);
+  HAL_NVIC_DisableIRQ(DMA2_Stream7_IRQn);
+  HAL_NVIC_DisableIRQ(USART1_IRQn);
   HAL_NVIC_ClearPendingIRQ(DMA2_Stream2_IRQn);
+  HAL_NVIC_ClearPendingIRQ(DMA2_Stream7_IRQn);
+  HAL_NVIC_ClearPendingIRQ(USART1_IRQn);
+  static_cast<void>(HAL_UART_DMAStop(&g_usart1));
+
+  // Clear stale USART error/data state before arming circular reception.
+  const std::uint32_t stale_status = g_usart1.Instance->SR;
+  volatile const std::uint32_t stale_data = g_usart1.Instance->DR;
+  static_cast<void>(stale_status);
+  static_cast<void>(stale_data);
+
   taskENTER_CRITICAL();
   g_rx_state.ResetPositions();
   g_rx_dma_boundary_count = 0U;
-  g_rx_dma_top_half_error = false;
   g_active_tx_length = 0U;
   g_error_flags = 0U;
   g_tx_in_progress = false;
   taskEXIT_CRITICAL();
 
-  if (HAL_UART_Receive_DMA(&g_usart1, g_rx_ring,
-                           static_cast<std::uint16_t>(sizeof(g_rx_ring))) !=
-      HAL_OK) {
+  std::memset(g_rx_dma_ring, 0, sizeof(g_rx_dma_ring));
+  if (HAL_UART_Receive_DMA(
+          &g_usart1, g_rx_dma_ring,
+          static_cast<std::uint16_t>(kUsart1RxDmaRingSizeBytes)) != HAL_OK) {
+    LatchTaskError(Usart1Error::kDma);
     return Status::kIoError;
   }
+
   HAL_NVIC_ClearPendingIRQ(DMA2_Stream2_IRQn);
+  HAL_NVIC_ClearPendingIRQ(DMA2_Stream7_IRQn);
+  HAL_NVIC_ClearPendingIRQ(USART1_IRQn);
   HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
-  __HAL_UART_ENABLE_IT(&g_usart1, UART_IT_IDLE);
-  __HAL_UART_ENABLE_IT(&g_usart1, UART_IT_ERR);
-  __HAL_UART_ENABLE_IT(&g_usart1, UART_IT_PE);
+  HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
+  HAL_NVIC_EnableIRQ(USART1_IRQn);
+  taskENTER_CRITICAL();
   g_open = true;
+  taskEXIT_CRITICAL();
   return Status::kOk;
 }
 
 void CloseUsart1Transport() {
   HAL_NVIC_DisableIRQ(DMA2_Stream2_IRQn);
+  HAL_NVIC_DisableIRQ(DMA2_Stream7_IRQn);
+  HAL_NVIC_DisableIRQ(USART1_IRQn);
   HAL_NVIC_ClearPendingIRQ(DMA2_Stream2_IRQn);
+  HAL_NVIC_ClearPendingIRQ(DMA2_Stream7_IRQn);
+  HAL_NVIC_ClearPendingIRQ(USART1_IRQn);
   EmergencyStopMotors();
+
   taskENTER_CRITICAL();
   g_open = false;
+  g_active_tx_length = 0U;
   g_tx_in_progress = false;
   taskEXIT_CRITICAL();
 
-  if (g_usart1.Instance == nullptr) {
-    return;
+  if (g_usart1.Instance != nullptr) {
+    static_cast<void>(HAL_UART_DMAStop(&g_usart1));
   }
-  __HAL_UART_DISABLE_IT(&g_usart1, UART_IT_IDLE);
-  __HAL_UART_DISABLE_IT(&g_usart1, UART_IT_ERR);
-  __HAL_UART_DISABLE_IT(&g_usart1, UART_IT_PE);
-  static_cast<void>(HAL_UART_DMAStop(&g_usart1));
-  static_cast<void>(HAL_UART_DeInit(&g_usart1));
+  if (g_tx_semaphore != nullptr) {
+    DrainTxCompletionSemaphore();
+  }
 }
 
 std::size_t ReadUsart1(std::uint8_t* destination, std::size_t capacity,
@@ -241,39 +265,50 @@ std::size_t ReadUsart1(std::uint8_t* destination, std::size_t capacity,
   }
 
   const std::uint32_t start_cycles = CycleCounter();
-  UpdateProducerFromTask();
-  std::uint32_t available =
-      g_rx_state.producer_position() - g_rx_state.consumer_position();
-  if (available == 0U && timeout_ms != 0U) {
-    const std::uint32_t bounded_timeout_ms =
-        std::min<std::uint32_t>(timeout_ms, 10U);
-    static_cast<void>(
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(bounded_timeout_ms)));
-    UpdateProducerFromTask();
-    available = g_rx_state.producer_position() - g_rx_state.consumer_position();
-  }
-  UpdateMaximumWait(start_cycles);
+  const std::uint32_t bounded_timeout_ms =
+      std::min<std::uint32_t>(timeout_ms, 10U);
+  std::uint32_t waited_ms = 0U;
 
-  const Usart1RxRing::ReadPlan plan = g_rx_state.PrepareRead(capacity);
-  if (plan.overrun) {
-    *status = Status::kOverflow;
-    return 0U;
-  }
-  if (!Usart1RxRing::CopyRead(g_rx_ring, plan, destination)) {
-    LatchTaskError(Usart1Error::kDma);
-    *status = Status::kIoError;
-    return 0U;
-  }
+  while (true) {
+    if (g_error_flags != 0U || !UpdateProducerFromTask()) {
+      *status = Status::kIoError;
+      return 0U;
+    }
+    const Usart1RxRing::ReadPlan plan = g_rx_state.PrepareRead(capacity);
+    if (plan.overrun) {
+      LatchTaskError(Usart1Error::kRxRingOverrun);
+      *status = Status::kOverflow;
+      return 0U;
+    }
+    if (plan.copy_length != 0U) {
+      if (!Usart1RxRing::CopyRead(g_rx_dma_ring, plan, destination)) {
+        LatchTaskError(Usart1Error::kDma);
+        *status = Status::kIoError;
+        return 0U;
+      }
 
-  taskENTER_CRITICAL();
-  const bool committed = g_rx_state.CommitRead(plan);
-  taskEXIT_CRITICAL();
-  if (!committed) {
-    LatchTaskError(Usart1Error::kDma);
-    *status = Status::kIoError;
-    return 0U;
+      // Account for any progress during the copy before committing. The ring
+      // helper rejects a stale plan or a full-lap overwrite fail-closed.
+      if (!UpdateProducerFromTask()) {
+        *status = Status::kIoError;
+        return 0U;
+      }
+      if (!g_rx_state.CommitRead(plan)) {
+        LatchTaskError(Usart1Error::kRxRingOverrun);
+        *status = Status::kOverflow;
+        return 0U;
+      }
+      UpdateMaximumWait(start_cycles);
+      return plan.copy_length;
+    }
+
+    if (waited_ms >= bounded_timeout_ms) {
+      UpdateMaximumWait(start_cycles);
+      return 0U;
+    }
+    static_cast<void>(ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1U)));
+    ++waited_ms;
   }
-  return plan.copy_length;
 }
 
 std::size_t WriteUsart1(const std::uint8_t* source, std::size_t length,
@@ -306,29 +341,34 @@ std::size_t WriteUsart1(const std::uint8_t* source, std::size_t length,
     return 0U;
   }
 
-  while (xSemaphoreTake(g_tx_semaphore, 0U) == pdTRUE) {
-  }
+  DrainTxCompletionSemaphore();
   std::memcpy(g_tx_bounce, source, length);
   if (HAL_UART_Transmit_DMA(&g_usart1, g_tx_bounce,
                             static_cast<std::uint16_t>(length)) != HAL_OK) {
     taskENTER_CRITICAL();
+    g_active_tx_length = 0U;
     g_tx_in_progress = false;
     taskEXIT_CRITICAL();
-    LatchTaskError(Usart1Error::kDma);
+    LatchTaskError(Usart1Error::kTxDma);
     *status = Status::kIoError;
     return 0U;
   }
 
   const std::uint32_t start_cycles = CycleCounter();
-  const BaseType_t completed =
-      xSemaphoreTake(g_tx_semaphore, pdMS_TO_TICKS(WriteDeadlineMs(length)));
+  const BaseType_t completed = xSemaphoreTake(
+      g_tx_semaphore, pdMS_TO_TICKS(Usart1WriteDeadlineMs(length)));
   UpdateMaximumWait(start_cycles);
   if (completed != pdTRUE) {
+    static_cast<void>(HAL_UART_AbortTransmit(&g_usart1));
+    taskENTER_CRITICAL();
+    g_active_tx_length = 0U;
+    g_tx_in_progress = false;
+    taskEXIT_CRITICAL();
     LatchTaskError(Usart1Error::kTxTimeout);
     *status = Status::kTimeout;
     return 0U;
   }
-  if ((g_error_flags & ErrorBit(Usart1Error::kDma)) != 0U) {
+  if (g_error_flags != 0U) {
     *status = Status::kIoError;
     return 0U;
   }
@@ -337,80 +377,26 @@ std::size_t WriteUsart1(const std::uint8_t* source, std::size_t length,
 
 TransportSnapshot GetTransportSnapshot() {
   taskENTER_CRITICAL();
-  const std::uint8_t error_flags =
-      g_rx_dma_top_half_error ? static_cast<std::uint8_t>(
-                                    g_error_flags | ErrorBit(Usart1Error::kDma))
-                              : g_error_flags;
   const TransportSnapshot snapshot{g_rx_state.producer_position(),
                                    g_rx_state.consumer_position(),
                                    g_rx_state.high_water_bytes(),
                                    g_maximum_wait_us,
                                    g_rx_state.rx_wire_bytes(),
                                    g_tx_wire_bytes,
-                                   error_flags,
+                                   g_error_flags,
                                    g_open};
   taskEXIT_CRITICAL();
   return snapshot;
 }
 
-bool TransportHasFatalError() {
-  return g_error_flags != 0U || g_rx_dma_top_half_error;
-}
+bool TransportHasFatalError() { return g_error_flags != 0U; }
 
-void HandleUsart1RxDmaTopHalfFromIsr() {
-  const std::uint32_t half_flag = __HAL_DMA_GET_HT_FLAG_INDEX(&g_dma_usart1_rx);
-  const std::uint32_t complete_flag =
-      __HAL_DMA_GET_TC_FLAG_INDEX(&g_dma_usart1_rx);
-  const std::uint32_t transfer_error_flag =
-      __HAL_DMA_GET_TE_FLAG_INDEX(&g_dma_usart1_rx);
-  const std::uint32_t direct_error_flag =
-      __HAL_DMA_GET_DME_FLAG_INDEX(&g_dma_usart1_rx);
-  const std::uint32_t fifo_error_flag =
-      __HAL_DMA_GET_FE_FLAG_INDEX(&g_dma_usart1_rx);
+void* Usart1TransportArgument() { return &g_usart1; }
 
-  std::uint32_t boundary_increment = 0U;
-  if (__HAL_DMA_GET_FLAG(&g_dma_usart1_rx, half_flag) != RESET &&
-      __HAL_DMA_GET_IT_SOURCE(&g_dma_usart1_rx, DMA_IT_HT) != RESET) {
-    __HAL_DMA_CLEAR_FLAG(&g_dma_usart1_rx, half_flag);
-    ++boundary_increment;
-  }
-  if (__HAL_DMA_GET_FLAG(&g_dma_usart1_rx, complete_flag) != RESET &&
-      __HAL_DMA_GET_IT_SOURCE(&g_dma_usart1_rx, DMA_IT_TC) != RESET) {
-    __HAL_DMA_CLEAR_FLAG(&g_dma_usart1_rx, complete_flag);
-    ++boundary_increment;
-  }
-  g_rx_dma_boundary_count += boundary_increment;
-
-  const bool transfer_error =
-      __HAL_DMA_GET_FLAG(&g_dma_usart1_rx, transfer_error_flag) != RESET;
-  const bool direct_error =
-      __HAL_DMA_GET_FLAG(&g_dma_usart1_rx, direct_error_flag) != RESET;
-  const bool fifo_error =
-      __HAL_DMA_GET_FLAG(&g_dma_usart1_rx, fifo_error_flag) != RESET;
-  if (transfer_error || direct_error || fifo_error) {
-    __HAL_DMA_CLEAR_FLAG(&g_dma_usart1_rx, transfer_error_flag |
-                                               direct_error_flag |
-                                               fifo_error_flag);
-    __HAL_DMA_DISABLE_IT(&g_dma_usart1_rx,
-                         DMA_IT_TC | DMA_IT_HT | DMA_IT_TE | DMA_IT_DME);
-    __HAL_DMA_DISABLE_IT(&g_dma_usart1_rx, DMA_IT_FE);
-    g_rx_dma_top_half_error = true;
-  }
-
-  // USART1 runs below the syscall ceiling and performs the task notification,
-  // producer snapshot, and motor stop after any in-progress task critical
-  // section completes. No FreeRTOS API is legal in this top half.
-  __DMB();
-  HAL_NVIC_SetPendingIRQ(USART1_IRQn);
-}
-
-void HandleUsart1RxDmaProgressFromIsr() {
+void HandleUsart1RxDmaBoundaryFromIsr() {
   UBaseType_t const interrupt_mask = taskENTER_CRITICAL_FROM_ISR();
-  UpdateProducerLocked();
+  ++g_rx_dma_boundary_count;
   taskEXIT_CRITICAL_FROM_ISR(interrupt_mask);
-  if (g_error_flags != 0U || g_rx_dma_top_half_error) {
-    EmergencyStopMotors();
-  }
   NotifyTaskFromIsr(TaskId::kMicroRos);
 }
 
@@ -428,83 +414,55 @@ void HandleUsart1TxCompleteFromIsr() {
   portYIELD_FROM_ISR(higher_priority_task_woken);
 }
 
-void HandleUsart1DmaErrorFromIsr() {
+void HandleUsart1ErrorFromIsr(std::uint32_t hal_error_code) {
+  std::uint8_t error_flags = 0U;
+  if ((hal_error_code & HAL_UART_ERROR_FE) != 0U) {
+    error_flags |= ErrorBit(Usart1Error::kFraming);
+  }
+  if ((hal_error_code & HAL_UART_ERROR_NE) != 0U) {
+    error_flags |= ErrorBit(Usart1Error::kNoise);
+  }
+  if ((hal_error_code & HAL_UART_ERROR_ORE) != 0U) {
+    error_flags |= ErrorBit(Usart1Error::kOverrun);
+  }
+  if ((hal_error_code & HAL_UART_ERROR_PE) != 0U) {
+    error_flags |= ErrorBit(Usart1Error::kParity);
+  }
+  if ((hal_error_code & HAL_UART_ERROR_DMA) != 0U || error_flags == 0U) {
+    error_flags |= ErrorBit(Usart1Error::kDma);
+  }
+
   BaseType_t higher_priority_task_woken = pdFALSE;
   UBaseType_t const interrupt_mask = taskENTER_CRITICAL_FROM_ISR();
-  g_error_flags |= ErrorBit(Usart1Error::kDma);
+  g_error_flags |= error_flags;
   g_active_tx_length = 0U;
+  const bool tx_was_active = g_tx_in_progress;
   g_tx_in_progress = false;
   taskEXIT_CRITICAL_FROM_ISR(interrupt_mask);
   EmergencyStopMotors();
-  if (g_tx_semaphore != nullptr) {
+  if (tx_was_active && g_tx_semaphore != nullptr) {
     xSemaphoreGiveFromISR(g_tx_semaphore, &higher_priority_task_woken);
   }
   NotifyTaskFromIsr(TaskId::kMicroRos);
   portYIELD_FROM_ISR(higher_priority_task_woken);
 }
 
-void HandleUsart1Irq() {
-  HandleUsart1RxDmaProgressFromIsr();
-  if (g_rx_dma_top_half_error) {
-    HandleUsart1DmaErrorFromIsr();
-    return;
-  }
-  const std::uint32_t status_register = g_usart1.Instance->SR;
-  const std::uint32_t error_bits =
-      status_register &
-      (USART_SR_FE | USART_SR_NE | USART_SR_ORE | USART_SR_PE);
-  if (error_bits != 0U) {
-    volatile const std::uint32_t discarded = g_usart1.Instance->DR;
-    static_cast<void>(discarded);
-    UBaseType_t const interrupt_mask = taskENTER_CRITICAL_FROM_ISR();
-    if ((error_bits & USART_SR_FE) != 0U) {
-      g_error_flags |= ErrorBit(Usart1Error::kFraming);
-    }
-    if ((error_bits & USART_SR_NE) != 0U) {
-      g_error_flags |= ErrorBit(Usart1Error::kNoise);
-    }
-    if ((error_bits & USART_SR_ORE) != 0U) {
-      g_error_flags |= ErrorBit(Usart1Error::kOverrun);
-    }
-    if ((error_bits & USART_SR_PE) != 0U) {
-      g_error_flags |= ErrorBit(Usart1Error::kParity);
-    }
-    taskEXIT_CRITICAL_FROM_ISR(interrupt_mask);
-    EmergencyStopMotors();
-    if (g_tx_in_progress) {
-      HandleUsart1DmaErrorFromIsr();
-    } else {
-      NotifyTaskFromIsr(TaskId::kMicroRos);
-    }
-    return;
-  }
-
-  if ((status_register & USART_SR_IDLE) != 0U &&
-      (g_usart1.Instance->CR1 & USART_CR1_IDLEIE) != 0U) {
-    volatile const std::uint32_t discarded = g_usart1.Instance->DR;
-    static_cast<void>(discarded);
-    HandleUsart1RxDmaProgressFromIsr();
-  }
-
-  // HAL owns the normal TX-DMA transition from DMA complete to UART TC. It is
-  // called only after the error path above, so it cannot abort circular RX in
-  // response to FE/NE/ORE/PE from interrupt context.
-  if ((status_register & USART_SR_TC) != 0U &&
-      (g_usart1.Instance->CR1 & USART_CR1_TCIE) != 0U) {
-    HAL_UART_IRQHandler(&g_usart1);
-  }
-}
-
 }  // namespace mentor_pi_mcu::platform::stm32
 
 extern "C" bool MentorPiTransportOpen(uxrCustomTransport* transport) {
-  static_cast<void>(transport);
+  if (transport == nullptr ||
+      transport->args != &mentor_pi_mcu::platform::stm32::g_usart1) {
+    return false;
+  }
   return mentor_pi_mcu::platform::stm32::OpenUsart1Transport() ==
          mentor_pi_mcu::platform::stm32::Status::kOk;
 }
 
 extern "C" bool MentorPiTransportClose(uxrCustomTransport* transport) {
-  static_cast<void>(transport);
+  if (transport == nullptr ||
+      transport->args != &mentor_pi_mcu::platform::stm32::g_usart1) {
+    return false;
+  }
   mentor_pi_mcu::platform::stm32::CloseUsart1Transport();
   return true;
 }
@@ -513,7 +471,13 @@ extern "C" std::size_t MentorPiTransportWrite(uxrCustomTransport* transport,
                                               const std::uint8_t* buffer,
                                               std::size_t length,
                                               std::uint8_t* error) {
-  static_cast<void>(transport);
+  if (transport == nullptr ||
+      transport->args != &mentor_pi_mcu::platform::stm32::g_usart1) {
+    if (error != nullptr) {
+      *error = 1U;
+    }
+    return 0U;
+  }
   mentor_pi_mcu::platform::stm32::Status status{};
   const std::size_t written =
       mentor_pi_mcu::platform::stm32::WriteUsart1(buffer, length, &status);
@@ -527,7 +491,13 @@ extern "C" std::size_t MentorPiTransportRead(uxrCustomTransport* transport,
                                              std::uint8_t* buffer,
                                              std::size_t length, int timeout_ms,
                                              std::uint8_t* error) {
-  static_cast<void>(transport);
+  if (transport == nullptr ||
+      transport->args != &mentor_pi_mcu::platform::stm32::g_usart1) {
+    if (error != nullptr) {
+      *error = 1U;
+    }
+    return 0U;
+  }
   const std::uint32_t bounded_timeout_ms =
       timeout_ms > 0 ? static_cast<std::uint32_t>(timeout_ms) : 0U;
   mentor_pi_mcu::platform::stm32::Status status{};

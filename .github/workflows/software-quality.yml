@@ -40,6 +40,7 @@ jobs:
           ./tools/test_package_board_handoff.sh
           ./tools/test_flash_firmware.sh
           ./tools/test_pull_pinned_build_images.sh
+          ./tools/test_ros_workspace_layout.sh
           ./tools/test_run_fuzz_smoke.sh
 
   format:

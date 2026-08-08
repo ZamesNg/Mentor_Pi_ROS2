@@ -31,10 +31,9 @@ ExpectFailure() {
 MakeFixture() {
   local root="$1"
   mkdir -p \
-    "${root}/src/mentor_pi_interfaces/include/mentor_pi_interfaces" \
-    "${root}/src/mentor_pi_interfaces/msg" \
-    "${root}/src/mentor_pi_interfaces/srv" \
-    "${root}/src/ros_package_schema" \
+    "${root}/mentor_pi_ros2/src/mentor_pi_interfaces/include/mentor_pi_interfaces" \
+    "${root}/mentor_pi_ros2/src/mentor_pi_interfaces/msg" \
+    "${root}/mentor_pi_ros2/src/mentor_pi_interfaces/srv" \
     "${root}/firmware/mentor_pi_mcu/build/stm32" \
     "${root}/firmware/mentor_pi_mcu/build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros" \
     "${root}/tools/docker"
@@ -44,18 +43,18 @@ MakeFixture() {
     printf 'fixture %s\n' "${directory}" \
       >"${root}/firmware/mentor_pi_mcu/${directory}/input.txt"
   done
-  printf 'cmake\n' >"${root}/src/mentor_pi_interfaces/CMakeLists.txt"
-  printf 'package\n' >"${root}/src/mentor_pi_interfaces/package.xml"
-  printf 'schema\n' >"${root}/src/ros_package_schema/package_format3.xsd"
+  printf 'cmake\n' >"${root}/mentor_pi_ros2/src/mentor_pi_interfaces/CMakeLists.txt"
+  printf 'package\n' >"${root}/mentor_pi_ros2/src/mentor_pi_interfaces/package.xml"
   printf 'profile contract\n' \
-    >"${root}/src/mentor_pi_interfaces/include/mentor_pi_interfaces/motor_profile_contract.hpp"
+    >"${root}/mentor_pi_ros2/src/mentor_pi_interfaces/include/mentor_pi_interfaces/motor_profile_contract.hpp"
   printf 'float32 target\n' \
-    >"${root}/src/mentor_pi_interfaces/msg/MotorCommand.msg"
+    >"${root}/mentor_pi_ros2/src/mentor_pi_interfaces/msg/MotorCommand.msg"
   printf 'uint8 result\n' \
-    >"${root}/src/mentor_pi_interfaces/srv/SetMotorModel.srv"
+    >"${root}/mentor_pi_ros2/src/mentor_pi_interfaces/srv/SetMotorModel.srv"
   printf 'firmware cmake\n' \
     >"${root}/firmware/mentor_pi_mcu/CMakeLists.txt"
   printf 'build script\n' >"${root}/tools/build_firmware.sh"
+  printf 'memory checker\n' >"${root}/tools/check_firmware_memory.sh"
   printf 'micro-ROS source-lock script\n' \
     >"${root}/tools/apply_microros_source_lock.sh"
   printf 'bootstrap script\n' \
@@ -92,6 +91,7 @@ MakeFixture() {
   local build_root="${root}/firmware/mentor_pi_mcu/build/stm32"
   printf '%s\n' \
     'RRCLITE_MOTOR_COMMISSIONING:BOOL=OFF' \
+    'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF' \
     'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=' \
     >"${build_root}/CMakeCache.txt"
   printf 'elf\n' >"${build_root}/mentor_pi_mcu.elf"
@@ -109,6 +109,8 @@ MakeFixture() {
     'target=STM32F407VET6' \
     'ros_distro=humble' \
     'motor_mode=LOCKED' \
+    'control_mode=LOCKED' \
+    'artifact_mode=NORMAL' \
     'commissioning_ack=' \
     'release_qualified=0' \
     "source_sha256=${source_sha256}" \
@@ -122,8 +124,10 @@ MakeFixture() {
 readonly BASE="${TEST_ROOT}/base"
 MakeFixture "${BASE}"
 "${SCRIPT_DIR}/verify_firmware_artifact.sh" LOCKED "${BASE}" >/dev/null
-ExpectFailure 'artifact is LOCKED' \
+ExpectFailure 'artifact motor mode is LOCKED' \
   "${SCRIPT_DIR}/verify_firmware_artifact.sh" COMMISSIONING "${BASE}"
+ExpectFailure 'expected mode must be LOCKED, COMMISSIONING, or COMMISSIONING_PID' \
+  "${SCRIPT_DIR}/verify_firmware_artifact.sh" INVALID "${BASE}"
 
 readonly LEGACY_SCHEMA="${TEST_ROOT}/legacy-schema"
 cp -R "${BASE}" "${LEGACY_SCHEMA}"
@@ -171,10 +175,12 @@ readonly COMMISSIONING_BASE="${TEST_ROOT}/commissioning-base"
 cp -R "${BASE}" "${COMMISSIONING_BASE}"
 printf '%s\n' \
   'RRCLITE_MOTOR_COMMISSIONING:BOOL=ON' \
+  'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF' \
   'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=MOTORS_RAISED' \
   >"${COMMISSIONING_BASE}/firmware/mentor_pi_mcu/build/stm32/CMakeCache.txt"
 sed \
   -e 's/^motor_mode=LOCKED$/motor_mode=COMMISSIONING/' \
+  -e 's/^control_mode=LOCKED$/control_mode=DIRECTION_CHECK/' \
   -e 's/^commissioning_ack=$/commissioning_ack=MOTORS_RAISED/' \
   "${COMMISSIONING_BASE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt" \
   >"${COMMISSIONING_BASE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.tmp"
@@ -183,6 +189,28 @@ mv \
   "${COMMISSIONING_BASE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt"
 "${SCRIPT_DIR}/verify_firmware_artifact.sh" COMMISSIONING \
   "${COMMISSIONING_BASE}" >/dev/null
+ExpectFailure 'artifact motor mode is COMMISSIONING' \
+  "${SCRIPT_DIR}/verify_firmware_artifact.sh" COMMISSIONING_PID \
+  "${COMMISSIONING_BASE}"
+
+readonly COMMISSIONING_PID_BASE="${TEST_ROOT}/commissioning-pid-base"
+cp -R "${COMMISSIONING_BASE}" "${COMMISSIONING_PID_BASE}"
+sed -i \
+  's/RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF/RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=ON/' \
+  "${COMMISSIONING_PID_BASE}/firmware/mentor_pi_mcu/build/stm32/CMakeCache.txt"
+sed \
+  -e 's/^motor_mode=COMMISSIONING$/motor_mode=COMMISSIONING_PID/' \
+  -e 's/^control_mode=DIRECTION_CHECK$/control_mode=CLOSED_LOOP/' \
+  "${COMMISSIONING_PID_BASE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt" \
+  >"${COMMISSIONING_PID_BASE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.tmp"
+mv \
+  "${COMMISSIONING_PID_BASE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.tmp" \
+  "${COMMISSIONING_PID_BASE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt"
+"${SCRIPT_DIR}/verify_firmware_artifact.sh" COMMISSIONING_PID \
+  "${COMMISSIONING_PID_BASE}" >/dev/null
+ExpectFailure 'artifact motor mode is COMMISSIONING_PID' \
+  "${SCRIPT_DIR}/verify_firmware_artifact.sh" COMMISSIONING \
+  "${COMMISSIONING_PID_BASE}"
 
 readonly COMMISSIONING_METADATA_ACK="${TEST_ROOT}/commissioning-metadata-ack"
 cp -R "${COMMISSIONING_BASE}" "${COMMISSIONING_METADATA_ACK}"
@@ -198,6 +226,7 @@ ExpectFailure 'metadata acknowledgement is missing or invalid' \
 readonly COMMISSIONING_MISSING_ACK="${TEST_ROOT}/commissioning-missing-ack"
 cp -R "${COMMISSIONING_BASE}" "${COMMISSIONING_MISSING_ACK}"
 printf '%s\n' 'RRCLITE_MOTOR_COMMISSIONING:BOOL=ON' \
+  'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF' \
   >"${COMMISSIONING_MISSING_ACK}/firmware/mentor_pi_mcu/build/stm32/CMakeCache.txt"
 ExpectFailure 'commissioning acknowledgement is missing' \
   "${SCRIPT_DIR}/verify_firmware_artifact.sh" COMMISSIONING \
@@ -207,6 +236,7 @@ readonly COMMISSIONING_WRONG_ACK="${TEST_ROOT}/commissioning-wrong-ack"
 cp -R "${COMMISSIONING_BASE}" "${COMMISSIONING_WRONG_ACK}"
 printf '%s\n' \
   'RRCLITE_MOTOR_COMMISSIONING:BOOL=ON' \
+  'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF' \
   'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=WRONG' \
   >"${COMMISSIONING_WRONG_ACK}/firmware/mentor_pi_mcu/build/stm32/CMakeCache.txt"
 ExpectFailure 'commissioning acknowledgement is missing' \
@@ -263,6 +293,7 @@ readonly WRONG_CACHE="${TEST_ROOT}/wrong-cache"
 cp -R "${BASE}" "${WRONG_CACHE}"
 printf '%s\n' \
   'RRCLITE_MOTOR_COMMISSIONING:BOOL=ON' \
+  'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF' \
   'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=MOTORS_RAISED' \
   >"${WRONG_CACHE}/firmware/mentor_pi_mcu/build/stm32/CMakeCache.txt"
 ExpectFailure 'CMake cache is not motor-locked' \

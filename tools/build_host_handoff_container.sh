@@ -5,6 +5,8 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
+readonly HOST_RUNTIME_BUILDER="${SCRIPT_DIR}/build_host_runtime_image.sh"
+readonly HOST_RUNTIME_DOCKERFILE="${SCRIPT_DIR}/docker/host-runtime.Dockerfile"
 
 architecture=""
 output_directory=""
@@ -14,19 +16,20 @@ image=""
 Usage() {
   cat >&2 <<'EOF'
 Usage: build_host_handoff_container.sh --architecture amd64|arm64
-  --release-id SAFE_ID --output-directory PATH [--image PINNED_IMAGE@sha256:DIGEST]
+  --release-id SAFE_ID --output-directory PATH [--image PREPARED_IMAGE]
        build_host_handoff_container.sh --print-default-image \
          --architecture amd64|arm64
 
-The exact image must already be present locally. The build runs without network
-access and does not install into /opt, contact systemd, or access hardware.
+The prepared Humble/ros2_control image must already be present locally. The
+build runs without network access and does not install into /opt, contact
+systemd, or access hardware.
 EOF
   exit 2
 }
 
 if [[ "$#" -eq 3 && "$1" == "--print-default-image" && \
   "$2" == "--architecture" ]]; then
-  "${IMAGE_SELECTOR}" host "$3"
+  "${HOST_RUNTIME_BUILDER}" --architecture "$3" --print-output
   exit 0
 fi
 
@@ -47,23 +50,44 @@ done
 
 [[ "${architecture}" == "amd64" || "${architecture}" == "arm64" ]] || Usage
 [[ -x "${IMAGE_SELECTOR}" ]] || Fail "pinned image selector is unavailable"
+[[ -x "${HOST_RUNTIME_BUILDER}" && -f "${HOST_RUNTIME_DOCKERFILE}" ]] || \
+  Fail "Humble host runtime image tooling is unavailable"
+readonly DEFAULT_RUNTIME_IMAGE="$(
+  "${HOST_RUNTIME_BUILDER}" --architecture "${architecture}" --print-output
+)"
+readonly PINNED_BASE_IMAGE="$("${IMAGE_SELECTOR}" host "${architecture}")"
 if [[ -z "${image}" ]]; then
-  image="${MENTOR_PI_HOST_BUILDER_IMAGE:-$(
-    "${IMAGE_SELECTOR}" host "${architecture}"
-  )}"
+  image="${MENTOR_PI_HOST_RUNTIME_IMAGE:-${DEFAULT_RUNTIME_IMAGE}}"
 fi
 [[ "${release_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] ||
   Fail "release ID must contain 1-64 safe filename characters"
 [[ -n "${output_directory}" ]] || Usage
-[[ "${image}" =~ @sha256:[0-9a-f]{64}$ ]] ||
-  Fail "builder image must be pinned by a sha256 manifest digest"
 command -v docker >/dev/null 2>&1 || Fail "docker is not installed"
 docker image inspect "${image}" >/dev/null 2>&1 ||
-  Fail "pinned image is not local; explicitly run: docker pull ${image}"
+  Fail "prepared image is not local; run make setup"
 readonly IMAGE_ARCH="$(docker image inspect "${image}" \
   --format '{{.Architecture}}')"
 [[ "${IMAGE_ARCH}" == "${architecture}" ]] || \
-  Fail "pinned image architecture ${IMAGE_ARCH} does not match ${architecture}"
+  Fail "prepared image architecture ${IMAGE_ARCH} does not match ${architecture}"
+builder_identity=""
+if [[ "${image}" == "${DEFAULT_RUNTIME_IMAGE}" ]]; then
+  readonly RUNTIME_DOCKERFILE_SHA="$(sha256sum \
+    "${HOST_RUNTIME_DOCKERFILE}" | awk '{print $1}')"
+  [[ "$(docker image inspect "${image}" \
+      --format '{{index .Config.Labels "org.mentor-pi.host-runtime.base"}}')" == \
+      "${PINNED_BASE_IMAGE}" ]] || \
+    Fail "prepared runtime image has the wrong pinned base"
+  [[ "$(docker image inspect "${image}" \
+      --format '{{index .Config.Labels "org.mentor-pi.host-runtime.dockerfile-sha256"}}')" == \
+      "${RUNTIME_DOCKERFILE_SHA}" ]] || \
+    Fail "prepared runtime image has the wrong Dockerfile fingerprint"
+  builder_identity="${PINNED_BASE_IMAGE}"
+elif [[ "${image}" =~ @sha256:[0-9a-f]{64}$ ]]; then
+  builder_identity="${image}"
+else
+  Fail "custom prepared images must be pinned by a sha256 manifest digest"
+fi
+readonly builder_identity
 
 if [[ "${output_directory}" == /* ]]; then
   output_candidate="${output_directory}"
@@ -97,7 +121,7 @@ docker run --rm --network=none \
   --env SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}" \
   --env MENTOR_PI_CALLER_UID="${CALLER_UID}" \
   --env MENTOR_PI_CALLER_GID="${CALLER_GID}" \
-  --env MENTOR_PI_HOST_BUILDER_IMAGE="${image}" \
+  --env MENTOR_PI_HOST_BUILDER_IMAGE="${builder_identity}" \
   --env MENTOR_PI_OUTPUT_RELATIVE="${OUTPUT_RELATIVE}" \
   --env MENTOR_PI_PREFIX_RELATIVE="${PREFIX_RELATIVE}" \
   --env MENTOR_PI_BUILD_RELATIVE="${BUILD_RELATIVE}" \

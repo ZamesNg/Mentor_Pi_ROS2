@@ -34,9 +34,10 @@ static_assert(ErrorBit(Usart1Error::kDma) == kTransportDmaError);
 
 bool ConfigureCustomTransport() {
   return rmw_uros_set_custom_transport(
-             MICROROS_TRANSPORTS_FRAMING_MODE, nullptr, &MentorPiTransportOpen,
-             &MentorPiTransportClose, &MentorPiTransportWrite,
-             &MentorPiTransportRead) == RMW_RET_OK;
+             MICROROS_TRANSPORTS_FRAMING_MODE,
+             mentor_pi_mcu::platform::stm32::Usart1TransportArgument(),
+             &MentorPiTransportOpen, &MentorPiTransportClose,
+             &MentorPiTransportWrite, &MentorPiTransportRead) == RMW_RET_OK;
 }
 
 void CloseCustomTransport() {

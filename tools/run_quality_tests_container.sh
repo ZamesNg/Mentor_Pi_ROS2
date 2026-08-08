@@ -46,7 +46,7 @@ docker run --rm --network=none \
     mkdir -p "${HOME}"
     ./tools/run_native_ci_tests.sh --build-type Debug --sanitizers on
     ./tools/test_gitignore_contract.sh
-    ./tools/test_host_handoff_tools.sh
+    ./tools/test_ros_workspace_layout.sh
     ./tools/check_cpp_format.sh
     ./tools/check_framework_docs.py
   '

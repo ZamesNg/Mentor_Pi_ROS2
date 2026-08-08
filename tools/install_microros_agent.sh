@@ -122,7 +122,7 @@ test -x "${INSTALL_ROOT}/lib/micro_ros_agent/micro_ros_agent"
 ln -sfn "${INSTALL_ROOT}" "${ACTIVE_ROOT}"
 install -d -m 0755 /opt/mentor_pi/bin
 install -m 0755 \
-  "${PROJECT_ROOT}/src/mentor_pi_bringup/scripts/run_micro_ros_agent" \
+  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/scripts/run_micro_ros_agent" \
   "${WRAPPER_TARGET}"
 
 # Upstream prints its usage text for --help but intentionally returns 1 because

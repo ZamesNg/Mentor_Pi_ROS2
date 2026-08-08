@@ -16,6 +16,7 @@ extern "C" {
 
 #include "mentor_pi_mcu/platform/stm32/hal_handles.h"
 #include "mentor_pi_mcu/platform/stm32/peripherals.h"
+#include "mentor_pi_mcu/platform/stm32/transport.h"
 #include "mentor_pi_mcu/platform/stm32/watchdog_retention.h"
 
 extern "C" {
@@ -350,9 +351,9 @@ Status ConfigureTimers() {
   return status;
 }
 
-Status ConfigureUsarts() {
+Status ConfigureUsart1() {
   g_usart1.Instance = USART1;
-  g_usart1.Init.BaudRate = 1000000U;
+  g_usart1.Init.BaudRate = kUsart1Baud;
   g_usart1.Init.WordLength = UART_WORDLENGTH_8B;
   g_usart1.Init.StopBits = UART_STOPBITS_1;
   g_usart1.Init.Parity = UART_PARITY_NONE;
@@ -360,6 +361,11 @@ Status ConfigureUsarts() {
   g_usart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   g_usart1.Init.OverSampling = UART_OVERSAMPLING_16;
   Status status = FromHalStatus(HAL_UART_Init(&g_usart1));
+  return status;
+}
+
+Status ConfigureUsarts() {
+  Status status = ConfigureUsart1();
   if (status != Status::kOk) {
     return status;
   }

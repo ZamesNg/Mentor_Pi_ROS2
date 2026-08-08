@@ -60,7 +60,8 @@ No firmware or host runtime implementation may be merged before D0.
 Build the smallest useful firmware on the target board and production compiler:
 
 - FreeRTOS plus the Humble micro-ROS static library;
-- custom USART1 transport with 8 KiB circular RX DMA;
+- standard micro-ROS custom-transport API backed by HAL USART1 DMA, with an
+  8 KiB circular RX ring and `NDTR` cursor;
 - the final `mentor_pi_interfaces` type support;
 - one representative best-effort motor subscription;
 - one representative reliable diagnostics publisher;
@@ -173,8 +174,9 @@ request.
   `RRCLITE_MOTOR_COMMISSIONING=1` and
   `RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED`. Before any powered test,
   each raised wheel passes a passive encoder-direction check with PWM disabled.
-  Initial powered characterization stays within 0.25 RPS and 300 permille on a
-  current-limited guarded fixture. JGA27's evidence-derived `-1` factor and all
+  Initial powered characterization uses direction-check mode with a 0.25 RPS
+  command-admission bound, fixed 250-permille output, and a 0.50 RPS cutoff on
+  a current-limited guarded fixture. JGA27's measured factor and all
   PID profiles remain provisional until the complete `VER-HIL-MOT-001` record
   qualifies or replaces them; D3 cannot close for nonzero production motion on
   commissioning evidence alone.
@@ -248,9 +250,10 @@ order. After Agent-only recovery it idempotently reapplies those values without
 touching bus-servo persistence or replaying another command. A session change
 invalidates every outstanding future and leaves motion disabled.
 
-For Ubuntu 24.04 development, document the pinned Ubuntu 22.04/Humble Docker
-image and keep ROS out of the native host OS. macOS-native deployment is not
-supported.
+For development, use native Humble only on Ubuntu 22.04. On any other Ubuntu
+release, document and use the pinned Ubuntu 22.04/Humble Docker runtime for
+the Agent, host nodes, and reviewed MCU pass-through while keeping ROS out of
+the native OS. macOS-native deployment is not supported.
 
 ### D4-H exit criteria
 
@@ -265,15 +268,47 @@ supported.
   noninterference.
 - Invalid YAML prevents configuration activation and reports a precise error.
 
+### Stage 5 host integration extension: `mentor_pi_hardwares`
+
+The host-only ros2_control adapter package is implemented in
+`mentor_pi_ros2/src/mentor_pi_hardwares/` and composes with the existing native
+endpoints:
+
+- package layout:
+  - `mentor_pi_ros2/src/mentor_pi_hardwares/CMakeLists.txt`
+  - `mentor_pi_ros2/src/mentor_pi_hardwares/package.xml`
+- `mentor_pi_ros2/src/mentor_pi_hardwares/include/mentor_pi_hardwares/`
+- `mentor_pi_ros2/src/mentor_pi_hardwares/src/`
+- `mentor_pi_ros2/src/mentor_pi_hardwares/launch/`
+- `mentor_pi_ros2/src/mentor_pi_hardwares/config/`
+- `mentor_pi_ros2/src/mentor_pi_hardwares/ros2_control_plugins.xml`
+- plugin API surfaces:
+  - `hardware_interface::SystemInterface`
+  - `pluginlib`-exported classes for mecanum + ackermann adapters
+- launch wiring for `controller_manager` and selected motion controllers
+- command/state exchange in the ros2_control host control path
+- package dependency additions: `controller_manager`, `hardware_interface`,
+  `pluginlib`, `rclcpp`, `rclcpp_lifecycle`, and `mentor_pi_interfaces`
+- file surfaces to port from reference:
+  - `MecanumHardware` / `AckermannHardware` implementation files
+  - `ros2_control_plugins.xml` plugin manifest
+  - `exp_vehicle_launch.py` and mode-specific launch fragments
+  - `mentor_pi_bringup`-coexisting URDF/xacro robot descriptions
+  - mecanum and ackermann controller config YAML
+
+This extension remains additive and non-replacement. It must preserve the existing
+`mentor_pi_bringup` contract and lock semantics, keep firmware message/service
+paths unchanged, and use `/mentor_pi/...` endpoints exactly as documented.
+
 ## 9. Stage 6: qualification
 
 Run the complete [Verification](verification.md) matrix on the release candidate
 with the final interface, middleware configuration, firmware optimization,
 Agent build, system service, udev rule, YAML, and representative hardware load.
-Copy and complete the
-[qualification evidence ledger](qualification-evidence-ledger.md) inside the
-immutable candidate evidence root; software-observed campaign artifacts and
-independent physical records remain separately identifiable.
+Run the machine-generated campaign sequence in
+[Tutorial 08](../tutorials/08-run-stress-soak-and-release-gates.md). Keep the
+software-observed outputs and independent instrument files immutable and
+separately identifiable under the exact candidate identity.
 
 ### D5 exit criteria
 

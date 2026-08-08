@@ -1,0 +1,14 @@
+<library path="mentor_pi_hardwares">
+  <class name="mentor_pi/AckermannHardware" type="mentor_pi::AckermannHardware" base_class_type="hardware_interface::SystemInterface">
+    <description>
+      ros2_control hardware adapter for ackermann command/state bridging to /mentor_pi.
+    </description>
+  </class>
+
+  <class name="mentor_pi/MecanumHardware" type="mentor_pi::MecanumHardware" base_class_type="hardware_interface::SystemInterface">
+    <description>
+      ros2_control hardware adapter for mecanum command/state bridging to /mentor_pi.
+    </description>
+  </class>
+</library>
+

@@ -9,6 +9,7 @@ readonly IDLE_GUARD="${SCRIPT_DIR}/require_microros_agent_install_idle.sh"
 readonly INSTALLER="${SCRIPT_DIR}/install_microros_agent.sh"
 readonly BUILD_HELPER="${SCRIPT_DIR}/build_microros_agent_from_lock.sh"
 readonly SOURCE_LOCK="${SCRIPT_DIR}/microros_agent_source.lock"
+readonly XRCE_AGENT_PATCH="${SCRIPT_DIR}/patches/micro_xrce_agent_rrclite_modem_lines.patch"
 readonly TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mentor-pi-agent-state.XXXXXX")"
 
 Cleanup() {
@@ -182,6 +183,14 @@ grep -Fq 'build_microros_agent_from_lock.sh' "${INSTALLER}" ||
   Fail "the production installer does not invoke the shared build helper"
 grep -Fq 'verify_microros_agent_install_state.sh' "${BUILD_HELPER}" ||
   Fail "the shared build helper does not invoke the state validator"
+[[ -f "${XRCE_AGENT_PATCH}" && ! -L "${XRCE_AGENT_PATCH}" ]] ||
+  Fail "the RRCLite Agent modem-line patch is missing or symbolic"
+grep -Fq 'reset_rrclite_into_application' "${XRCE_AGENT_PATCH}" ||
+  Fail "the RRCLite Agent patch omits the normal-reset sequence"
+grep -Fq 'MENTOR_PI_RRCLITE_AUTORESET' "${XRCE_AGENT_PATCH}" ||
+  Fail "the RRCLite Agent patch omits its explicit opt-in"
+grep -Fq 'ApplyRrcliteAgentPatch' "${BUILD_HELPER}" ||
+  Fail "the shared build helper does not apply the RRCLite Agent patch"
 grep -Fq 'microros_agent_source.lock' "${INSTALLER}" ||
   Fail "the production installer does not consume the Agent source lock"
 [[ -f "${SOURCE_LOCK}" && ! -L "${SOURCE_LOCK}" ]] ||
@@ -207,9 +216,10 @@ grep -Fqx \
 # origin check cannot be hidden by merely retaining the canonical lock row.
 readonly LOCK_CONSUMER_FIXTURE="${TEST_ROOT}/lock-consumer"
 readonly FIXTURE_LOCK="${LOCK_CONSUMER_FIXTURE}/microros_agent_source.lock"
-mkdir -p "${LOCK_CONSUMER_FIXTURE}"
+mkdir -p "${LOCK_CONSUMER_FIXTURE}/patches"
 cp "${BUILD_HELPER}" "${INSTALLER}" "${VALIDATOR}" \
   "${LOCK_CONSUMER_FIXTURE}/"
+cp "${XRCE_AGENT_PATCH}" "${LOCK_CONSUMER_FIXTURE}/patches/"
 chmod +x "${LOCK_CONSUMER_FIXTURE}/build_microros_agent_from_lock.sh" \
   "${LOCK_CONSUMER_FIXTURE}/install_microros_agent.sh" \
   "${LOCK_CONSUMER_FIXTURE}/verify_microros_agent_install_state.sh"

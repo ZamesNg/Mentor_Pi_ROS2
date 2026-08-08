@@ -1,0 +1,302 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly INSTALL_IDLE_GUARD="${SCRIPT_DIR}/require_controller_target_inactive"
+readonly EXPECTED_UBUNTU_VERSION="22.04"
+readonly EXPECTED_ROS_DISTRO="humble"
+
+staged_prefix=""
+release_id=""
+activate_release=""
+
+Usage() {
+  cat >&2 <<'EOF'
+Usage:
+  promote_host_release --staged-prefix PATH --release-id ID
+  promote_host_release --activate-release ID
+EOF
+  exit 2
+}
+
+Fail() {
+  echo "Host release promotion error: $*" >&2
+  exit 1
+}
+
+ReadSingleValue() {
+  local file="$1"
+  local key="$2"
+  local description="$3"
+  local count=""
+  local line=""
+  count="$(grep -Ec "^${key}=" "${file}" || true)"
+  [[ "${count}" == "1" ]] ||
+    Fail "${description} must contain exactly one ${key}= entry."
+  line="$(grep -E "^${key}=" "${file}")"
+  printf '%s' "${line#*=}"
+}
+
+StripOuterQuotes() {
+  local value="$1"
+  case "${value}" in
+    \"*\") value="${value#\"}"; value="${value%\"}" ;;
+    \'*\') value="${value#\'}"; value="${value%\'}" ;;
+  esac
+  printf '%s' "${value}"
+}
+
+while (($# > 0)); do
+  case "$1" in
+    --staged-prefix) staged_prefix="${2:-}"; shift 2 ;;
+    --release-id) release_id="${2:-}"; shift 2 ;;
+    --activate-release) activate_release="${2:-}"; shift 2 ;;
+    *) Usage ;;
+  esac
+done
+
+if [[ -n "${activate_release}" ]]; then
+  [[ -z "${staged_prefix}" && -z "${release_id}" ]] || Usage
+  release_id="${activate_release}"
+else
+  [[ -n "${staged_prefix}" && -n "${release_id}" ]] || Usage
+fi
+if [[ ! "${release_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+  echo "Release ID must be 1-64 safe filename characters." >&2
+  exit 2
+fi
+
+readonly TEST_ROOT="${MENTOR_PI_DEPLOYMENT_TEST_ROOT:-}"
+if [[ -z "${TEST_ROOT}" && "$(id -u)" != "0" ]]; then
+  Fail "run as root"
+fi
+if [[ -n "${TEST_ROOT}" ]]; then
+  [[ "${TEST_ROOT}" == /* && "${TEST_ROOT}" != "/" ]] ||
+    Fail "MENTOR_PI_DEPLOYMENT_TEST_ROOT must be an absolute non-root path"
+  deployment_os_release="${MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE:-}"
+  deployment_architecture="${MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE:-}"
+  deployment_ros_setup="${MENTOR_PI_DEPLOYMENT_TEST_ROS_SETUP:-}"
+  [[ "${deployment_os_release}" == /* ]] ||
+    Fail "test mode requires an absolute MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE"
+  [[ -n "${deployment_architecture}" ]] ||
+    Fail "test mode requires MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE"
+  [[ "${deployment_ros_setup}" == /* ]] ||
+    Fail "test mode requires an absolute MENTOR_PI_DEPLOYMENT_TEST_ROS_SETUP"
+else
+  if [[ "${MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE+x}" == "x" ||
+        "${MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE+x}" == "x" ||
+        "${MENTOR_PI_DEPLOYMENT_TEST_ROS_SETUP+x}" == "x" ]]; then
+    Fail "deployment test overrides require MENTOR_PI_DEPLOYMENT_TEST_ROOT"
+  fi
+  deployment_os_release="/etc/os-release"
+  command -v dpkg >/dev/null 2>&1 ||
+    Fail "dpkg is required to verify the production architecture"
+  if ! deployment_architecture="$(dpkg --print-architecture 2>/dev/null)"; then
+    Fail "could not determine the production dpkg architecture"
+  fi
+  deployment_ros_setup="/opt/ros/humble/setup.bash"
+fi
+readonly DEPLOYMENT_OS_RELEASE="${deployment_os_release}"
+readonly DEPLOYMENT_ARCHITECTURE="${deployment_architecture}"
+readonly DEPLOYMENT_ROS_SETUP="${deployment_ros_setup}"
+readonly OPT_ROOT="${TEST_ROOT}/opt/mentor_pi"
+readonly RELEASE_ROOT="${OPT_ROOT}/releases/host"
+readonly RELEASE_PATH="${RELEASE_ROOT}/${release_id}"
+readonly ACTIVE_PATH="${OPT_ROOT}/host"
+
+ValidateDeploymentPlatform() {
+  local os_id=""
+  local os_version=""
+  local ros_distro=""
+  [[ -f "${DEPLOYMENT_OS_RELEASE}" && -r "${DEPLOYMENT_OS_RELEASE}" ]] ||
+    Fail "OS release file is missing or unreadable: ${DEPLOYMENT_OS_RELEASE}"
+  os_id="$(StripOuterQuotes "$(ReadSingleValue \
+    "${DEPLOYMENT_OS_RELEASE}" ID "OS release file")")"
+  os_version="$(StripOuterQuotes "$(ReadSingleValue \
+    "${DEPLOYMENT_OS_RELEASE}" VERSION_ID "OS release file")")"
+  [[ "${os_id}" == "ubuntu" &&
+      "${os_version}" == "${EXPECTED_UBUNTU_VERSION}" ]] ||
+    Fail "host must run Ubuntu ${EXPECTED_UBUNTU_VERSION}"
+  [[ "${DEPLOYMENT_ARCHITECTURE}" == "amd64" ||
+      "${DEPLOYMENT_ARCHITECTURE}" == "arm64" ]] ||
+    Fail "unsupported host architecture ${DEPLOYMENT_ARCHITECTURE}"
+  [[ -f "${DEPLOYMENT_ROS_SETUP}" && -r "${DEPLOYMENT_ROS_SETUP}" ]] ||
+    Fail "ROS setup is missing or unreadable: ${DEPLOYMENT_ROS_SETUP}"
+  if ! ros_distro="$(
+      set +u
+      source "${DEPLOYMENT_ROS_SETUP}" >/dev/null || exit 1
+      set -u
+      printf '%s' "${ROS_DISTRO:-}"
+    )"; then
+    Fail "ROS setup could not be sourced: ${DEPLOYMENT_ROS_SETUP}"
+  fi
+  [[ "${ros_distro}" == "${EXPECTED_ROS_DISTRO}" ]] ||
+    Fail "ROS setup must identify ROS_DISTRO=${EXPECTED_ROS_DISTRO}"
+}
+
+RequireReleaseIdentity() {
+  local prefix="$1"
+  local metadata="${prefix}/HOST-BUILD-METADATA.txt"
+  local format=""
+  local ubuntu=""
+  local target_os=""
+  local target_version=""
+  local ros_distro=""
+  local architecture=""
+  [[ -f "${metadata}" && ! -L "${metadata}" ]] ||
+    Fail "release build metadata is missing or symbolic"
+  format="$(ReadSingleValue "${metadata}" format "release build metadata")"
+  ubuntu="$(ReadSingleValue "${metadata}" ubuntu "release build metadata")"
+  target_os="$(ReadSingleValue \
+    "${metadata}" target_os "release build metadata")"
+  target_version="$(ReadSingleValue \
+    "${metadata}" target_version "release build metadata")"
+  ros_distro="$(ReadSingleValue \
+    "${metadata}" ros_distro "release build metadata")"
+  architecture="$(ReadSingleValue \
+    "${metadata}" architecture "release build metadata")"
+  [[ "${format}" == "rrclite-host-build-v2" ]] ||
+    Fail "release build metadata does not use schema v2"
+  [[ "${ubuntu}" == "${EXPECTED_UBUNTU_VERSION}" ]] ||
+    Fail "release build metadata has the wrong Ubuntu identity"
+  [[ "${target_os}" == "ubuntu" ]] || Fail "release targets the wrong OS"
+  [[ "${target_version}" == "${EXPECTED_UBUNTU_VERSION}" ]] ||
+    Fail "release targets the wrong Ubuntu version"
+  [[ "${ros_distro}" == "${EXPECTED_ROS_DISTRO}" ]] ||
+    Fail "release targets the wrong ROS distribution"
+  [[ "${architecture}" == "amd64" || "${architecture}" == "arm64" ]] ||
+    Fail "release has unsupported architecture ${architecture}"
+  [[ "${architecture}" == "${DEPLOYMENT_ARCHITECTURE}" ]] ||
+    Fail "release architecture ${architecture} does not match host" \
+      "${DEPLOYMENT_ARCHITECTURE}"
+}
+
+RequireReleaseLayout() {
+  local prefix="$1"
+  local layout_generation="$2"
+  local required=""
+  local first_link=""
+  first_link="$(find "${prefix}" -type l -print -quit)"
+  if [[ -n "${first_link}" ]]; then
+    echo "Release prefix contains a symbolic link and is not self-contained." \
+      >&2
+    exit 1
+  fi
+  for required in setup.bash \
+      share/ament_index/resource_index/packages/mentor_pi_bringup \
+      share/ament_index/resource_index/packages/mentor_pi_interfaces \
+      lib/mentor_pi_bringup/configuration_supervisor \
+      lib/mentor_pi_bringup/run_configuration_supervisor \
+      lib/mentor_pi_bringup/install_production_assets \
+      lib/mentor_pi_bringup/promote_host_release \
+      lib/libmentor_pi_interfaces__rosidl_generator_c.so \
+      lib/libmentor_pi_interfaces__rosidl_typesupport_cpp.so \
+      lib/libmentor_pi_interfaces__rosidl_typesupport_fastrtps_cpp.so \
+      share/mentor_pi_interfaces/package.xml \
+      share/mentor_pi_bringup/config/controller.yaml \
+      share/mentor_pi_bringup/systemd/mentor-pi-configuration-supervisor.default \
+      share/mentor_pi_bringup/systemd/mentor-pi-runtime.service \
+      share/mentor_pi_bringup/systemd/mentor-pi-agent.service \
+      share/mentor_pi_bringup/systemd/mentor-pi-configuration-supervisor.service \
+      share/mentor_pi_bringup/systemd/mentor-pi-controller.target \
+      share/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in; do
+    if [[ ! -f "${prefix}/${required}" ]]; then
+      echo "Release prefix is missing ${required}." >&2
+      exit 1
+    fi
+  done
+  [[ -x "${prefix}/lib/mentor_pi_bringup/configuration_supervisor" ]] || {
+    echo "configuration_supervisor is not executable." >&2
+    exit 1
+  }
+  for required in capture_board_diagnostics run_configuration_supervisor \
+      install_production_assets promote_host_release; do
+    if [[ "${layout_generation}" == "legacy-compatible" &&
+          "${required}" == "capture_board_diagnostics" ]]; then
+      continue
+    fi
+    [[ -x "${prefix}/lib/mentor_pi_bringup/${required}" ]] || {
+      echo "${required} is not executable." >&2
+      exit 1
+    }
+  done
+  if [[ "${layout_generation}" == "current" ]]; then
+    [[ -x "${prefix}/lib/mentor_pi_bringup/require_controller_target_inactive" ]] || {
+      echo "require_controller_target_inactive is not executable." >&2
+      exit 1
+    }
+  fi
+  RequireReleaseIdentity "${prefix}"
+}
+
+ValidateDeploymentPlatform
+if [[ -z "${TEST_ROOT}" ]]; then
+  [[ -x "${INSTALL_IDLE_GUARD}" ]] || {
+    echo "Deployment idle guard is missing at ${INSTALL_IDLE_GUARD}." >&2
+    exit 1
+  }
+  "${INSTALL_IDLE_GUARD}"
+fi
+mkdir -p "${RELEASE_ROOT}"
+if [[ -z "${TEST_ROOT}" ]]; then
+  exec 9>"${OPT_ROOT}/.host-promotion.lock"
+  if ! /usr/bin/flock -n 9; then
+    echo "Another host release promotion is already running." >&2
+    exit 1
+  fi
+fi
+
+if [[ -n "${activate_release}" ]]; then
+  [[ -d "${RELEASE_PATH}" ]] || {
+    echo "Unknown installed host release ${release_id}." >&2
+    exit 1
+  }
+  # A previously installed release may predate operator-only diagnostics and
+  # the shared idle-guard helper. The currently executing reviewed promoter
+  # has already run its own guard, so emergency rollback keeps that older,
+  # otherwise-complete runtime selectable.
+  RequireReleaseLayout "${RELEASE_PATH}" legacy-compatible
+else
+  [[ "${staged_prefix}" == /* && -d "${staged_prefix}" ]] || {
+    echo "Staged prefix must be an absolute existing directory." >&2
+    exit 1
+  }
+  RequireReleaseLayout "${staged_prefix}" current
+  if [[ -e "${RELEASE_PATH}" || -L "${RELEASE_PATH}" ]]; then
+    echo "Release ${release_id} is already installed; refusing replacement." \
+      >&2
+    exit 1
+  fi
+
+  readonly TEMP_RELEASE="${RELEASE_ROOT}/.${release_id}.tmp.$$"
+  Cleanup() {
+    if [[ -d "${TEMP_RELEASE}" ]]; then
+      rm -rf -- "${TEMP_RELEASE}"
+    fi
+  }
+  trap Cleanup EXIT
+  mkdir "${TEMP_RELEASE}"
+  cp -a "${staged_prefix}/." "${TEMP_RELEASE}/"
+  if [[ -z "${TEST_ROOT}" ]]; then
+    chown -R root:root "${TEMP_RELEASE}"
+  fi
+  chmod -R u-s,g-s,o-t,go-w "${TEMP_RELEASE}"
+  RequireReleaseLayout "${TEMP_RELEASE}" current
+  mv "${TEMP_RELEASE}" "${RELEASE_PATH}"
+  trap - EXIT
+fi
+
+if [[ -e "${ACTIVE_PATH}" && ! -L "${ACTIVE_PATH}" ]]; then
+  echo "${ACTIVE_PATH} exists and is not a managed symbolic link." >&2
+  exit 1
+fi
+readonly TEMP_LINK="${OPT_ROOT}/.host.${release_id}.tmp.$$"
+ln -s "${RELEASE_PATH}" "${TEMP_LINK}"
+if mv --version >/dev/null 2>&1; then
+  mv -Tf "${TEMP_LINK}" "${ACTIVE_PATH}"
+else
+  mv -fh "${TEMP_LINK}" "${ACTIVE_PATH}"
+fi
+
+echo "Activated Mentor Pi host release ${release_id}."

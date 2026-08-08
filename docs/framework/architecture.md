@@ -3,7 +3,8 @@
 Status: normative implementation architecture  
 Runtime host: ROS 2 Humble on Ubuntu 22.04, amd64 or arm64
 
-Development host: Ubuntu 24.04 with pinned Humble containers and no native ROS
+Development host: Ubuntu 22.04 native Humble, or another Ubuntu release with
+pinned Humble containers and no native ROS
 MCU: STM32F407VET6, STM32 HAL, FreeRTOS, and a C++17 application framework
 over the micro-ROS C client library
 
@@ -103,8 +104,9 @@ make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
 ```
 
 The wrapper and CMake configuration fail if commissioning is requested without
-the exact acknowledgement. The resulting image caps absolute accepted speed at
-0.25 output-shaft RPS and absolute drive output at 300 permille. Those bounds
+the exact acknowledgement. The resulting direction-check image admits signed
+commands through 0.25 RPS, bypasses PID, applies fixed 250-permille output from
+the sign, and disarms above 0.50 measured RPS. Those bounds
 do not make an unguarded motor safe: all wheels shall remain raised or on an
 equivalent guarded fixture and the board shall use a current-limited supply.
 The commissioning image is not a production or release-qualified image.
@@ -136,12 +138,13 @@ as FreeRTOS stack-depth units.
 - The PWM-servo timer ISR toggles pins and copies precomputed shadow compare
   values only. `PeripheralTask` calculates interpolation outside the ISR and
   swaps the shadow set at a frame boundary.
-- The USART1 RX-DMA half/full top half runs at priority 4, above the FreeRTOS
-  syscall ceiling. It clears only its own DMA flags, increments a single-writer
-  boundary epoch, latches a sticky DMA-error boolean, and pends USART1; it calls
-  no HAL state machine, FreeRTOS API, callback, or actuator function. The
-  priority-6 USART1 handler performs the deferred producer update, notification,
-  and fault stop using FreeRTOS-safe APIs.
+- The USART1 RX/TX DMA streams and USART1 interrupt run at priority 6, at or
+  below the FreeRTOS syscall ceiling. DMA and UART IRQs enter the standard
+  `HAL_DMA_IRQHandler` and `HAL_UART_IRQHandler` state machines. Standard RX
+  half/full callbacks increment a single boundary epoch and notify
+  `MicroRosTask`; the task reconstructs producer progress from the epoch and
+  DMA `NDTR`. Standard TX-complete and UART-error callbacks perform bounded,
+  FreeRTOS-safe completion or fail-closed notification.
 - UART5, SPI, ADC, IMU, and the remaining USART1 interrupts publish only flags,
   cursor progress, or task notifications using interrupt-safe APIs.
 - Every ISR that calls FreeRTOS shall use an NVIC priority numerically equal to
@@ -160,11 +163,14 @@ driver may transmit on it.
   section in SRAM.
 - Start RX DMA once in transport `open`. Do not abort and restart it for normal
   IDLE, half-transfer, or transfer-complete events.
-- Every half-transfer and transfer-complete boundary increments a 32-bit epoch
-  in the above-BASEPRI top half and pends the lower-priority USART1 handler.
-  UART IDLE also enters that lower handler. The deferred handler reconstructs a
-  monotonic modulo-2^32 producer position; the task alone advances the consumer
-  position and receives the notification.
+- Standard `HAL_DMA_IRQHandler` dispatches the circular stream's half-transfer
+  and transfer-complete events without a project-owned DMA flag handler. RX DMA
+  remains active in circular mode until transport close or fatal teardown.
+- Every standard HAL half/full callback increments a 32-bit boundary epoch and
+  notifies `MicroRosTask` using only FreeRTOS-safe `FromISR` operations.
+- `MicroRosTask` polls `ring_size - NDTR` at intervals no longer than 1 ms while
+  waiting for data, so short XRCE frames do not depend on a half-ring IRQ. The
+  task alone advances the consumer position.
 - Sample the boundary epoch, DMA `NDTR`, and epoch again until the two epoch
   reads match and its odd/even phase agrees with the cursor half. The
   reconstruction counts a complete 8 KiB lap even when the cursor returns to
@@ -172,16 +178,17 @@ driver may transmit on it.
 - If producer minus consumer exceeds 8 KiB, latch `rx_overrun`, stop accepting
   the stream, disarm motors, and enter session teardown. Dropping bytes while
   continuing XRCE parsing is forbidden.
-- FE, NE, ORE, and PE are latched by the IRQ and handled in task context. The IRQ
-  shall not call `HAL_UART_AbortReceive`, re-register callbacks, or force
-  `__HAL_UNLOCK`.
+- FE, NE, ORE, and PE are mapped by the standard HAL error callback to sticky
+  transport error bits, motor disarm, and bounded task-context teardown.
 
 At 1,000,000 baud 8N1, the physical line carries at most 100,000 bytes/s, so an
 8 KiB ring represents at least 81.92 ms at line saturation. Qualification still
 requires zero overruns; the ring is recovery margin, not a substitute for
-bounded execution. Running the boundary top half above BASEPRI prevents task
-critical sections from coalescing a complete ring lap. It remains a strict
-non-FreeRTOS top half so this exception cannot expand into application work.
+bounded execution. Because the priority-6 HAL callbacks can be deferred by a
+FreeRTOS critical section, every critical section that masks transport IRQs
+shall remain below the 40.96 ms half-ring interval at line saturation. The
+1 ms `NDTR` polling path makes sub-half-ring XRCE traffic visible without a UART
+IDLE interrupt.
 
 ### Transmit path
 
@@ -240,7 +247,7 @@ but still hand off to bounded mailboxes.
 
 ### Asynchronous service pump
 
-The six service servers shall not use synchronous executor callbacks that wait
+The seven service servers shall not use synchronous executor callbacks that wait
 for hardware. On each service-class ACTIVE iteration, `MicroRosTask` performs
 this bounded slice:
 
@@ -330,13 +337,15 @@ session reset has strict discard-before-publish ordering without using the
 mailbox's consumer operation from `MicroRosTask`.
 
 Motor, PWM, and LED workers ignore fields whose per-field generation is zero.
-RGB and OLED workers also consume per-field generations, but merge the selected
-new-session fields onto the owner's last completed RGB state or last
-successfully rendered OLED state. Therefore an already applied unselected
-output holds across reconnect, while an old unread or merely pending field is
-never relabelled as new-session work. Bus and buzzer shadows are whole-command
-objects; their session tags make an unread old object ineligible without any
-partial-state merge.
+The RGB worker consumes the host-owned RGB1 generation and merges it with the
+firmware-owned RGB2 RX/TX status color; the discrete-output worker overrides
+LED3 with the successful-heartbeat indication. The OLED worker consumes per-field
+generations and merges selected new-session fields onto the last successfully
+rendered state. Therefore an already applied host output holds across
+reconnect, while an old unread or merely pending field is never relabelled as
+new-session work. Bus and buzzer shadows are whole-command objects; their
+session tags make an unread old object ineligible without any partial-state
+merge.
 
 | Object | Capacity | Full behavior |
 | --- | ---: | --- |
@@ -346,16 +355,17 @@ partial-state merge.
 | `led_command_mailbox` | 1 complete LED state plus per-field validity | Merge selected LEDs within one session, then atomically publish the shadow. |
 | `buzzer_command_mailbox` | 1 pattern | Atomic overwrite. |
 | `battery_alarm_shadow` | 1 alarm request/generation | `SensorTask` replaces it after debounce/repeat decisions; `PeripheralTask` consumes it and remains the sole buzzer-hardware owner. |
-| `rgb_command_mailbox` | 1 two-pixel state plus per-field validity | Merge selected pixels within one session; the owner preserves already completed unselected pixels. |
+| `rgb_command_mailbox` | 1 fixed two-pixel wire-shaped state; only RGB1 has a valid host generation | Replace host RGB1 within one session; `PeripheralTask` composes firmware status into RGB2 immediately before bounded SPI DMA. |
 | `oled_command_mailbox` | 1 two-line state plus per-field validity | Merge selected lines within one session; the owner preserves already rendered unselected lines. |
 | `button_event_queue` | 16 events | Remove the oldest, insert the newest, increment `button_event_drop_count`. |
 | Non-bus service slots | 1 per service | Respond `BUSY` to an additional request. |
 | Shared bus service slot | 1 across get/configure/stop | Respond `BUSY` to every additional request, including stop; an accepted service is nonpreemptive. When idle, admit stop before get/configure. |
 
-For LED, RGB, and OLED commands, “complete state” means the complete post-merge
-shadow: selected elements take their new values and every unselected LED, pixel,
-or line remains unchanged. A buzzer command has no subset mask and replaces its
-whole pattern. A command rejected by validation, lost before its callback, or
+For LED and OLED commands, “complete state” means the complete post-merge
+shadow: selected elements take their new values and every unselected LED or
+line remains unchanged. RGB commands replace only RGB1; RGB2 is never copied
+from a ROS command. A buzzer command has no subset mask and replaces its whole
+pattern. A command rejected by validation, lost before its callback, or
 refused because of overload changes no discrete hardware output.
 
 Latest telemetry uses a single-writer snapshot with a sequence counter or a
@@ -370,6 +380,13 @@ iteration may additionally begin at most one due button/battery/heartbeat/
 diagnostics publication, selected by a separate round-robin cursor. Spreading
 simultaneously due state does not change the source rates and prevents three
 consecutive physical TX waits in one slice.
+
+The closed-loop motor calculation is a positional PID over filtered measured
+RPS: P uses current speed error, I stores the time integral of that error, and
+D uses its first time difference. Conditional integration prevents windup at
+the configured output limit. PID state is owned exclusively by
+`MotorControlTask`; ROS callbacks can only submit validated gain updates to the
+motor owner.
 
 Every overwrite, drop, invalid command, busy response, timeout, UART error, DMA
 overrun, reconnect, missed release, and high-water mark shall be counted.
@@ -394,8 +411,11 @@ change build authority. PWM-servo GPIO remains low until
 `PeripheralTask` starts the validated TIM13 frame generator; it then produces
 the documented 1500 microsecond reset default without consulting a ROS
 mailbox. `PeripheralTask` also establishes the reset defaults of LEDs off,
-buzzer off, both RGB pixels off, and empty host OLED lines. `BusServoTask` sends
-no frame merely because it started.
+buzzer off, both RGB pixels initially off, and empty host OLED lines. RGB2 then
+becomes the RX/TX status pixel and LED3 becomes the successful-heartbeat
+indicator according to the
+[verified board profile](verified-hardware-profile.md). `BusServoTask` sends no
+frame merely because it started.
 
 A one-way startup motor inhibit remains set until `SafetySupervisorTask`
 observes a first on-time heartbeat from every required worker. Motor arm and
@@ -425,7 +445,7 @@ Entity construction is an incremental state machine. Each support, node,
 publisher, subscription, service, or executor creation call has a 40 ms maximum
 XRCE/middleware timeout. Each `RunOnce()` slice starts at most one middleware
 boundary, returns to `MicroRosTask`, and advances its heartbeat before the next
-boundary. The fixed graph is created in 47 ordered boundaries, including the
+boundary. The fixed graph is created in 49 ordered boundaries, including the
 bounded initial time-sync attempt. The complete `CREATE_ENTITIES` phase has a
 2 s deadline. A per-call failure or the phase deadline enters bounded teardown;
 it shall not wait indefinitely for an unavailable Agent.
@@ -462,15 +482,14 @@ old unread field cannot be retagged by a disjoint new-session callback.
 The controller publishes the inactive session state before its physical stop,
 with both operations in one critical section shared with normal motor arm and
 duty writes. USART1/DMA fatal errors additionally remain latched across
-teardown. DMA2 Stream 2 runs above the BASEPRI mask used by that motor critical
-section, so target arm and duty hooks check the latch both before and after
-their writes. The arm post-check follows its authority-mask write; the duty
-post-check follows the complete four-channel update. A newly observed latch
-emergency-stops every channel before the hook returns `BUSY`. If the top half
-runs after the post-check, no later motor write remains in that section and its
-deferred ISR stop wins as soon as the section exits. Only the next normal
-transport `open` clears the latch; there is no host-accessible force-unlock
-path.
+teardown. Target arm and duty hooks check a pre-existing latch before and after
+their writes. If a priority-6 HAL callback is delayed by that critical section,
+it runs immediately after the section exits, latches the fault, and
+emergency-stops every channel before any later motor release can write again.
+The arm post-check follows its authority-mask write and the duty post-check
+follows the complete four-channel update, preserving the defense against a
+fault already visible to the task. Only the next normal transport `open` clears
+the latch; there is no host-accessible force-unlock path.
 
 The same fail-closed transition runs at the point where `MotorControlTask`
 detects an encoder, arm, or duty failure, rather than waiting for the next
@@ -620,6 +639,13 @@ loss, duplication, identity mismatch, or token change initiates the stop phase.
 This token prevents a retained Boolean from a different publisher or session
 from authorizing a new commissioning run; it is not MCU motor authority.
 
+The supervisor republishes the current authorization after every received
+heartbeat. Project-owned hardware adapters locally invalidate their accepted
+token on first heartbeat discovery, session change, non-ready state, or
+wrap-aware heartbeat sequence/uptime regression and require a token observed
+after that event. Consequently, a retained token cannot authorize a new MCU
+boot whose first `agent_session_id` collides with an earlier boot.
+
 Project-owned host motion publishers shall not publish while this gate is
 false. A true host-local gate means only that the three configuration services
 completed; it neither overrides the normal firmware motor lock nor qualifies
@@ -673,14 +699,23 @@ A systemd unit, running as the only member of `mentor-pi-serial`, shall execute
 the pinned native Humble Agent with the deployment's required authoritative
 `ROS_DOMAIN_ID`. The unit has a closed device policy permitting only
 `/dev/mentor_pi_mcu`, and the wrapper holds a nonblocking serial-owner lock. The
-project installer builds immutable upstream revisions below `/opt/mentor_pi`;
-its stable wrapper sources the ROS environment and immediately `exec`s the
-compiled Agent:
+project installer builds immutable upstream revisions below `/opt/mentor_pi`
+and applies the checksum-bound RRCLite modem-line patch. Its stable wrapper
+sets `MENTOR_PI_RRCLITE_AUTORESET=1`, sources the ROS environment, and
+immediately `exec`s the compiled Agent:
 
 ```sh
 /opt/mentor_pi/bin/mentor_pi_micro_ros_agent serial \
   --dev /dev/mentor_pi_mcu --baudrate 1000000 -v4
 ```
+
+On serial initialization, that opt-in makes the Agent use its sole open file
+descriptor to set RTS and clear DTR, wait 100 ms, then clear RTS and wait 100
+ms before configuring and flushing the port. This converts the CH9102F
+auto-download circuit's first-open line state into a deterministic normal-boot
+reset. Any modem-control operation failure aborts Agent initialization. The
+Agent remains the sole serial reader/writer; this reset handling neither uses
+hardware flow control nor changes the 1,000,000-baud 8N1 application link.
 
 Production shall not use `ros2 run` as a process launcher. The equivalent
 `ros2 run` command may be used interactively for diagnosis, and its upstream
@@ -693,8 +728,9 @@ tests are specified in
 [development-standards.md](development-standards.md).
 
 Production deployment is Ubuntu 22.04 with ROS 2 Humble on amd64 or arm64.
-Ubuntu 24.04 is supported only as a clean Docker development host: it shall not
-receive a native ROS installation. ROS-dependent host builds and micro-ROS
-generation use pinned Ubuntu 22.04/Humble containers; ROS-free firmware,
-analysis, and portable-test jobs may use pinned Ubuntu 24.04 utility
-containers. Native macOS Agent deployment is unsupported.
+A connected development host may use any Ubuntu release on those native
+architectures. Ubuntu 22.04 builds and runs Humble natively; every other
+Ubuntu release shall not receive a native ROS installation and instead uses
+the pinned Ubuntu 22.04/Humble containers for ROS-dependent builds, Agent and
+host execution, and the reviewed MCU device pass-through. The architecture is
+detected from the host. Native macOS Agent deployment is unsupported.

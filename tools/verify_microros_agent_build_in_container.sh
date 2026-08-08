@@ -6,6 +6,7 @@ readonly PROJECT_ROOT=/project
 readonly EVIDENCE_ROOT=/evidence
 readonly ROS_SETUP=/opt/ros/humble/setup.bash
 readonly SOURCE_LOCK="${PROJECT_ROOT}/tools/microros_agent_source.lock"
+readonly XRCE_AGENT_PATCH="${PROJECT_ROOT}/tools/patches/micro_xrce_agent_rrclite_modem_lines.patch"
 readonly STATE_VALIDATOR="${PROJECT_ROOT}/tools/verify_microros_agent_install_state.sh"
 readonly AGENT_BUILD_HELPER="${PROJECT_ROOT}/tools/build_microros_agent_from_lock.sh"
 
@@ -48,6 +49,8 @@ Sha256() {
   Fail "host source fingerprint is malformed"
 [[ -f "${SOURCE_LOCK}" && ! -L "${SOURCE_LOCK}" ]] || \
   Fail "Agent source lock is missing or symbolic"
+[[ -f "${XRCE_AGENT_PATCH}" && ! -L "${XRCE_AGENT_PATCH}" ]] || \
+  Fail "RRCLite Agent patch is missing or symbolic"
 [[ -x "${STATE_VALIDATOR}" ]] || Fail "Agent state validator is unavailable"
 [[ -x "${AGENT_BUILD_HELPER}" ]] || Fail "Agent build helper is unavailable"
 [[ -r "${ROS_SETUP}" ]] || Fail "ROS 2 Humble setup is unavailable"
@@ -166,6 +169,8 @@ dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n' | \
 ldd "${AGENT_EXECUTABLE}" >"${EVIDENCE_ROOT}/agent-ldd.txt"
 readelf -h "${AGENT_EXECUTABLE}" >"${EVIDENCE_ROOT}/agent-elf-header.txt"
 cp "${SOURCE_LOCK}" "${EVIDENCE_ROOT}/microros_agent_source.lock"
+cp "${XRCE_AGENT_PATCH}" \
+  "${EVIDENCE_ROOT}/micro_xrce_agent_rrclite_modem_lines.patch"
 
 readonly INSTALL_MANIFEST_SHA="$(Sha256 \
   "${EVIDENCE_ROOT}/install-tree-files.sha256")"
@@ -174,6 +179,7 @@ readonly PACKAGE_MANIFEST_SHA="$(Sha256 \
 readonly SYMLINK_MANIFEST_SHA="$(Sha256 \
   "${EVIDENCE_ROOT}/install-tree-symlinks.txt")"
 readonly SOURCE_LOCK_SHA="$(Sha256 "${SOURCE_LOCK}")"
+readonly XRCE_AGENT_PATCH_SHA="$(Sha256 "${XRCE_AGENT_PATCH}")"
 readonly EXECUTABLE_SHA="$(Sha256 "${AGENT_EXECUTABLE}")"
 readonly VERIFIER_SHA="$(Sha256 \
   "${PROJECT_ROOT}/tools/verify_microros_agent_build_in_container.sh")"
@@ -183,7 +189,7 @@ readonly BUILD_HELPER_SHA="$(Sha256 "${AGENT_BUILD_HELPER}")"
 readonly ORCHESTRATOR_SHA="$(Sha256 \
   "${PROJECT_ROOT}/tools/verify_microros_agent_build_container.sh")"
 readonly WRAPPER_SHA="$(Sha256 \
-  "${PROJECT_ROOT}/src/mentor_pi_bringup/scripts/run_micro_ros_agent")"
+  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/scripts/run_micro_ros_agent")"
 
 cat >"${EVIDENCE_ROOT}/AGENT-BUILD-EVIDENCE.txt" <<EOF
 format=rrclite-agent-build-evidence-v1
@@ -202,6 +208,7 @@ messages_commit=${MSGS_COMMIT}
 xrce_agent_repository=${XRCE_AGENT_REPOSITORY}
 xrce_agent_commit=${XRCE_AGENT_COMMIT}
 source_lock_sha256=${SOURCE_LOCK_SHA}
+rrclite_patch_sha256=${XRCE_AGENT_PATCH_SHA}
 host_source_sha256=${RRCLITE_AGENT_HOST_SOURCE_SHA}
 agent_executable_sha256=${EXECUTABLE_SHA}
 install_tree_manifest_sha256=${INSTALL_MANIFEST_SHA}

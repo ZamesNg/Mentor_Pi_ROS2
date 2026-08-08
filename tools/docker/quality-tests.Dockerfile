@@ -12,6 +12,7 @@ RUN apt-get update \
        gzip \
        ninja-build \
        python3 \
+       ripgrep \
        tar \
     && clang-format-18 --version | grep -F "version 18." \
     && cmake --version \

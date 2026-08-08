@@ -11,10 +11,10 @@
 namespace mentor_pi::mcu {
 
 // Reconstructs a modulo-2^32 producer position from a circular DMA cursor and
-// a top-half counter that advances at every half- and full-buffer boundary.
-// The boundary counter must have exactly one incrementing writer while DMA is
-// active and may be reset only while that writer is disabled. This type owns no
-// state, performs no allocation, and is safe to use from target snapshot code.
+// a counter advanced at every half/full boundary. The boundary counter must
+// have exactly one incrementing writer while DMA is active and may be reset
+// only while that writer cannot run. This type owns no state and performs no
+// allocation.
 template <std::uint32_t kRingSizeBytes>
 class CircularDmaPosition {
  public:

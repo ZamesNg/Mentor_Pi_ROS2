@@ -28,7 +28,9 @@ git -C "${PROJECT_ROOT}" ls-files --cached --others --exclude-standard -z | \
         *.md | */tests/* | */test/*) continue ;;
       esac
       ;;
-    src/mentor_pi_bringup/* | src/mentor_pi_interfaces/*)
+    mentor_pi_ros2/src/mentor_pi_bringup/* | \
+    mentor_pi_ros2/src/mentor_pi_interfaces/* | \
+    mentor_pi_ros2/src/mentor_pi_hardwares/*)
       case "${path}" in
         *.md | */test/*) continue ;;
       esac

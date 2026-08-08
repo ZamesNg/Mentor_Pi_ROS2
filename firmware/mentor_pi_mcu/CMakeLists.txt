@@ -15,7 +15,7 @@ set(MENTOR_PI_MCU_FUZZ_SMOKE_RUNS "10000" CACHE STRING
     "Per-harness input count for the bounded fuzz smoke target")
 
 set(MENTOR_PI_INTERFACE_CONTRACT_INCLUDE_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../src/mentor_pi_interfaces/include")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../mentor_pi_ros2/src/mentor_pi_interfaces/include")
 set(MENTOR_PI_MOTOR_PROFILE_CONTRACT_HEADER
     "${MENTOR_PI_INTERFACE_CONTRACT_INCLUDE_DIR}/mentor_pi_interfaces/motor_profile_contract.hpp")
 if(NOT EXISTS "${MENTOR_PI_MOTOR_PROFILE_CONTRACT_HEADER}")
@@ -291,7 +291,12 @@ if(BUILD_TESTING)
   endif()
 
   add_executable(mentor_pi_mcu_domain_tests tests/domain_tests.cc)
+  target_sources(mentor_pi_mcu_domain_tests PRIVATE
+    app/microros/src/reclaiming_arena.cc)
   target_link_libraries(mentor_pi_mcu_domain_tests PRIVATE mentor_pi_mcu_domain)
+  target_include_directories(mentor_pi_mcu_domain_tests PRIVATE
+    app/microros/include
+    platform/stm32/include)
   target_compile_features(mentor_pi_mcu_domain_tests PRIVATE cxx_std_17)
   target_compile_options(mentor_pi_mcu_domain_tests PRIVATE
     -Wall
@@ -390,6 +395,7 @@ if(BUILD_TESTING)
       -DTRANSPORT_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/platform/stm32/src/transport.cc
       -DINTERRUPTS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/platform/stm32/src/interrupts.cc
       -DMSP_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/platform/stm32/src/hal_msp.cc
+      -DADAPTER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/app/microros/src/transport_adapter.cc
       -P
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_stm32_rx_dma_contract.cmake
   )
@@ -401,6 +407,14 @@ if(BUILD_TESTING)
       -DPERIPHERAL_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/platform/stm32/src/peripherals.cc
       -P
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_stm32_peripheral_safety_contract.cmake
+  )
+  add_test(
+    NAME mentor_pi_mcu_stm32_timebase_contract
+    COMMAND
+      ${CMAKE_COMMAND}
+      -DTIMEBASE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/platform/stm32/src/hal_timebase.cc
+      -P
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_stm32_timebase_contract.cmake
   )
   add_test(
     NAME mentor_pi_mcu_stm32_watchdog_retention_contract

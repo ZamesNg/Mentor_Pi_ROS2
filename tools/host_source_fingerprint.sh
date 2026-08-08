@@ -49,29 +49,37 @@ AppendFile() {
   printf '%s\n' "${file}" >>"${PATHS}"
 }
 
-AppendDirectory "${PROJECT_ROOT}/src/mentor_pi_interfaces"
-AppendDirectory "${PROJECT_ROOT}/src/mentor_pi_bringup"
-AppendDirectory "${PROJECT_ROOT}/src/ros_package_schema"
+AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces"
+AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup"
+AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_hardwares"
+AppendDirectory "${PROJECT_ROOT}/docs/tutorials"
 for file in \
-    docs/board-arrival-bringup-checklist.md \
-    docs/host-preparation-and-handoff.md \
     Makefile \
-    tools/build_microros_agent_from_lock.sh \
+    tools/build_agent.sh \
     tools/build_host_handoff_container.sh \
+    tools/build_microros_agent_from_lock.sh \
+    tools/build_host.sh \
+    tools/build_host_runtime_image.sh \
     tools/build_host_release.sh \
+    tools/host_build_container_entrypoint.sh \
     tools/host_handoff_container_entrypoint.sh \
     tools/host_source_fingerprint.sh \
+    tools/docker/host-runtime.Dockerfile \
     tools/install_microros_agent.sh \
     tools/microros_agent_source.lock \
+    tools/open_runtime_shell.sh \
     tools/package_host_handoff.sh \
+    tools/patches/micro_xrce_agent_rrclite_modem_lines.patch \
     tools/prepare_host_build_dependencies.sh \
     tools/require_microros_agent_install_idle.sh \
+    tools/run_runtime.sh \
     tools/select_pinned_build_image.sh \
     tools/verify_host_build_environment.sh \
     tools/verify_host_release_relocation.sh \
     tools/verify_microros_agent_build_container.sh \
     tools/verify_microros_agent_build_in_container.sh \
     tools/test_active_build_policy.sh \
+    tools/test_ros_workspace_layout.sh \
     tools/verify_microros_agent_install_state.sh; do
   AppendFile "${PROJECT_ROOT}/${file}"
 done

@@ -26,8 +26,8 @@ constexpr std::uint32_t kPeripheralWaitMs = 1U;
 constexpr std::uint32_t kSafetyStartupGraceMs = 250U;
 
 float MotorAdmissionLimit(const mentor_pi::mcu::MotorController& controller) {
-  return controller.closed_loop_enabled() ? controller.maximum_accepted_rps()
-                                          : controller.profile().max_rps;
+  return controller.nonzero_motion_enabled() ? controller.maximum_accepted_rps()
+                                             : controller.profile().max_rps;
 }
 
 void SafetyTaskTrampoline(void* context) {
@@ -298,6 +298,7 @@ void ControllerRuntime::InvalidateSessionWork(std::uint32_t generation) {
     bus_stop_watermark_ = last_bus_command_generation_;
   }
   Cancel(&motor_model_slot_, generation);
+  Cancel(&motor_pid_slot_, generation);
   Cancel(&pwm_offsets_slot_, generation);
   Cancel(&battery_threshold_slot_, generation);
   Cancel(&bus_service_slot_, generation);
@@ -399,6 +400,11 @@ void ControllerRuntime::AdvanceMicroRosHeartbeat() {
   const std::uint32_t now_ms = hooks_.monotonic_milliseconds(hooks_.context);
   task_heartbeat_ms_[index].store(now_ms, std::memory_order_release);
   task_seen_[index].store(true, std::memory_order_release);
+}
+
+void ControllerRuntime::RecordSuccessfulRosHeartbeat() {
+  static_cast<void>(
+      successful_ros_heartbeats_.fetch_add(1U, std::memory_order_relaxed));
 }
 
 void ControllerRuntime::RecordTaskProgress(ControllerTask task,

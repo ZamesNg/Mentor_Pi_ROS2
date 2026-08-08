@@ -19,10 +19,27 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS_PATH = PROJECT_ROOT / "docs/framework/requirements.md"
 LEGACY_AUDIT_PATH = PROJECT_ROOT / "docs/framework/legacy-audit.md"
 VERIFICATION_PATH = PROJECT_ROOT / "docs/framework/verification.md"
-BOARD_ARRIVAL_CHECKLIST_PATH = (
-    PROJECT_ROOT / "docs/board-arrival-bringup-checklist.md"
+TUTORIAL_DIRECTORY = PROJECT_ROOT / "docs/tutorials"
+TUTORIAL_FILENAMES = (
+    "01-prepare-ubuntu-development-host.md",
+    "02-build-and-flash-locked-firmware.md",
+    "03-build-and-run-humble-host.md",
+    "04-run-passive-board-bringup.md",
+    "05-characterize-board-hardware.md",
+    "06-commission-one-motor-safely.md",
+    "07-qualify-hardware-and-recovery.md",
+    "08-run-stress-soak-and-release-gates.md",
+    "09-run-mentor-pi-hardwares.md",
 )
-CLI_EXAMPLES_PATH = PROJECT_ROOT / "docs/ros2-cli-examples.md"
+TUTORIAL_PATHS = tuple(TUTORIAL_DIRECTORY / name for name in TUTORIAL_FILENAMES)
+RETIRED_DOCUMENT_FILENAMES = (
+    "board-arrival-bringup-checklist.md",
+    "ci-and-hardware-gates.md",
+    "flashing-and-first-bringup.md",
+    "host-preparation-and-handoff.md",
+    "ros2-cli-examples.md",
+    "qualification-evidence-ledger.md",
+)
 
 EXCLUDED_DIRECTORY_NAMES = {
     ".git",
@@ -371,88 +388,195 @@ def validate_traceability() -> tuple[list[str], dict[str, int]]:
     return errors, counts
 
 
-def validate_board_arrival_feature_paths() -> tuple[list[str], int]:
-    """Require a safe executable first-board path for each retained feature."""
+def validate_tutorial_sequence(paths: list[Path]) -> list[str]:
+    """Require one exact, navigable 01--08 operator sequence."""
     errors: list[str] = []
-    checklist = " ".join(
-        BOARD_ARRIVAL_CHECKLIST_PATH.read_text(encoding="utf-8").split()
+    actual_names = tuple(
+        path.name for path in sorted(TUTORIAL_DIRECTORY.glob("*.md"))
     )
-    cli_examples = " ".join(
-        CLI_EXAMPLES_PATH.read_text(encoding="utf-8").split()
-    )
+    if actual_names != TUTORIAL_FILENAMES:
+        errors.append(
+            f"{TUTORIAL_DIRECTORY}: expected tutorials "
+            f"{', '.join(TUTORIAL_FILENAMES)}; found {', '.join(actual_names)}"
+        )
 
-    checklist_markers = {
-        "PWM/bus-servo passive fixture": (
-            "All four PWM-servo connectors are unplugged from "
-            "servos/mechanisms"
+    for index, path in enumerate(TUTORIAL_PATHS, start=1):
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        title = f"# Tutorial {index:02d}:"
+        if title not in text:
+            errors.append(f"{path}: missing exact title prefix {title!r}")
+        if index >= 2 and "**Warning:**" not in text:
+            errors.append(f"{path}: hardware-sensitive tutorial has no warning")
+        if index == 1:
+            if "There is no previous tutorial" not in text:
+                errors.append(f"{path}: missing start-of-sequence marker")
+        elif TUTORIAL_FILENAMES[index - 2] not in text:
+            errors.append(f"{path}: missing previous-tutorial link")
+        if index == len(TUTORIAL_FILENAMES):
+            if "Next: none" not in text:
+                errors.append(f"{path}: missing end-of-sequence marker")
+        elif TUTORIAL_FILENAMES[index] not in text:
+            errors.append(f"{path}: missing next-tutorial link")
+        if "cd /home/zames/Mentor_Pi" not in text:
+            errors.append(f"{path}: missing exact repository command")
+
+        forbidden_patterns = {
+            "replacement placeholder": r"REPLACE_WITH",
+            "domain placeholder": r"THE_SAME_ID",
+            "repository lookup": r"matching repository root",
+            "backward command delegation": (
+                r"(?:repeat|exactly as in|commands? from) Tutorials? [0-9]"
+            ),
+        }
+        for description, pattern in forbidden_patterns.items():
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                errors.append(f"{path}: contains {description}")
+
+    required_actions = {
+        TUTORIAL_FILENAMES[0]: ("make doctor", "make setup"),
+        TUTORIAL_FILENAMES[1]: (
+            "make firmware",
+            "make serial-setup",
+            "make flash-locked",
         ),
-        "analyzer-only actuator gate": (
-            "Only high-impedance scope/logic-analyzer probes are attached"
+        TUTORIAL_FILENAMES[2]: (
+            "make host",
+            "make start",
+            "make shell",
         ),
-        "raw IMU SWD procedure": "Raw IMU axis characterization over SWD",
-        "diagnostics before/after evidence": (
-            "Recorded a diagnostics snapshot before that sequence and "
-            "another after cleanup"
+        TUTORIAL_FILENAMES[3]: (
+            "make passive-check",
+            "make peripheral-smoke",
+            "make recovery-check",
+        ),
+        TUTORIAL_FILENAMES[4]: ("make characterize-board",),
+        TUTORIAL_FILENAMES[5]: (
+            "make build-commissioning",
+            "make flash-commissioning",
+            "make start-commissioning",
+            "make commission-motor",
+            "make restore-locked",
+        ),
+        TUTORIAL_FILENAMES[6]: (
+            "make hil-start",
+            "make hil-peripheral-check",
+            "make hil-recovery-check",
+            "make restore-locked",
+        ),
+        TUTORIAL_FILENAMES[7]: (
+            "make release-software-gates",
+            "make qualification-preflight",
+            "make campaign-load",
+            "make campaign-soak",
+            "make campaign-recovery",
+            "make restore-locked",
         ),
     }
-    for description, marker in checklist_markers.items():
-        if marker not in checklist:
-            errors.append(
-                f"{BOARD_ARRIVAL_CHECKLIST_PATH}: missing {description} marker"
-            )
+    for filename, actions in required_actions.items():
+        path = TUTORIAL_DIRECTORY / filename
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for action in actions:
+            if action not in text:
+                errors.append(f"{path}: missing one-line action {action!r}")
 
-    # The motor path is intentionally guarded commissioning rather than part
-    # of the passive smoke sequence. Bus motion/configuration is likewise
-    # prohibited during passive testing; only get_state may touch UART5.
+    for filename in RETIRED_DOCUMENT_FILENAMES:
+        retired_matches = [
+            path for path in PROJECT_ROOT.rglob(filename) if not is_excluded(path)
+        ]
+        for retired_path in retired_matches:
+            errors.append(f"retired documentation still exists: {retired_path}")
+        for source in paths:
+            if filename in source.read_text(encoding="utf-8"):
+                errors.append(
+                    f"{source}: stale reference to retired document {filename}"
+                )
+    return errors
+
+
+def validate_tutorial_feature_paths() -> tuple[list[str], int]:
+    """Require a safe executable tutorial path for each retained feature."""
+    errors: list[str] = []
+    tutorials = " ".join(
+        " ".join(path.read_text(encoding="utf-8").split())
+        for path in TUTORIAL_PATHS
+        if path.is_file()
+    )
+
+    safety_markers = {
+        "motor-power passive fixture": "Motor power is disconnected",
+        "PWM/bus-servo passive fixture": "PWM and bus servos unplugged",
+        "analyzer-only actuator gate": (
+            "Only high-impedance scope/logic-analyzer probes"
+        ),
+        "probe-free passive IMU procedure": "six stationary board orientations",
+        "first-board passive characterization": "CHARACTERIZATION PASS",
+        "guarded commissioning": "MOTORS_RAISED_CURRENT_LIMITED",
+        "locked restoration": "make restore-locked",
+        "automatic boot control": "make flash-locked",
+    }
+    for description, marker in safety_markers.items():
+        if marker not in tutorials:
+            errors.append(f"{TUTORIAL_DIRECTORY}: missing {description} marker")
+
     feature_markers = {
         "four motors": (
-            "/mentor_pi/motors/state",
-            "motor_commissioning",
+            "make commission-motor",
+            "all four motor channels",
         ),
         "four PWM servos": (
-            "/mentor_pi/pwm_servos/command",
-            "/mentor_pi/pwm_servos/state",
-            "pulse_width_us: [1400, 1450, 1550, 1600]",
+            "all four unloaded PWM channels",
+            "PWM 500/1500/2500 microseconds",
+            "±10 microsecond accuracy",
         ),
         "up to sixteen bus servos": (
             "/mentor_pi/bus_servos/get_state",
-            "Do not publish `BusServoCommand`",
+            "never publishes `BusServoCommand` motion",
+            "1- and 16-device arrays",
         ),
-        "three LEDs": (
+        "two host LEDs and heartbeat LED3": (
             "/mentor_pi/leds/command",
-            "led_id: 2",
-            "led_id: 3",
+            "for led_id in 1 2",
+            "LED3",
         ),
         "buzzer": (
             "/mentor_pi/buzzer/command",
-            "frequency_hz: 0",
+            "cleans up LED1/LED2, the buzzer, and RGB1",
         ),
-        "two RGB pixels": (
+        "host RGB and MCU status RGB": (
             "/mentor_pi/rgb/command",
-            "update_mask: 3, red: [0, 0]",
+            "RGB2 red",
+            "red/green pulse",
         ),
         "two buttons": (
             "/mentor_pi/buttons/events",
-            "button_id` 1 and 2",
+            "`button_id` 1 and 2",
         ),
         "QMI8658": (
-            "rrclite_imu_characterization_snapshot",
-            "six-face gravity",
+            "/mentor_pi/imu",
+            "six stationary board orientations",
         ),
         "battery monitor": (
             "/mentor_pi/battery/state",
-            "below_threshold",
+            "PB0/ADC1 channel 8",
+            "11:1",
+            "6300 mV low threshold",
+            "at or below 4900 mV",
+            "alarm asserts after 10 seconds",
         ),
         "OLED": (
             "/mentor_pi/oled/command",
-            "line_1: '', line_2: ''",
+            "both OLED lines",
         ),
     }
     for description, markers in feature_markers.items():
-        missing = [marker for marker in markers if marker not in cli_examples]
+        missing = [marker for marker in markers if marker not in tutorials]
         if missing:
             errors.append(
-                f"{CLI_EXAMPLES_PATH}: incomplete {description} path; "
+                f"{TUTORIAL_DIRECTORY}: incomplete {description} path; "
                 f"missing {', '.join(repr(marker) for marker in missing)}"
             )
 
@@ -465,8 +589,7 @@ def main() -> int:
         REQUIREMENTS_PATH,
         LEGACY_AUDIT_PATH,
         VERIFICATION_PATH,
-        BOARD_ARRIVAL_CHECKLIST_PATH,
-        CLI_EXAMPLES_PATH,
+        *TUTORIAL_PATHS,
     )
     missing_inputs = [str(path) for path in required_inputs if not path.is_file()]
     if missing_inputs:
@@ -477,8 +600,9 @@ def main() -> int:
     paths = markdown_files()
     link_errors, link_count = validate_markdown_links(paths)
     trace_errors, counts = validate_traceability()
-    board_errors, board_feature_count = validate_board_arrival_feature_paths()
-    errors = link_errors + trace_errors + board_errors
+    sequence_errors = validate_tutorial_sequence(paths)
+    tutorial_errors, tutorial_feature_count = validate_tutorial_feature_paths()
+    errors = link_errors + trace_errors + sequence_errors + tutorial_errors
     if errors:
         for error in errors:
             print(error, file=sys.stderr)
@@ -491,8 +615,9 @@ def main() -> int:
         f"{counts['mandatory_requirements']}/{counts['requirements']} mandatory "
         "requirements, "
         f"{counts['audit_rows']} audit rows, "
-        f"{counts['verification_cases']} verification cases, and "
-        f"{board_feature_count} board-arrival feature paths"
+        f"{counts['verification_cases']} verification cases, "
+        f"{len(TUTORIAL_PATHS)} ordered tutorials, and "
+        f"{tutorial_feature_count} tutorial feature paths"
     )
     return 0
 

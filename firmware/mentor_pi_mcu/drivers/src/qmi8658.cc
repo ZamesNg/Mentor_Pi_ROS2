@@ -74,15 +74,19 @@ Result Qmi8658Driver::Initialize(std::uint32_t deadline_us) {
     return ToResult(status, kRevisionRegister);
   }
 
-  // INT pins enabled, ±4 g / 250 Hz, ±128 dps / 250 Hz, sensor LPFs off,
-  // accelerometer and gyroscope enabled. These match the verified v1 setup.
-  constexpr std::array<std::array<std::uint8_t, 2>, 6> kConfiguration{{
+  // Configure while both sensors are disabled, then enable them as the final
+  // write. This matches the preserved board-reference initialization order
+  // and avoids changing CTRL8 while accelerometer/gyroscope startup is active.
+  // The resulting configuration is INT pins enabled, ±4 g / 250 Hz,
+  // ±128 dps / 250 Hz, sensor LPFs off, and both sensors enabled.
+  constexpr std::array<std::array<std::uint8_t, 2>, 7> kConfiguration{{
+      {kCtrl7Register, 0x00U},
       {kCtrl1Register, 0x78U},
       {kCtrl2Register, 0x15U},
       {kCtrl3Register, 0x35U},
       {kCtrl5Register, 0x00U},
-      {kCtrl7Register, 0x03U},
       {kCtrl8Register, 0xc0U},
+      {kCtrl7Register, 0x03U},
   }};
   for (const auto& setting : kConfiguration) {
     const Result result = WriteRegister(setting[0], setting[1], deadline_us);

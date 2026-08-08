@@ -22,6 +22,7 @@ add_library(mentor_pi_mcu_controller STATIC
   src/peripheral_worker.cc
   src/platform_hooks.cc
   src/sensor_worker.cc
+  src/status_rgb.cc
 )
 target_include_directories(mentor_pi_mcu_controller PUBLIC
   include
@@ -76,6 +77,7 @@ if(BUILD_TESTING)
       -DTARGET_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../../target/stm32/main.cc
       -DTRANSPORT_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../../platform/stm32/src/transport.cc
       -DMOTOR_HEADER=${CMAKE_CURRENT_SOURCE_DIR}/../../include/mentor_pi_mcu/domain/motor_controller.h
+      -DMICROROS_META=${CMAKE_CURRENT_SOURCE_DIR}/../../config/microros_colcon.meta
       -DBUILD_WRAPPER=${CMAKE_CURRENT_SOURCE_DIR}/../../../../tools/build_firmware.sh
       -DTARGET_CMAKE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../../target/stm32
       -DPROFILE_PROBE_ROOT=${CMAKE_CURRENT_BINARY_DIR}/motor-profile-gate-probe

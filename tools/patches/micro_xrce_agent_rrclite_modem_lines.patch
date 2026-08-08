@@ -1,0 +1,89 @@
+diff --git a/src/cpp/transport/serial/TermiosAgentLinux.cpp b/src/cpp/transport/serial/TermiosAgentLinux.cpp
+index 2d4193d..726ba31 100644
+--- a/src/cpp/transport/serial/TermiosAgentLinux.cpp
++++ b/src/cpp/transport/serial/TermiosAgentLinux.cpp
+@@ -15,8 +15,64 @@
+ #include <uxr/agent/transport/serial/TermiosAgentLinux.hpp>
+ 
++#include <chrono>
++#include <cstdlib>
++#include <cstring>
+ #include <fcntl.h>
++#include <sys/ioctl.h>
++#include <thread>
+ #include <unistd.h>
+ 
++namespace {
++
++constexpr char rrclite_autoreset_environment[] =
++        "MENTOR_PI_RRCLITE_AUTORESET";
++
++bool rrclite_autoreset_enabled()
++{
++    const char* value = std::getenv(rrclite_autoreset_environment);
++    return nullptr != value && 0 == std::strcmp(value, "1");
++}
++
++bool set_modem_bits(
++        int fd,
++        unsigned long request,
++        int bits)
++{
++    return 0 == ioctl(fd, request, &bits);
++}
++
++bool reset_rrclite_into_application(
++        int fd)
++{
++    // RRCLite connects CH9102F DTR/RTS to an automatic STM32 reset/BOOT0
++    // circuit. A normal tty open asserts both signals and can leave the MCU in
++    // its ROM bootloader. The hardware-verified sequence is:
++    //   DTR clear, RTS set   -> NRST asserted
++    //   DTR clear, RTS clear -> BOOT0 low before NRST is released
++    // Keep the reset pulse long enough for the board circuit and then allow
++    // the application to initialize before serial input is flushed.
++    int bits = TIOCM_RTS;
++    if (!set_modem_bits(fd, TIOCMBIS, bits))
++    {
++        return false;
++    }
++    bits = TIOCM_DTR;
++    if (!set_modem_bits(fd, TIOCMBIC, bits))
++    {
++        return false;
++    }
++    std::this_thread::sleep_for(std::chrono::milliseconds(100));
++    bits = TIOCM_RTS;
++    if (!set_modem_bits(fd, TIOCMBIC, bits))
++    {
++        return false;
++    }
++    std::this_thread::sleep_for(std::chrono::milliseconds(100));
++    return true;
++}
++
++} // namespace
++
+ namespace eprosima {
+ namespace uxr {
+ 
+@@ -92,7 +148,18 @@ bool TermiosAgent::init()
+     if (0 < poll_fd_.fd)
+     {
+         struct termios new_attrs;
+-        memset(&new_attrs, 0, sizeof(new_attrs));
++        std::memset(&new_attrs, 0, sizeof(new_attrs));
++        if (rrclite_autoreset_enabled() &&
++                !reset_rrclite_into_application(poll_fd_.fd))
++        {
++            UXR_AGENT_LOG_ERROR(
++                UXR_DECORATE_RED("RRCLite normal-reset sequence error"),
++                "errno: {}",
++                errno);
++            ::close(poll_fd_.fd);
++            poll_fd_.fd = -1;
++            return false;
++        }
+         if (0 == tcgetattr(poll_fd_.fd, &new_attrs))
+         {
+             new_attrs.c_cflag = termios_attrs_.c_cflag;

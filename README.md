@@ -1,9 +1,8 @@
 # Mentor Pi RRCLite v2
 
-RRCLite v2 is a C++17 ROS 2 Humble controller stack for the Mentor Pi
-RRCLite V1.0 board (STM32F407VET6). It replaces the legacy Python serial bridge
-and proprietary MCU packet dispatcher with micro-ROS and a native micro-ROS
-Agent.
+RRCLite v2 is a C++17 ROS 2 Humble controller stack for the Mentor Pi RRCLite
+V1.0 board (STM32F407VET6). It replaces the legacy Python serial bridge and
+proprietary MCU packet dispatcher with micro-ROS and a native micro-ROS Agent.
 
 ```text
 ROS 2 nodes <-> native micro-ROS Agent
@@ -12,139 +11,90 @@ ROS 2 nodes <-> native micro-ROS Agent
 ```
 
 The data connector is USB on the host side and USART1 after the CH9102F bridge.
-The second USB-C connector is power-only; this board has no supported native-MCU
-USB connection.
+The second USB-C connector is power-only; the MCU has no supported native-USB
+transport.
+
+## Start here
+
+Follow the tutorials in numerical order. Do not jump directly to powered motor
+motion.
+
+| Step | Tutorial | Main command |
+| ---: | --- | --- |
+| 01 | [Prepare the Ubuntu development host](docs/tutorials/01-prepare-ubuntu-development-host.md) | `make setup` |
+| 02 | [Build and flash the locked firmware](docs/tutorials/02-build-and-flash-locked-firmware.md) | `make flash-locked` |
+| 03 | [Build and run the Humble host](docs/tutorials/03-build-and-run-humble-host.md) | `make start` |
+| 04 | [Run passive board bring-up](docs/tutorials/04-run-passive-board-bringup.md) | `make passive-check` |
+| 05 | [Characterize board hardware](docs/tutorials/05-characterize-board-hardware.md) | `make characterize-board` |
+| 06 | [Commission one motor safely](docs/tutorials/06-commission-one-motor-safely.md) | `make commission-motor` |
+| 07 | [Qualify hardware and recovery](docs/tutorials/07-qualify-hardware-and-recovery.md) | `make hil-start` |
+| 08 | [Run stress, soak, and release gates](docs/tutorials/08-run-stress-soak-and-release-gates.md) | `make release-software-gates` |
+| 09 | [Run ros2_control hardwares extension](docs/tutorials/09-run-mentor-pi-hardwares.md) | `make host-hardwares` |
+
+Every complex operation is a one-line Make action. The helper prompts for
+hardware-specific values and exact safety acknowledgements, so operators do
+not copy long ROS command blocks or edit placeholder text.
+
+The current board has a hardware-verified timing baseline, while the newest
+complete locked candidate is prepared but not yet flashed. Its practical
+resume point is Tutorial 02 for that locked flash, followed by Tutorial 04's
+passive checks. A new computer or operator starts at Tutorial 01.
 
 ## Safety and current status
 
-The software is ready for first-board bring-up, but motor/encoder polarity, PID
-tuning, IMU axes, analog scaling, peripheral timing, watchdog timing, and the
-endurance/reconnect gates still need hardware evidence.
-
 The default firmware is motor-locked: zero/stop motor commands work, but every
-nonzero target is rejected. Never flash or commission with actuators connected.
-Before any powered motor test, complete the passive encoder-direction checks,
-raise or guard every wheel, and use a current-limited supply. Follow
-[Flashing and first bring-up](docs/flashing-and-first-bringup.md) and record the
-session in the [board-arrival checklist](docs/board-arrival-bringup-checklist.md).
+selected nonzero target is rejected. The stack is ready for first-board
+bring-up; motor/encoder polarity, PID tuning, IMU axes, analog scaling,
+peripheral timing, watchdog timing, and endurance/reconnect gates still require
+physical results.
+
+Never flash or commission with actuators connected. Before powered motor work,
+complete passive encoder-direction checks, raise or equivalently guard every
+wheel, use a current-limited supply, and keep a physical motor-power stop
+reachable. The tutorials repeat the required warning immediately before every
+hardware-sensitive step.
 
 ## Supported environments
 
 - Production/onboard computer: Ubuntu 22.04 with ROS 2 Humble.
-- Development computer: Ubuntu 24.04 with Docker; do not install ROS natively.
-- Host architectures: `arm64` and `amd64`; build for the deployment computer.
+- Development computer: any Ubuntu release; Ubuntu 22.04 uses native Humble,
+  while every other release uses pinned Ubuntu 22.04/Humble Docker.
+- No native ROS installation is supported outside Ubuntu 22.04.
+- Host architectures: `arm64` and `amd64`, matched to the deployment computer.
 - Firmware build: CMake/Ninja through the root Makefile.
-- Host build: `colcon` inside the pinned Humble container.
-- Flashing without SWD: STM32CubeProgrammer through CH9102F/USART1.
+- Host build: native Humble `colcon` on Ubuntu 22.04, otherwise Docker Humble.
+- UART flashing: STM32CubeProgrammer CLI through CH9102F/USART1.
+- Project-owned runtime: C++17; Python is limited to upstream/build tooling.
 
-Project-owned runtime code does not use Python. Upstream ROS and code-generation
-tools may use Python during builds.
+Run `make help` for the supported build and flash interface. Generated build,
+dependency, micro-ROS, log, and qualification outputs are disposable or
+machine-generated and are not committed.
 
-## Quick start
+## Detailed contracts
 
-Install Git, Make, and Docker Engine, then start Docker. CubeProgrammer is only
-required when flashing. On the Ubuntu 24.04 development computer, use:
+The tutorials are the operator path. Exact public ROS names, QoS, units,
+limits, task ownership, memory budgets, safety behavior, and acceptance cases
+remain authoritative under [docs/framework/](docs/framework/README.md).
+Accepted ADRs take precedence, followed by requirements/safety, interfaces,
+architecture/hardware, and verification.
 
-```sh
-make doctor
-make setup HOST_ARCH=arm64
-make firmware
-make agent HOST_ARCH=arm64
-make test HOST_ARCH=arm64
-```
-
-`make test` includes the authoritative Humble host build and tests. To build
-only a deployable host handoff, run:
-
-```sh
-make host HOST_ARCH=arm64
-```
-
-Use `HOST_ARCH=amd64` only for an amd64 deployment target. Run `make help` for
-all supported targets. Generated outputs are disposable and ignored by Git:
-
-- firmware: `firmware/mentor_pi_mcu/build/stm32/`;
-- host handoff: `build/host-handoff/`;
-- Agent and test evidence: other directories below `build/`.
-
-## Flash the default locked firmware
-
-Install STM32CubeProgrammer, disconnect motor and servo power, connect the
-USB-C port labelled UART1/USB serial 1, then hold `BOOT`, tap `RST`, and release
-`BOOT`. Identify the exact CH9102F device and run:
-
-```sh
-make flash PORT=/dev/serial/by-id/REPLACE_ME \
-  FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED
-```
-
-The wrapper verifies the locked artifact, snapshots its exact ELF, programs it
-through the factory bootloader at 115200 baud/8E1, and requests read-back
-verification. Reset normally afterward; the application returns to
-1,000,000 baud/8N1.
-
-Commissioning firmware is intentionally separate and capped at 0.25 RPS and
-300 permille output. Use it only after the guarded prerequisites in the bring-up
-guide:
-
-```sh
-make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
-make flash-commissioning PORT=/dev/serial/by-id/REPLACE_ME \
-  FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
-  COMMISSIONING_FLASH_ACK=MOTORS_RAISED_CURRENT_LIMITED
-```
-
-## Deploy and operate the host
-
-`make host` creates a checksummed Humble handoff for the selected architecture.
-Install it on the Ubuntu 22.04 onboard computer by following
-[Host preparation and handoff](docs/host-preparation-and-handoff.md). Use
-[ROS 2 CLI examples](docs/ros2-cli-examples.md) for bounded telemetry, command,
-and service examples.
-
-## Move to another computer
-
-There is currently no required Git remote. Commit all intended tracked changes,
-then either copy the whole repository including its hidden `.git` directory, or
-create a portable Git bundle:
-
-```sh
-git status --short
-git bundle create ../Mentor_Pi.bundle --all
-```
-
-On the new computer:
-
-```sh
-git clone Mentor_Pi.bundle Mentor_Pi
-cd Mentor_Pi
-make doctor
-make setup HOST_ARCH=arm64
-```
-
-Do not transfer generated `build/`, firmware `third_party/`, or generated
-micro-ROS directories; rebuild them. The raw contents of `docs/reference/` are
-ignored and are not included in a Git bundle, so copy that local legacy
-evidence separately if it is still needed.
-
-Codex should read [AGENTS.md](AGENTS.md), then use
-[docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) as the durable handoff.
+Hardware or release claims require machine-generated HIL/instrument results.
+A successful software test, mock, campaign exit status, or visual observation
+does not substitute for an unobserved physical metric.
 
 ## Repository map
 
-- [`firmware/mentor_pi_mcu/`](firmware/mentor_pi_mcu/) — STM32 firmware, drivers,
-  controller workers, and micro-ROS runtime.
-- [`src/mentor_pi_interfaces/`](src/mentor_pi_interfaces/) — bounded ROS messages
-  and services.
-- [`src/mentor_pi_bringup/`](src/mentor_pi_bringup/) — C++ supervisor, Agent
-  launch, deployment tools, and qualification utilities.
-- [`tools/`](tools/) — pinned setup, build, verification, packaging, and flash
-  helpers used by the Makefile.
-- [`docs/framework/`](docs/framework/) — normative requirements, hardware,
-  architecture, interface, safety, and verification contracts.
-- [`docs/ci-and-hardware-gates.md`](docs/ci-and-hardware-gates.md) — what software
-  tests prove and what still requires the board.
+- [`firmware/mentor_pi_mcu/`](firmware/mentor_pi_mcu/) — STM32 firmware,
+  drivers, controller workers, and micro-ROS runtime.
+- [`mentor_pi_ros2/`](mentor_pi_ros2/) — directly buildable ROS 2 Humble
+  workspace containing `mentor_pi_interfaces`, `mentor_pi_bringup`, and the
+  mecanum/Ackermann `mentor_pi_hardwares` ros2_control adapters.
+- [`tools/`](tools/) — pinned setup, build, verification, packaging, flash, and
+  developer serial-access helpers.
+- [`docs/tutorials/`](docs/tutorials/) — the ordered 01--09 operator workflow.
+- [`docs/framework/`](docs/framework/) — normative design and verification
+  contracts.
 
-Public ROS names, QoS, units, limits, safety behavior, and acceptance tests are
-defined by the framework documents. Do not infer them from this quick-start
-guide.
+For current project status and open work, read
+[docs/NEXT_STEPS.md](docs/NEXT_STEPS.md). Codex and contributors must also read
+[AGENTS.md](AGENTS.md) before changing the repository.

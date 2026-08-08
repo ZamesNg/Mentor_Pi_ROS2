@@ -49,8 +49,10 @@ A nonzero target may arm only in an explicitly built commissioning image, in
 the `ACTIVE` session state, after a fresh valid command for that motor. The
 supported public command is
 `make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED`; it supplies the
-two exact internal CMake gates and fails closed otherwise. The image
-rejects magnitudes above 0.25 RPS and caps absolute output at 300 permille.
+two exact internal CMake gates and fails closed otherwise. The initial image is
+a direction check, not a speed controller: it rejects magnitudes above 0.25
+RPS, uses only the accepted command sign, applies fixed 250-permille output,
+bypasses PID, and disarms above 0.50 measured RPS.
 Entity creation, an Agent ping, or a command retained from an old session is not
 authority to arm. The commissioning image shall be used only with every wheel
 raised or equivalently guarded and a current-limited supply.
@@ -63,7 +65,7 @@ the first zero burst. It publishes all four fields every 50 ms and aborts if a
 drive interval exceeds 100 ms, so a command cannot arrive after the 198 ms MCU
 expiry boundary and re-arm as though the run were continuous. It also aborts
 on MCU uptime/sequence regression, changed watchdog/lease counters, a nonzero
-watchdog mask, selected speed above 0.50 RPS, wrong selected response direction,
+watchdog mask, selected speed at or above the firmware's 0.50 RPS cutoff, wrong selected response direction,
 or unselected response above 0.02 RPS or two encoder ticks. A pass requires a
 correctly directed selected response of at least the greater of 0.002 RPS or
 10% of the target and at least two correctly directed encoder ticks.
@@ -77,8 +79,10 @@ zero. `SIGINT` and `SIGTERM` enter the bounded stop phase; an exception or
 abnormal ROS shutdown requests an immediate best-effort all-motor zero. If the
 host can no longer publish, the independent MCU lease remains the stop
 authority and must still satisfy the 200 ms bound.
-These host checks reduce commissioning risk but neither unlock a normal image
-nor replace MCU safety or HIL qualification.
+After the software checks pass, the one-line helper requires the operator to
+confirm the observed physical direction. These checks reduce commissioning
+risk but neither unlock a normal image nor replace MCU safety or HIL
+qualification.
 
 Before any powered command, the normal locked image shall be used for a passive
 manual encoder-direction check while all bridge outputs remain disabled. JGA27
@@ -89,9 +93,11 @@ commissioning build and its caps are not release qualification.
 
 Other reset defaults are deterministic: PWM-servo GPIO is low until the frame
 generator is ready and then each channel outputs 1500 microseconds with zero
-offset; all three LEDs and the buzzer are off; both RGB pixels are driven off;
-both host OLED lines are empty; and no bus-servo frame is sent. None of these
-defaults is restored from an earlier ROS session.
+offset; all three LEDs and the buzzer are off; both RGB pixels are initially
+driven off; both host OLED lines are empty; and no bus-servo frame is sent.
+LED3 subsequently reports successful ROS heartbeat publication and RGB2
+reports RX/TX activity. Neither indicator is restored from or controlled by a
+ROS session.
 
 ## Per-motor command lease
 
@@ -99,8 +105,8 @@ Each of the four motors has independent `last_valid_command_tick`, target, and
 armed state.
 
 - The lease duration is 200 ms.
-- A 1 kHz safety release in `MotorControlTask` evaluates the lease; PID and
-  encoder updates remain 100 Hz.
+- A 1 kHz safety release in `MotorControlTask` evaluates the lease; encoder and
+  output updates remain 100 Hz. The initial direction-check image bypasses PID.
 - TIM7 releases the check every 1 ms. Qualification shall prove that the
   maximum interval between completed lease evaluations, including scheduling
   jitter, is no greater than 2 ms. The expiry threshold is 198 ms, allowing one
@@ -184,7 +190,7 @@ The overload policy is part of the public behavior:
 
 | Resource | Policy | Safety effect |
 | --- | --- | --- |
-| Motor, PWM, LED, RGB, and OLED merged shadows | Selected fields from each taken, validated sample merge into one fixed shadow only within the current ROS session; the newest accepted selected value replaces any unread same-session value. On the first callback admitted for a new session, firmware drains the unread old snapshot and clears its per-field-valid generations before publishing. RGB/OLED owners merge only the new-session fields onto their last completed/rendered state. Best-effort loss before callback remains possible. | Accepted same-session disjoint updates cannot erase one another, backlog cannot delay the motor lease, already applied unselected peripheral state holds across reconnect, and unread or pending old-session fields cannot be relabelled as new work; hosts repeat every motor channel whose lease they intend to maintain. |
+| Motor, PWM, LED, RGB1, and OLED shadows | Selected fields from each taken, validated sample merge into one fixed shadow only within the current ROS session; the newest accepted selected value replaces any unread same-session value. On the first callback admitted for a new session, firmware drains the unread old snapshot and clears its per-field-valid generations before publishing. The RGB owner combines host RGB1 with firmware RGB2 status; the OLED owner merges new-session fields onto its last rendered state. Best-effort loss before callback remains possible. | Accepted same-session disjoint updates cannot erase one another, backlog cannot delay the motor lease, already applied host peripheral state holds across reconnect, RGB2 cannot be overridden by ROS, and unread or pending old-session fields cannot be relabelled as new work; hosts repeat every motor channel whose lease they intend to maintain. |
 | Bus-motion mailbox | The newest complete valid request overwrites the old request. | The serial bus converges to current intent without a motion FIFO. |
 | Buzzer mailbox | The latest complete validated pattern replaces an unread pattern; rejected input changes no output. | Buzzer traffic remains bounded without subset ambiguity. |
 | Button queue | Capacity 16; drop oldest and count when full. | Recent physical events remain observable; loss is explicit. |
@@ -199,13 +205,14 @@ The overload policy is part of the public behavior:
 No enqueue operation in a ROS callback may block. Every overwrite, drop, busy
 response, and rejection increments a diagnostic counter.
 
-USART1 RX half/full boundary accounting runs above the FreeRTOS syscall
-ceiling and is therefore not delayed by task critical sections. That top half
-may only clear the RX-DMA flags, advance its single-writer epoch, latch a sticky
-error, and pend the lower USART1 IRQ. The deferred IRQ reconstructs producer
-progress from epoch plus `NDTR`; a complete ring lap cannot alias to zero
-progress. Any inconsistent epoch/cursor snapshot or DMA error is fatal and
-uses the same stop-and-teardown path as an overrun.
+USART1 RX half/full boundary accounting runs through the standard priority-6
+HAL DMA handler and callbacks. Each callback advances the boundary epoch and
+notifies `MicroRosTask`; task context samples `ring_size - NDTR` at no more than
+1 ms intervals and reconstructs exact producer progress from a stable
+epoch/cursor pair. A complete ring lap cannot alias to zero progress. Any
+inconsistent epoch/cursor snapshot, DMA error, or overrun is fatal and uses the
+same motor-stop and teardown path. Critical sections that mask the transport
+IRQs remain shorter than the 40.96 ms half-ring interval at line saturation.
 
 ## Transport and session faults
 
@@ -251,13 +258,12 @@ stop in one controller critical section, in that order. A fatal USART1 or DMA
 ISR shall latch its error before stopping motors. The target motor-arm and
 four-channel duty hooks shall reject with `BUSY` whenever that sticky latch is
 set, and those checks execute inside `MotorControlTask`'s existing controller
-critical sections. Because the priority-4 RX-DMA top half can preempt those
-BASEPRI sections while the priority-6 deferred stop cannot, each hook checks on
-both sides of its writes. A pre-check failure emergency-stops before returning;
-a post-check after the arm authority write or complete four-channel duty update
-also emergency-stops before returning `BUSY`. If the latch arrives after the
-post-check, there is no subsequent write and the deferred ISR stop runs when the
-critical section exits. The latch may be cleared only by the normal USART1
+critical sections. Each hook checks on both sides of its writes. A pre-check
+failure emergency-stops before returning; a post-check after the arm authority
+write or complete four-channel duty update also emergency-stops before returning
+`BUSY`. A priority-6 HAL error callback delayed by the critical section runs as
+soon as it exits; no subsequent motor write remains, so the callback's stop wins
+before the next release. The latch may be cleared only by the normal USART1
 transport-open path for a fresh physical session; no ROS message, service,
 parameter, or host-side action is an unlock.
 
@@ -298,12 +304,13 @@ motors require a new accepted command.
 All seven topic gateways capture the observed active generation before their
 fast check and recheck `ACTIVE` plus that exact generation inside the controller
 critical section. A callback spanning revoke/reconnect returns `BUSY` and
-publishes nothing. Motor, PWM, LED, RGB, and OLED subset shadows have explicit
+publishes nothing. Motor, PWM, LED, RGB1, and OLED shadows have explicit
 session ownership: their first admitted callback in a fresh session drains old
 unread data and clears field-valid generations. Worker-owned already applied
-PWM/LED/RGB/OLED state remains held; only fields explicitly accepted in the new
-session may change it. Whole-command bus and buzzer work retains its generation
-tag and is rejected when that tag is stale.
+PWM/LED1/LED2/RGB1/OLED state remains held; only fields explicitly accepted in
+the new session may change it. LED3 and RGB2 status are session-independent. Whole-command
+bus and buzzer work retains its generation tag and is rejected when that tag is
+stale.
 
 The controller treats its nonzero session generation as a wrap-aware monotonic
 watermark. An active generation accepts only an exact idempotent repeat; any

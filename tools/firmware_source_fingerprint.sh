@@ -82,14 +82,12 @@ AppendDirectory() {
     -print >>"${PATHS}"
 }
 
-readonly INTERFACE_ROOT="${PROJECT_ROOT}/src/mentor_pi_interfaces"
+readonly INTERFACE_ROOT="${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces"
 AppendFile "${INTERFACE_ROOT}/CMakeLists.txt"
 AppendFile "${INTERFACE_ROOT}/package.xml"
 AppendDirectory "${INTERFACE_ROOT}/include"
 AppendDirectory "${INTERFACE_ROOT}/msg"
 AppendDirectory "${INTERFACE_ROOT}/srv"
-AppendDirectory "${PROJECT_ROOT}/src/ros_package_schema"
-
 if [[ "${MODE}" == "firmware" ]]; then
   readonly FIRMWARE_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu"
   AppendFile "${FIRMWARE_ROOT}/CMakeLists.txt"
@@ -104,6 +102,7 @@ if [[ "${MODE}" == "firmware" ]]; then
   AppendFile "${PROJECT_ROOT}/tools/apply_microros_source_lock.sh"
   AppendFile "${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
   AppendFile "${PROJECT_ROOT}/tools/build_firmware.sh"
+  AppendFile "${PROJECT_ROOT}/tools/check_firmware_memory.sh"
   AppendFile "${PROJECT_ROOT}/tools/build_microros_library.sh"
   AppendFile "${PROJECT_ROOT}/tools/docker/firmware-builder.Dockerfile"
   AppendFile "${PROJECT_ROOT}/tools/docker/microros-builder.Dockerfile"

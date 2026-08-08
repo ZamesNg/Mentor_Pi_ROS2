@@ -16,7 +16,7 @@ extern "C" void DMA2_Stream0_IRQHandler() {
 }
 
 extern "C" void DMA2_Stream2_IRQHandler() {
-  stm32_platform::HandleUsart1RxDmaTopHalfFromIsr();
+  HAL_DMA_IRQHandler(&stm32_platform::g_dma_usart1_rx);
 }
 
 extern "C" void DMA2_Stream3_IRQHandler() {
@@ -27,7 +27,9 @@ extern "C" void DMA2_Stream7_IRQHandler() {
   HAL_DMA_IRQHandler(&stm32_platform::g_dma_usart1_tx);
 }
 
-extern "C" void USART1_IRQHandler() { stm32_platform::HandleUsart1Irq(); }
+extern "C" void USART1_IRQHandler() {
+  HAL_UART_IRQHandler(&stm32_platform::g_usart1);
+}
 
 extern "C" void UART5_IRQHandler() {
   HAL_UART_IRQHandler(&stm32_platform::g_uart5);
@@ -85,8 +87,16 @@ extern "C" void TIM8_TRG_COM_TIM14_IRQHandler() {
 }
 
 extern "C" void HAL_UART_RxCpltCallback(UART_HandleTypeDef* uart) {
-  if (uart->Instance == UART5) {
+  if (uart->Instance == USART1) {
+    stm32_platform::HandleUsart1RxDmaBoundaryFromIsr();
+  } else if (uart->Instance == UART5) {
     stm32_platform::HandleBusUartRxCompleteFromIsr();
+  }
+}
+
+extern "C" void HAL_UART_RxHalfCpltCallback(UART_HandleTypeDef* uart) {
+  if (uart->Instance == USART1) {
+    stm32_platform::HandleUsart1RxDmaBoundaryFromIsr();
   }
 }
 
@@ -100,7 +110,7 @@ extern "C" void HAL_UART_TxCpltCallback(UART_HandleTypeDef* uart) {
 
 extern "C" void HAL_UART_ErrorCallback(UART_HandleTypeDef* uart) {
   if (uart->Instance == USART1) {
-    stm32_platform::HandleUsart1DmaErrorFromIsr();
+    stm32_platform::HandleUsart1ErrorFromIsr(uart->ErrorCode);
   } else if (uart->Instance == UART5) {
     stm32_platform::HandleBusUartErrorFromIsr();
   }

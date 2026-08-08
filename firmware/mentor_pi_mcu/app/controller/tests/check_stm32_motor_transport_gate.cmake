@@ -4,7 +4,8 @@
 # you may not use this file except in compliance with the License.
 
 foreach(required_variable TARGET_SOURCE TRANSPORT_SOURCE MOTOR_HEADER
-                          BUILD_WRAPPER TARGET_CMAKE_SOURCE PROFILE_PROBE_ROOT)
+                          MICROROS_META BUILD_WRAPPER TARGET_CMAKE_SOURCE
+                          PROFILE_PROBE_ROOT)
   if(NOT DEFINED ${required_variable})
     message(FATAL_ERROR "${required_variable} is required")
   endif()
@@ -13,6 +14,15 @@ endforeach()
 file(READ "${TARGET_SOURCE}" target_source)
 file(READ "${TRANSPORT_SOURCE}" transport_source)
 file(READ "${MOTOR_HEADER}" motor_header)
+file(READ "${MICROROS_META}" microros_meta)
+
+string(REGEX MATCHALL "RMW_UXRCE_MAX_SERVICES=7" service_pool_matches
+       "${microros_meta}")
+list(LENGTH service_pool_matches service_pool_count)
+if(NOT service_pool_count EQUAL 1)
+  message(FATAL_ERROR
+          "micro-ROS static service capacity must exactly cover 7 services")
+endif()
 
 function(extract_function source start_marker end_marker output)
   string(FIND "${source}" "${start_marker}" start)
@@ -129,6 +139,9 @@ string(SUBSTRING "${target_source}" ${motor_profile_start}
 foreach(required_marker
     "#if MENTOR_PI_MOTOR_COMMISSIONING"
     "CommissioningMotorControlConfiguration()"
+    "#if MENTOR_PI_MOTOR_COMMISSIONING_CLOSED_LOOP"
+    "configuration.mode = mentor_pi::mcu::MotorControlMode::kClosedLoop"
+    "mentor_pi::mcu::kMotorCommissioningClosedLoopMaximumRps"
     "#else"
     "LockedMotorControlConfiguration()"
     "#endif")
@@ -138,8 +151,7 @@ foreach(required_marker
             "BuildMotorConfiguration lacks '${required_marker}'")
   endif()
 endforeach()
-foreach(forbidden_assignment closed_loop_enabled maximum_accepted_rps
-                             output_limit_permille)
+foreach(forbidden_assignment output_limit_permille)
   string(FIND "${motor_profile_body}" "${forbidden_assignment}"
          assignment_position)
   if(NOT assignment_position EQUAL -1)
@@ -150,7 +162,8 @@ endforeach()
 
 foreach(required_profile_constant
     "kMotorCommissioningMaximumRps = 0.25F"
-    "kMotorCommissioningOutputLimitPermille = 300"
+    "kMotorCommissioningClosedLoopMaximumRps = 6.0F"
+    "kMotorCommissioningOutputLimitPermille = 1000"
     "constexpr MotorControlConfiguration LockedMotorControlConfiguration()"
     "constexpr MotorControlConfiguration CommissioningMotorControlConfiguration()")
   string(FIND "${motor_header}" "${required_profile_constant}"
@@ -161,11 +174,12 @@ foreach(required_profile_constant
   endif()
 endforeach()
 
-function(run_profile_probe expected_result commissioning acknowledgement
-         expected_mode expected_speed expected_output)
+function(run_profile_probe expected_result commissioning closed_loop acknowledgement
+         expected_mode expected_control_mode expected_speed expected_output)
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
             "RRCLITE_MOTOR_COMMISSIONING=${commissioning}"
+            "RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP=${closed_loop}"
             "RRCLITE_MOTOR_COMMISSIONING_ACK=${acknowledgement}"
             "${BUILD_WRAPPER}" --print-motor-profile
     RESULT_VARIABLE probe_result
@@ -179,6 +193,7 @@ function(run_profile_probe expected_result commissioning acknowledgement
     endif()
     foreach(expected_line
         "mode=${expected_mode}"
+        "control_mode=${expected_control_mode}"
         "maximum_accepted_rps=${expected_speed}"
         "output_limit_permille=${expected_output}"
         "release_qualified=0")
@@ -202,10 +217,11 @@ function(run_profile_probe expected_result commissioning acknowledgement
   endif()
 endfunction()
 
-run_profile_probe(PASS 0 "" LOCKED 0.0 0)
-run_profile_probe(FAIL 1 "" "" "" "")
-run_profile_probe(FAIL 1 WRONG "" "" "")
-run_profile_probe(PASS 1 MOTORS_RAISED COMMISSIONING 0.25 300)
+run_profile_probe(PASS 0 0 "" LOCKED LOCKED 0.0 0)
+run_profile_probe(FAIL 1 0 "" "" "" "" "")
+run_profile_probe(FAIL 1 0 WRONG "" "" "" "")
+run_profile_probe(PASS 1 0 MOTORS_RAISED COMMISSIONING DIRECTION_CHECK 0.25 1000)
+run_profile_probe(PASS 1 1 MOTORS_RAISED COMMISSIONING_PID CLOSED_LOOP 6.0 1000)
 
 function(run_direct_cmake_rejection acknowledgement label)
   set(probe_build "${PROFILE_PROBE_ROOT}/${label}")

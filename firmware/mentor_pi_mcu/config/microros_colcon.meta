@@ -1,5 +1,11 @@
 {
   "names": {
+    "libyaml_vendor": {
+      "cmake-args": [
+        "-DCMAKE_SUPPRESS_DEVELOPER_WARNINGS=TRUE",
+        "-Wno-dev"
+      ]
+    },
     "tracetools": {
       "cmake-args": [
         "-DTRACETOOLS_DISABLED=ON",
@@ -47,7 +53,7 @@
         "-DRMW_UXRCE_MAX_NODES=1",
         "-DRMW_UXRCE_MAX_PUBLISHERS=7",
         "-DRMW_UXRCE_MAX_SUBSCRIPTIONS=7",
-        "-DRMW_UXRCE_MAX_SERVICES=6",
+        "-DRMW_UXRCE_MAX_SERVICES=7",
         "-DRMW_UXRCE_MAX_CLIENTS=0",
         "-DRMW_UXRCE_MAX_HISTORY=8",
         "-DRMW_UXRCE_STREAM_HISTORY=8",

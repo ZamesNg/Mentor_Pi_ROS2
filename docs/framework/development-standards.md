@@ -48,9 +48,9 @@ embedded and ROS-specific choices where the upstream guide permits alternatives.
   that timestamp/copy/notify and immediately delegate to the owning adapter.
 - An ISR above `configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY` shall call no
   FreeRTOS API, HAL state machine, application callback, or actuator function.
-  The sole approved instance is the USART1 RX-DMA boundary top half; it uses
-  single-writer scalar state and pends a lower-priority IRQ for all deferred
-  work. Any expansion of that call graph requires an architecture review.
+  No active USART1 interrupt has such an exception: RX DMA, TX DMA, and USART1
+  run at the FreeRTOS-safe transport priority and use the standard HAL handlers
+  and callbacks. Any new above-ceiling ISR requires an architecture review.
 - Domain code must not include STM32 HAL, FreeRTOS, CMSIS, or rclc headers.
   Dependencies point inward through explicit interfaces; C handles and macros do
   not leak into motor, servo, safety, or command-validation APIs.
@@ -175,12 +175,15 @@ Firmware configuration shall fail closed for unqualified motor motion. Normal,
 CI release, and reproducibility builds leave `RRCLITE_MOTOR_COMMISSIONING`
 unset or set it to `0`. A commissioning job may set it to `1` only together
 with the exact `RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED` value and shall
-be visibly classified as a non-release HIL artifact. Its 0.25 RPS and 300
-permille limits are reviewed constants, not command-line tuning inputs. The job
-records the acknowledgement, fixture/current limit, binary hash, and passive
-encoder-direction result. No build flag, unit test, or legacy-derived constant
-may label PID or polarity release-qualified without the required physical HIL
-record.
+be visibly classified as a non-release HIL artifact. Direction-check mode's
+0.25 RPS admission, 250-permille output, and 0.50 RPS overspeed cutoff are
+reviewed constants, not command-line tuning inputs. The separately classified
+closed-loop commissioning image uses a 6 RPS implementation ceiling and a
+1000-permille output clamp while retaining each motor model's lower profile
+limit. The job records the acknowledgement, fixture/current limit, binary hash,
+and passive encoder-direction result. No build flag, unit test, or
+legacy-derived constant may label PID or polarity release-qualified without the
+required physical HIL record.
 
 Mandatory gates:
 
@@ -208,8 +211,8 @@ firmware release/size, fuzz smoke, static-analysis/style, and documentation
 jobs. Long HIL, 60-minute load, reconnect/reset, and 24-hour soak jobs may run on
 dedicated hardware, but their signed results are required for release.
 
-The checked-in hosted workflows and their local entry points are catalogued in
-[CI and hardware qualification gates](../ci-and-hardware-gates.md). Hosted jobs
+The checked-in hosted workflows and their local entry points are run in
+[Tutorial 08](../tutorials/08-run-stress-soak-and-release-gates.md). Hosted jobs
 use no project secret and cover documentation/traceability, format,
 `clang-tidy`, native Debug ASan/UBSan, native Release, TSan, deterministic fuzz
 smoke, generated CDR/introspection checks on ROS 2 Humble amd64 and arm64, and

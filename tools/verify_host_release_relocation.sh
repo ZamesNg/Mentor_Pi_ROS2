@@ -98,6 +98,17 @@ reported="$(ros2 pkg prefix mentor_pi_bringup)"
   exit 1
 }
 ros2 interface show mentor_pi_interfaces/msg/MotorCommand >/dev/null
+[[ "$(ros2 pkg prefix mentor_pi_hardwares)" == "$1" || \
+   "$(ros2 pkg prefix mentor_pi_hardwares)" == "$2" ]] || {
+  echo "mentor_pi_hardwares did not relocate with the host prefix" >&2
+  exit 1
+}
+plugin_library="$1/lib/libmentor_pi_hardwares.so"
+ldd_output="$(ldd "${plugin_library}")"
+if grep -Fq "not found" <<<"${ldd_output}"; then
+  echo "unresolved library for mentor_pi_hardwares" >&2
+  exit 1
+fi
 for executable in configuration_supervisor qualification_campaign \
     qualification_monitor motor_commissioning; do
   ldd_output="$(ldd "$1/lib/mentor_pi_bringup/${executable}")"
@@ -105,7 +116,7 @@ for executable in configuration_supervisor qualification_campaign \
     echo "unresolved library for ${executable}" >&2
     exit 1
   fi
-  if grep -Fq "$3" <<<"${ldd_output}"; then
+  if grep -Fq "$3/" <<<"${ldd_output}"; then
     echo "loader output retained staging prefix for ${executable}" >&2
     exit 1
   fi

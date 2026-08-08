@@ -70,10 +70,11 @@ the dedicated serial group, require a unique measured adapter identity, hold an
 exclusive wrapper lock, restart it after failure, and preserve its logs and exit
 status.
 
-Ubuntu 24.04 is a development host only. It shall have no native ROS
-installation. ROS-dependent host builds and micro-ROS generation run inside
-pinned Ubuntu 22.04/ROS 2 Humble containers; ROS-free cross-compilation,
-analysis, and portable tests may use pinned Ubuntu 24.04 utility containers. A
+Ubuntu 22.04 development builds and runs ROS 2 Humble natively. A development
+host on any other Ubuntu release shall have no native ROS installation;
+ROS-dependent builds, micro-ROS generation, the Agent, and host nodes run
+inside pinned Ubuntu 22.04/ROS 2 Humble containers with the automatically
+detected native architecture and reviewed MCU device pass-through. A
 deployment shall not mix ROS distributions between the MCU client, Agent, and
 host nodes. Migration to ROS 2 Jazzy is future work that requires new pinned
 artifacts and full requalification before Humble reaches end of life in May

@@ -11,13 +11,23 @@ constexpr std::size_t kMotorCount = 4;
 constexpr std::size_t kPwmServoCount = 4;
 constexpr std::size_t kBusServoBatchCapacity = 16;
 constexpr std::size_t kLedCount = 3;
+// Discrete LED3 is owned by the firmware heartbeat indicator. The public LED
+// command keeps its wire shape, but host commands may address only LED1/LED2.
+constexpr std::size_t kHostLedCount = 2;
+constexpr std::size_t kHeartbeatLedIndex = 2U;
 constexpr std::size_t kRgbPixelCount = 2;
 constexpr std::size_t kOledHostLineCount = 2;
 constexpr std::size_t kOledLineCapacity = 23;
 
 constexpr std::uint8_t kAllMotorMask = 0x0fU;
+constexpr float kMotorPidMaximumGain = 1000.0F;
 constexpr std::uint8_t kAllPwmServoMask = 0x0fU;
 constexpr std::uint8_t kAllRgbPixelMask = 0x03U;
+// RGB pixel 2 is owned by firmware status indication. The public message keeps
+// its original two-pixel wire shape, but host commands may select only pixel 1.
+constexpr std::uint8_t kHostRgbPixelMask = 0x01U;
+constexpr std::size_t kHostRgbPixelIndex = 0U;
+constexpr std::size_t kStatusRgbPixelIndex = 1U;
 constexpr std::uint8_t kAllOledLineMask = 0x03U;
 
 enum class MotorModel : std::uint8_t {
@@ -48,6 +58,14 @@ struct BusServoCommand {
   std::array<std::uint8_t, kBusServoBatchCapacity> servo_id{};
   std::array<std::uint16_t, kBusServoBatchCapacity> position{};
   std::uint16_t duration_ms{0};
+};
+
+struct SetMotorPidCommand {
+  std::uint8_t update_mask{0};
+  std::array<float, kMotorCount> proportional_gain{};
+  std::array<float, kMotorCount> integral_gain{};
+  std::array<float, kMotorCount> derivative_gain{};
+  std::array<float, kMotorCount> velocity_filter_new_weight{};
 };
 
 struct StopBusServosCommand {

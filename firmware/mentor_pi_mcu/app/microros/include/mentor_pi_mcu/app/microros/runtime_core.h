@@ -84,9 +84,13 @@ inline constexpr std::uint32_t kTimeResyncPeriodMs = 60000U;
 // native tests use the same exact operation counts.
 inline constexpr std::size_t kLifecyclePublisherCount = 7U;
 inline constexpr std::size_t kLifecycleSubscriptionCount = 7U;
-inline constexpr std::size_t kLifecycleServiceCount = 6U;
-inline constexpr std::size_t kLifecycleCreateBoundaryCount = 47U;
-inline constexpr std::size_t kLifecycleDestroyBoundaryCount = 24U;
+inline constexpr std::size_t kLifecycleServiceCount = 7U;
+inline constexpr std::size_t kLifecycleCreateBoundaryCount =
+    7U + (2U * kLifecyclePublisherCount) + (2U * kLifecycleSubscriptionCount) +
+    (2U * kLifecycleServiceCount);
+inline constexpr std::size_t kLifecycleDestroyBoundaryCount =
+    4U + kLifecyclePublisherCount + kLifecycleSubscriptionCount +
+    kLifecycleServiceCount;
 inline constexpr std::size_t kLifecycleCreateMaximumDeclaredMilliseconds =
     ((kLifecycleCreateBoundaryCount - 2U) * kCreateCallTimeoutMs) +
     kExecutorWaitMs + kInitialTimeSyncTimeoutMs +
@@ -237,6 +241,21 @@ TeardownReason ClassifyTransportErrorFlags(std::uint8_t error_flags);
 constexpr bool DeadlineReached(std::uint32_t now_ms,
                                std::uint32_t deadline_ms) {
   return static_cast<std::int32_t>(now_ms - deadline_ms) >= 0;
+}
+
+// Advances a periodic release along its fixed timeline. If execution is late,
+// missed releases are skipped instead of shifting every future release or
+// issuing a burst of catch-up work. Unsigned subtraction keeps the calculation
+// correct across the millisecond counter wrap for intervals shorter than
+// 2^31 milliseconds.
+constexpr std::uint32_t AdvancePeriodicRelease(std::uint32_t now_ms,
+                                               std::uint32_t last_release_ms,
+                                               std::uint32_t period_ms) {
+  const std::uint32_t elapsed_ms = now_ms - last_release_ms;
+  if (period_ms == 0U || elapsed_ms < period_ms) {
+    return last_release_ms;
+  }
+  return last_release_ms + ((elapsed_ms / period_ms) * period_ms);
 }
 
 constexpr std::uint32_t NextNonzeroGeneration(std::uint32_t generation) {

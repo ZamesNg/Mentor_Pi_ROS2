@@ -59,6 +59,10 @@ cmake -E make_directory "${BUILD_ROOT}"
 
 bash -n "${PROJECT_ROOT}"/tools/*.sh
 "${PROJECT_ROOT}/tools/test_active_build_policy.sh"
+"${PROJECT_ROOT}/tools/test_configure_dev_serial_access.sh"
+"${PROJECT_ROOT}/tools/test_ch9102_boot_control.sh"
+"${PROJECT_ROOT}/tools/test_guided_flash.sh"
+"${PROJECT_ROOT}/tools/test_tutorial_actions.sh"
 "${PROJECT_ROOT}/tools/test_firmware_dependency_provenance.sh"
 "${PROJECT_ROOT}/tools/test_firmware_artifact_verification.sh"
 "${PROJECT_ROOT}/tools/test_microros_agent_install_state.sh"
@@ -107,7 +111,7 @@ RunCmakeSuite() {
 }
 
 python3 -m unittest discover \
-  -s "${PROJECT_ROOT}/src/mentor_pi_interfaces/test" -v
+  -s "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces/test" -v
 
 RunCmakeSuite domain "${PROJECT_ROOT}/firmware/mentor_pi_mcu"
 RunCmakeSuite drivers "${PROJECT_ROOT}/firmware/mentor_pi_mcu/drivers"
@@ -115,7 +119,7 @@ RunCmakeSuite controller \
   "${PROJECT_ROOT}/firmware/mentor_pi_mcu/app/controller"
 RunCmakeSuite microros \
   "${PROJECT_ROOT}/firmware/mentor_pi_mcu/app/microros"
-RunCmakeSuite bringup "${PROJECT_ROOT}/src/mentor_pi_bringup" \
+RunCmakeSuite bringup "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup" \
   -DMENTOR_PI_BUILD_ROS2=OFF
 
 echo "Native ${build_type} tests passed (sanitizers=${sanitizers})"

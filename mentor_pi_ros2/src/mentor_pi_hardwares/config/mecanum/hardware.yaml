@@ -1,0 +1,5 @@
+vehicle:
+  robot_name: mentor_pi
+  vehicle_type: mecanum
+hardware:
+  feedback_timeout_ms: 100

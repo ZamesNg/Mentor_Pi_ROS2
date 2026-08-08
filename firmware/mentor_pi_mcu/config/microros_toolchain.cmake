@@ -17,6 +17,7 @@ set(CMAKE_C_FLAGS_INIT
 set(CMAKE_CXX_FLAGS_INIT
     "-std=c++14 ${FLAGS} -fno-rtti ${MICROROSFLAGS} "
     CACHE STRING "" FORCE)
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS TRUE CACHE BOOL "Suppress CMake dev warnings" FORCE)
 
 # This cache variable is ignored by Humble, whose generated C interfaces do not
 # emit the later runtime type-description tables. Keeping it explicit makes a

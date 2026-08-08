@@ -272,7 +272,7 @@ void CheckRgbMailbox(const std::uint8_t* data, std::size_t size) {
   const Result validation = ValidateRgbCommand(command);
 
   RgbCommandMailbox mailbox;
-  const RgbCommand baseline{0x03U, {1U, 2U}, {3U, 4U}, {5U, 6U}};
+  const RgbCommand baseline{0x01U, {1U, 0U}, {3U, 0U}, {5U, 0U}};
   CheckAdmission(mailbox.Publish(baseline), OkResult(), false, 1U);
   const CommandAdmission admission = mailbox.Publish(command);
   CheckAdmission(admission, validation, validation.ok(),
@@ -292,14 +292,14 @@ void CheckRgbMailbox(const std::uint8_t* data, std::size_t size) {
   }
 
   mailbox.ResetMergedFields();
-  const RgbCommand fresh{0x02U, {0U, 7U}, {0U, 8U}, {0U, 9U}};
+  const RgbCommand fresh{0x01U, {7U, 0U}, {8U, 0U}, {9U, 0U}};
   const std::uint32_t fresh_generation =
       NextGeneration(validation.ok() ? 2U : 1U);
   CheckAdmission(mailbox.Publish(fresh), OkResult(), false, fresh_generation);
   Require(mailbox.ConsumeLatest(&snapshot));
-  Require(snapshot.field_generation[0] == 0U);
-  Require(snapshot.field_generation[1] == fresh_generation);
-  Require(snapshot.state.red[0] == 0U && snapshot.state.red[1] == 7U);
+  Require(snapshot.field_generation[0] == fresh_generation);
+  Require(snapshot.field_generation[1] == 0U);
+  Require(snapshot.state.red[0] == 7U && snapshot.state.red[1] == 0U);
 }
 
 void CheckOledMailbox(const std::uint8_t* data, std::size_t size) {

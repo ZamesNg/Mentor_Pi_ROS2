@@ -17,7 +17,7 @@ timing, and failure behavior match this document. Product requirements are in
 | Node namespace | `/mentor_pi` |
 | Node name | `controller` |
 | Fully qualified node name | `/mentor_pi/controller` |
-| Publishers / subscriptions / services | 7 / 7 / 6 |
+| Publishers / subscriptions / services | 7 / 7 / 7 |
 | Default transport device | `/dev/mentor_pi_mcu` |
 | Serial settings | 1,000,000 baud, 8 data bits, no parity, 1 stop bit, no flow control |
 | Compatibility policy | Clean v2 only; no legacy type, name, or packet aliases |
@@ -29,7 +29,7 @@ normal ROS remapping remains available.
 The MCU node shall disable `/rosout` and shall not create parameter,
 parameter-event, statistics, action, or `/clock` endpoints. Middleware-internal
 discovery entities are not application endpoints; apart from those internal
-entities, the 7/7/6 inventory below is the complete MCU graph surface.
+entities, the 7/7/7 inventory below is the complete MCU graph surface.
 
 ## 2. Endpoint inventory, QoS, and rates
 
@@ -53,7 +53,7 @@ an overload/stress contract; it does not promise application of every sample.
 | `/mentor_pi/bus_servos/command` | `mentor_pi_interfaces/msg/BusServoCommand` | BE, depth 1 | ≤10 Hz/on change | 20 Hz | One replace-latest batch slot |
 | `/mentor_pi/leds/command` | `mentor_pi_interfaces/msg/LedCommand` | REL, depth 1 | ≤5 Hz/on change | 10 Hz | Latest validated pattern per LED |
 | `/mentor_pi/buzzer/command` | `mentor_pi_interfaces/msg/BuzzerCommand` | REL, depth 1 | ≤5 Hz/on change | 10 Hz | Latest validated pattern |
-| `/mentor_pi/rgb/command` | `mentor_pi_interfaces/msg/RgbCommand` | REL, depth 1 | ≤30 Hz/on change | 50 Hz | Merge selected pixels into latest state |
+| `/mentor_pi/rgb/command` | `mentor_pi_interfaces/msg/RgbCommand` | REL, depth 1 | ≤30 Hz/on change | 50 Hz | Replace host-owned RGB1; RGB2 is MCU status |
 | `/mentor_pi/oled/command` | `mentor_pi_interfaces/msg/OledCommand` | REL, depth 1 | ≤1 Hz/on change | 2 Hz | Merge selected lines into latest state |
 
 Best-effort depth-one motion QoS may discard an older sample before the MCU
@@ -87,6 +87,7 @@ gets a `BUSY` response. Non-bus work has a 50 ms local deadline. Bus work has a
 | Fully qualified service | Type | Purpose |
 |---|---|---|
 | `/mentor_pi/motors/set_model` | `mentor_pi_interfaces/srv/SetMotorModel` | Select one profile for all four motors |
+| `/mentor_pi/motors/set_pid` | `mentor_pi_interfaces/srv/SetMotorPid` | Apply volatile closed-loop gains while all motors are stopped |
 | `/mentor_pi/pwm_servos/set_offsets` | `mentor_pi_interfaces/srv/SetPwmServoOffsets` | Set PWM-servo calibration offsets |
 | `/mentor_pi/bus_servos/get_state` | `mentor_pi_interfaces/srv/GetBusServoState` | Read selected registers from one servo |
 | `/mentor_pi/bus_servos/configure` | `mentor_pi_interfaces/srv/ConfigureBusServo` | Write selected registers on one servo |
@@ -199,9 +200,10 @@ Before motor HIL, nonzero commands are available only in a commissioning image
 built with
 `make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED`.
 The target passes the two required internal CMake gates and fails closed if the
-acknowledgement is missing or changed. That image adds an effective
-absolute target limit of 0.25 RPS and an absolute output limit of 300 permille;
-a target beyond the stricter speed limit rejects the whole message as
+acknowledgement is missing or changed. The initial image is explicitly
+`DIRECTION_CHECK`: it accepts signed direction commands through 0.25 RPS,
+bypasses PID, applies fixed 250-permille output, and disarms above 0.50 measured
+RPS. A target beyond the admission limit rejects the whole message as
 `OUT_OF_RANGE` rather than being clamped. The build acknowledgement is not a
 runtime ROS field and no host message or service can change it.
 
@@ -282,17 +284,77 @@ shared contract. A mismatched model, tick count, non-finite speed, or different
 finite speed is treated as `IO_ERROR`; configuration is rejected for that
 generation and the motion gate remains closed.
 
-The controller gains, velocity filter, anti-windup behavior, and output deadband
-are firmware constants rather than public service fields. Their present values
-are corrected, bounded commissioning starting points and are not
-release-qualified. D3 HIL shall qualify or replace the gains, output polarity,
-encoder polarity, filter, and deadband for each profile and record the evidence
-before nonzero production motion is released. JGA27's provisional model
-polarity is `-1` solely because the legacy JGA27 profile used negative gains
-while the other retained profiles used positive gains. The defective legacy
-PID expression documented in the legacy audit is not a normative algorithm,
-and changing any qualified constant later invalidates the affected motor HIL
-evidence.
+All four profiles use the same hardcoded, bounded positional-PID commissioning
+defaults: `Kp=250.0`, `Ki=0.1`, `Kd=0.5`, and velocity-filter new-sample
+weight `0.5`. They are not release-qualified. D3 HIL shall qualify or replace
+the gains, output
+polarity, encoder polarity, filter, and deadband for each profile and record the
+evidence before nonzero production motion is released. JGA27's provisional
+model polarity is `-1` solely because the legacy JGA27 profile used negative
+gains while the other retained profiles used positive gains. The defective
+legacy PID expression documented in the legacy audit is not a normative
+algorithm, and changing any qualified constant later invalidates the affected
+motor HIL evidence.
+
+### 4.4 `srv/SetMotorPid.srv`
+
+```text
+uint8 MOTOR_1=1
+uint8 MOTOR_2=2
+uint8 MOTOR_3=4
+uint8 MOTOR_4=8
+uint8 ALL_MOTORS=15
+
+uint8 update_mask
+float32[4] proportional_gain
+float32[4] integral_gain
+float32[4] derivative_gain
+float32[4] velocity_filter_new_weight
+---
+mentor_pi_interfaces/Result result
+uint8 applied_mask
+```
+
+`update_mask` shall be a nonzero subset of `ALL_MOTORS`. Every selected P, I,
+and D value shall be finite and in `[0, 1000]`; every selected filter new-sample
+weight shall be finite and in `[0, 1]`. A non-finite selected value returns
+`INVALID_ARGUMENT`, while a finite selected value outside its interval returns
+`OUT_OF_RANGE`.
+
+The service returns `UNSUPPORTED` unless the running artifact is the
+closed-loop `COMMISSIONING_PID` image. It returns `BUSY` unless every channel is
+disarmed, every target is zero, and every measured speed has magnitude below
+`0.01 RPS`. Validation, application, and PID-state reset are atomic across all
+selected channels. On success `applied_mask == update_mask`; every failure
+returns an applied mask of zero. Overrides are volatile: they survive an Agent
+transport reconnection but are cleared by an MCU reset or an actual motor-model
+change.
+If the bounded service deadline expires before the motor owner commits the
+update, timeout cancellation wins the same owner critical section and prevents
+any later gain mutation for that request. If the owner commit wins first, the
+completed success response is returned instead of `TIMEOUT`.
+
+The closed-loop image uses the filtered measured RPS as `v_real` and evaluates
+the positional PID at 100 Hz. The first sample establishes a nominal 10 ms
+timing baseline; subsequent samples use the wrap-safe actual elapsed period
+`T`:
+
+```text
+error = target_rps - filtered_measured_rps
+integral_error += error * T
+output = Kp * error
+       + Ki * integral_error
+       + Kd * (error - previous_error) / T
+```
+
+`Kp` is in permille/RPS, `Ki` in permille/(RPS second), and `Kd` in
+permille-second/RPS. A target step therefore produces derivative kick because
+D acts on error. Conditional integration rejects an integral update only when
+the trial output is saturated and the error would drive it farther into the
+same limit. The final output is clamped to `[-1000, 1000]` permille before the
+documented minimum effective duty is applied. Stop, lease expiry, disarming,
+session loss, a successful selected PID update, and an actual model change
+reset integral and derivative history.
 
 ## 5. PWM servo interface
 
@@ -550,7 +612,9 @@ uint16 off_time_ms
 uint16 repeat
 ```
 
-`led_id` is 1 through 3. Timing fields span 0 through 65535 ms. Semantics are:
+`led_id` is 1 or 2. LED3 is firmware-owned and an ID of 3 is rejected with
+`OUT_OF_RANGE` without changing its successful-heartbeat indication. Timing
+fields span 0 through 65535 ms. Semantics are:
 
 - `on_time_ms == 0`: steady off; other timing fields are ignored.
 - `on_time_ms > 0 && off_time_ms == 0`: steady on; `repeat` is ignored.
@@ -584,9 +648,13 @@ uint8[2] green
 uint8[2] blue
 ```
 
-Bits 0 and 1 select physical pixels 1 and 2. Components are direct 0 through
+Bit 0 selects host-owned physical RGB pixel 1. Components are direct 0 through
 255 intensities; no gamma correction, fading, or color-space conversion is
-part of the public contract.
+part of the public contract. The `PIXEL_2` and `ALL_PIXELS` constants remain in
+the message for wire/source compatibility, but RGB pixel 2 is firmware-owned.
+An `update_mask` of 2 or 3 is rejected atomically and changes neither pixel.
+RGB2's RX/TX meanings and bounded update policy are normative in the
+[verified board profile](verified-hardware-profile.md#firmware-owned-status-indicators).
 
 ### 7.4 `msg/OledCommand.msg`
 
@@ -693,7 +761,7 @@ bool below_threshold
 
 `voltage_mv` is the filtered board-supply ADC estimate. `valid` is false and
 `voltage_mv` is zero when the internal reference is invalid or the computed
-supply is not greater than 0 mV or is greater than 20000 mV.
+supply is below 4900 mV (battery absent) or greater than 20000 mV.
 `below_threshold` is the debounced alarm
 state, not a comparison of one sample:
 
@@ -996,7 +1064,7 @@ Semantics:
 - `publication_errors` is the aggregate count of non-OK publish attempts.
   Reliable ACK behavior is verified externally because the pinned public
   micro-ROS API does not expose a truthful retry counter.
-- Service counters aggregate all six services. Every taken request increments
+- Service counters aggregate all seven services. Every taken request increments
   `service_requests`; every response successfully handed to the current ROS
   session increments `service_completions`. Busy, timeout, and partial counters
   describe the returned result and may also be completions. A completion after
@@ -1077,7 +1145,7 @@ Semantics:
 
 - Custom arrays are fixed, and the only custom strings are the two bounded
   `string<=23` OLED fields.
-- Generated message storage, executor handles, XRCE streams, six service
+- Generated message storage, executor handles, XRCE streams, seven service
   request/response message stores, four pending-work slots (three non-bus and
   one shared by the three bus services), seven subscription stores, seven
   publisher messages, and worker records are allocated before the runtime

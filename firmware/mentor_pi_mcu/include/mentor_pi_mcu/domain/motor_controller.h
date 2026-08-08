@@ -16,13 +16,21 @@ constexpr std::uint32_t kMotorControlPeriodUs = 10000U;
 constexpr std::int16_t kMotorOutputLimitPermille = 1000;
 constexpr std::int16_t kMotorOutputDeadbandPermille = 250;
 constexpr float kMotorCommissioningMaximumRps = 0.25F;
-constexpr std::int16_t kMotorCommissioningOutputLimitPermille = 300;
+constexpr float kMotorCommissioningClosedLoopMaximumRps = 6.0F;
+constexpr std::int16_t kMotorCommissioningOutputLimitPermille = 1000;
+constexpr std::int16_t kMotorDirectionCheckDutyPermille = 250;
+constexpr float kMotorDirectionCheckOverspeedRps = 0.5F;
+constexpr float kMotorPidUpdateMaximumMeasuredRps = 0.01F;
+constexpr float kMotorDefaultPidProportionalGain = 250.0F;
+constexpr float kMotorDefaultPidIntegralGain = 0.1F;
+constexpr float kMotorDefaultPidDerivativeGain = 0.5F;
+constexpr float kMotorDefaultVelocityFilterNewWeight = 0.5F;
 
 struct PidCalibration {
-  float proportional_gain{0.0F};
-  float integral_gain{0.0F};
-  float derivative_gain{0.0F};
-  float velocity_filter_new_weight{0.9F};
+  float proportional_gain{kMotorDefaultPidProportionalGain};
+  float integral_gain{kMotorDefaultPidIntegralGain};
+  float derivative_gain{kMotorDefaultPidDerivativeGain};
+  float velocity_filter_new_weight{kMotorDefaultVelocityFilterNewWeight};
 };
 
 struct MotorProfile {
@@ -48,6 +56,17 @@ struct MotorModelChange {
   MotorProfile active_profile{};
 };
 
+struct MotorPidUpdate {
+  Result result{};
+  std::uint8_t applied_mask{0U};
+};
+
+enum class MotorControlMode : std::uint8_t {
+  kLocked = 0,
+  kDirectionCheck,
+  kClosedLoop,
+};
+
 struct MotorControlConfiguration {
   // RRCLite: M1/TIM5 and M2/TIM2 are 32-bit; M3/TIM4 and M4/TIM3
   // are 16-bit. A hardware adapter supplies channel wiring signs established
@@ -55,7 +74,7 @@ struct MotorControlConfiguration {
   // polarity derived from the legacy controller evidence.
   std::array<std::uint8_t, kMotorCount> counter_bits{32, 32, 16, 16};
   std::array<std::int8_t, kMotorCount> channel_wiring_sign{1, 1, 1, 1};
-  bool closed_loop_enabled{false};
+  MotorControlMode mode{MotorControlMode::kLocked};
   float maximum_accepted_rps{0.0F};
   std::int16_t output_limit_permille{0};
 };
@@ -69,22 +88,26 @@ constexpr MotorControlConfiguration LockedMotorControlConfiguration() {
 
 constexpr MotorControlConfiguration CommissioningMotorControlConfiguration() {
   MotorControlConfiguration configuration{};
-  configuration.closed_loop_enabled = true;
+  configuration.mode = MotorControlMode::kDirectionCheck;
   configuration.maximum_accepted_rps = kMotorCommissioningMaximumRps;
   configuration.output_limit_permille = kMotorCommissioningOutputLimitPermille;
   return configuration;
 }
 
-static_assert(!LockedMotorControlConfiguration().closed_loop_enabled);
+static_assert(LockedMotorControlConfiguration().mode ==
+              MotorControlMode::kLocked);
 static_assert(LockedMotorControlConfiguration().maximum_accepted_rps == 0.0F);
 static_assert(LockedMotorControlConfiguration().output_limit_permille == 0);
-static_assert(CommissioningMotorControlConfiguration().closed_loop_enabled);
+static_assert(CommissioningMotorControlConfiguration().mode ==
+              MotorControlMode::kDirectionCheck);
 static_assert(CommissioningMotorControlConfiguration().maximum_accepted_rps ==
               0.25F);
 static_assert(CommissioningMotorControlConfiguration().output_limit_permille ==
-              300);
+              kMotorCommissioningOutputLimitPermille);
 static_assert(kMotorCommissioningOutputLimitPermille <=
               kMotorOutputLimitPermille);
+static_assert(kMotorDirectionCheckDutyPermille <=
+              kMotorCommissioningOutputLimitPermille);
 
 class MotorController {
  public:
@@ -95,6 +118,7 @@ class MotorController {
 
   Result AcceptCommand(const MotorCommand& command, std::uint32_t now_us);
   MotorModelChange SetModel(MotorModel model);
+  MotorPidUpdate SetPid(const SetMotorPidCommand& command);
 
   // Called by the independent 1 kHz safety release.
   void EvaluateLeases(std::uint32_t now_us);
@@ -116,8 +140,8 @@ class MotorController {
   const MotorControlConfiguration& configuration() const {
     return configuration_;
   }
-  bool closed_loop_enabled() const {
-    return configuration_.closed_loop_enabled;
+  bool nonzero_motion_enabled() const {
+    return configuration_.mode != MotorControlMode::kLocked;
   }
   float maximum_accepted_rps() const;
   std::uint8_t watchdog_stop_mask() const;
@@ -137,9 +161,13 @@ class MotorController {
 
  private:
   struct PidState {
+    float accumulated_error{0.0F};
     float previous_error{0.0F};
-    float error_before_previous{0.0F};
-    float accumulated_output{0.0F};
+  };
+
+  struct MotorPidOverride {
+    bool active{false};
+    PidCalibration gains{};
   };
 
   void ResetPid(std::size_t index);
@@ -149,6 +177,7 @@ class MotorController {
   const MotorProfile* profile_;
   std::array<MotorChannelState, kMotorCount> channels_{};
   std::array<PidState, kMotorCount> pid_state_{};
+  std::array<MotorPidOverride, kMotorCount> pid_overrides_{};
   std::array<std::uint32_t, kMotorCount> last_command_us_{};
   std::array<std::uint32_t, kMotorCount> previous_counter_{};
   std::array<SaturatingCounter<std::uint32_t>, kMotorCount>

@@ -13,8 +13,8 @@ The runtime creates node `/mentor_pi/controller` with exactly:
   `buttons/events`, `battery/state`, `heartbeat`, and `diagnostics`;
 - seven subscriptions, registered with the executor in the contract order:
   motor, PWM servo, bus servo, LED, buzzer, RGB, and OLED command;
-- six manually pumped services: motor model, PWM offsets, bus get/configure/
-  stop, and battery threshold.
+- seven manually pumped services: motor model, motor PID, PWM offsets, bus
+  get/configure/stop, and battery threshold.
 
 Every endpoint uses explicit volatile keep-last QoS. Motion topics are best
 effort depth one. Discrete topics and all services are reliable depth one; the
@@ -27,8 +27,8 @@ have a 10 ms XRCE session timeout.
   is a fixed state machine with 100/200/400/800/1600/2000 ms capped backoff.
 - Entity creation and teardown are cursor-driven. Every `RunOnce()` slice in
   either phase starts at most one middleware boundary, so the task heartbeat is
-  advanced between calls. The fixed graph uses 47 ordered creation boundaries;
-  a fully constructed normal teardown uses 24 boundaries and finalizes its ROS
+  advanced between calls. The fixed graph uses 49 ordered creation boundaries;
+  a fully constructed normal teardown uses 25 boundaries and finalizes its ROS
   entities in exact reverse construction order.
 - Each creation boundary is limited to 40 ms, initial time sync to 20 ms, and
   the whole creation phase to 2 s. Each remote finalizer is limited to 10 ms and
@@ -81,7 +81,7 @@ must be nonblocking copies into owner-task storage; service poll functions must
 match both fields of `ServiceToken` before returning a completion.
 
 The generated Humble library must retain the limits in
-`config/microros_colcon.meta`: 1 node, 7 publishers, 7 subscriptions, 6
+`config/microros_colcon.meta`: 1 node, 7 publishers, 7 subscriptions, 7
 services, no clients, history 8, 512-byte MTU, 40 ms create timeout, and 10 ms
 destroy timeout.
 

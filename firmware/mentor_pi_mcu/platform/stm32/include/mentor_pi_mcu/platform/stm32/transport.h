@@ -15,10 +15,25 @@ struct uxrCustomTransport;
 
 namespace mentor_pi_mcu::platform::stm32 {
 
-inline constexpr std::size_t kUsart1RxRingSizeBytes = std::size_t{8U} * 1024U;
 inline constexpr std::size_t kUsart1TxBounceSizeBytes = 1024U;
+inline constexpr std::size_t kUsart1RxDmaRingSizeBytes = 8U * 1024U;
 inline constexpr std::size_t kXrceTransportMtuBytes = 512U;
 inline constexpr std::uint32_t kUsart1Baud = 1000000U;
+inline constexpr std::uint32_t kUsart1BitsPerByte = 10U;
+inline constexpr std::uint32_t kUsart1WriteDeadlineMarginMs = 2U;
+
+constexpr std::uint32_t Usart1WriteDeadlineMs(std::size_t length,
+                                              std::uint32_t baud) {
+  const std::uint64_t serial_time_numerator =
+      static_cast<std::uint64_t>(length) * kUsart1BitsPerByte * 1000U;
+  return static_cast<std::uint32_t>((serial_time_numerator + baud - 1U) /
+                                    baud) +
+         kUsart1WriteDeadlineMarginMs;
+}
+
+constexpr std::uint32_t Usart1WriteDeadlineMs(std::size_t length) {
+  return Usart1WriteDeadlineMs(length, kUsart1Baud);
+}
 
 enum class Usart1Error : std::uint8_t {
   kNone = 0,
@@ -46,33 +61,31 @@ struct TransportSnapshot {
 Status OpenUsart1Transport();
 void CloseUsart1Transport();
 
-// Read blocks for at most min(timeout_ms, 10 ms) and never drops an overrun.
+// Reads from the circular USART1 RX DMA ring for at most min(timeout_ms, 10
+// ms). UART errors and ring overruns are sticky and disarm motors.
 std::size_t ReadUsart1(std::uint8_t* destination, std::size_t capacity,
                        std::uint32_t timeout_ms, Status* status);
 
-// Write copies into the DMA bounce buffer and permits no queued transfer.
+// Writes through the DMA-accessible bounce buffer and waits on the standard
+// HAL completion callback for no longer than the baud-derived deadline.
 std::size_t WriteUsart1(const std::uint8_t* source, std::size_t length,
                         Status* status);
 
 TransportSnapshot GetTransportSnapshot();
 bool TransportHasFatalError();
 
-// The RX DMA top half runs above the FreeRTOS syscall ceiling. It only clears
-// hardware flags, advances a single-writer boundary counter, latches a sticky
-// error bit, and pends USART1 for deferred FreeRTOS-safe processing.
-void HandleUsart1RxDmaTopHalfFromIsr();
+// Returns the dedicated USART1 HAL handle as an opaque custom-transport
+// argument, keeping HAL declarations out of the micro-ROS adapter boundary.
+void* Usart1TransportArgument();
 
-// FreeRTOS-callable ISR delegates. These only update bounded state and notify
-// MicroRosTask.
-void HandleUsart1Irq();
-void HandleUsart1RxDmaProgressFromIsr();
+void HandleUsart1RxDmaBoundaryFromIsr();
 void HandleUsart1TxCompleteFromIsr();
-void HandleUsart1DmaErrorFromIsr();
+void HandleUsart1ErrorFromIsr(std::uint32_t hal_error_code);
 
 }  // namespace mentor_pi_mcu::platform::stm32
 
-// Exact micro-ROS custom-transport callback signatures. The implementation is
-// independent of the transport object's argument and uses the dedicated USART1.
+// Exact micro-ROS custom-transport callback signatures. The transport argument
+// must identify the dedicated USART1 HAL handle registered by the adapter.
 extern "C" bool MentorPiTransportOpen(uxrCustomTransport* transport);
 extern "C" bool MentorPiTransportClose(uxrCustomTransport* transport);
 extern "C" std::size_t MentorPiTransportWrite(uxrCustomTransport* transport,

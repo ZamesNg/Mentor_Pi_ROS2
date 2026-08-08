@@ -164,10 +164,11 @@ void TestEndpointInventoryAndQos() {
       "motors/command", "pwm_servos/command", "bus_servos/command",
       "leds/command",   "buzzer/command",     "rgb/command",
       "oled/command"};
-  constexpr std::array<std::string_view, 6> kServices{
-      "motors/set_model",     "pwm_servos/set_offsets",
-      "bus_servos/get_state", "bus_servos/configure",
-      "bus_servos/stop",      "battery/set_low_threshold"};
+  constexpr std::array<std::string_view, 7> kServices{
+      "motors/set_model",         "motors/set_pid",
+      "pwm_servos/set_offsets",   "bus_servos/get_state",
+      "bus_servos/configure",     "bus_servos/stop",
+      "battery/set_low_threshold"};
 
   CHECK(microros::kPublisherEndpoints.size() == kPublishers.size());
   CHECK(microros::kSubscriptionEndpoints.size() == kSubscriptions.size());
@@ -451,8 +452,8 @@ void TestLifecycleDeadlineAndWrap() {
 }
 
 void TestIncrementalLifecycleDriverAndReconnects() {
-  CHECK(microros::kLifecycleCreateMaximumDeclaredMilliseconds == 1867U);
-  CHECK(microros::kLifecycleDestroyMaximumDeclaredMilliseconds == 263U);
+  CHECK(microros::kLifecycleCreateMaximumDeclaredMilliseconds == 1949U);
+  CHECK(microros::kLifecycleDestroyMaximumDeclaredMilliseconds == 274U);
   std::uint32_t now_ms = 0U;
   std::uint32_t last_heartbeat_ms = 0U;
   std::uint32_t maximum_heartbeat_gap_ms = 0U;

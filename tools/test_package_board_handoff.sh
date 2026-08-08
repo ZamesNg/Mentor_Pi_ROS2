@@ -108,6 +108,7 @@ printf '%s\n' \
   'target=STM32F407VET6' \
   'ros_distro=humble' \
   "motor_mode=${mode}" \
+  'artifact_mode=NORMAL' \
   "commissioning_ack=${ack}" \
   'release_qualified=0' \
   'source_sha256=0000000000000000000000000000000000000000000000000000000000000000' \

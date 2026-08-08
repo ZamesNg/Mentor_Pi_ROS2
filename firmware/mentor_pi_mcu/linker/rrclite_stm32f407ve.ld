@@ -148,7 +148,7 @@ SECTIONS
     __ram_used_end__ = .;
   } > RAM AT > RAM :ram
 
-  /* CPU-only objects, including the 48 KiB resettable micro-ROS arena. */
+  /* Remaining CPU-only objects, including the motor-task stack. */
   .ccmram (NOLOAD) :
   {
     . = ALIGN(8);

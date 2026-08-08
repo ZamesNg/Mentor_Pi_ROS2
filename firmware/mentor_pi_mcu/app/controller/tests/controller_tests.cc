@@ -8,6 +8,7 @@
 #include "mentor_pi_mcu/app/controller/imu_characterization.h"
 #include "mentor_pi_mcu/app/microros/runtime_hooks.h"
 #include "mentor_pi_mcu/domain/bus_servo.h"
+#include "mentor_pi_mcu/domain/validation.h"
 
 namespace {
 
@@ -21,6 +22,7 @@ using mentor_pi::mcu::GetBusServoStateCommand;
 using mentor_pi::mcu::LedCommand;
 using mentor_pi::mcu::MotorCommand;
 using mentor_pi::mcu::MotorControlConfiguration;
+using mentor_pi::mcu::MotorControlMode;
 using mentor_pi::mcu::MotorModel;
 using mentor_pi::mcu::OkResult;
 using mentor_pi::mcu::OledCommand;
@@ -29,14 +31,19 @@ using mentor_pi::mcu::PwmServoOffsetCommand;
 using mentor_pi::mcu::Result;
 using mentor_pi::mcu::ResultCode;
 using mentor_pi::mcu::RgbCommand;
+using mentor_pi::mcu::SetMotorPidCommand;
 using mentor_pi::mcu::StopBusServosCommand;
 using mentor_pi::mcu::drivers::AxisTransform;
 using mentor_pi::mcu::drivers::IoStatus;
 using mentor_pi_mcu::app::controller::BatterySample;
 using mentor_pi_mcu::app::controller::ControllerRuntime;
 using mentor_pi_mcu::app::controller::ControllerTask;
+using mentor_pi_mcu::app::controller::HeartbeatLedController;
 using mentor_pi_mcu::app::controller::PlatformHooks;
 using mentor_pi_mcu::app::controller::PlatformHooksAreComplete;
+using mentor_pi_mcu::app::controller::StatusRgbColor;
+using mentor_pi_mcu::app::controller::StatusRgbController;
+using mentor_pi_mcu::app::controller::TransportActivity;
 using mentor_pi_mcu::app::controller::UpdateImuCharacterizationSnapshot;
 using mentor_pi_mcu::app::microros::BatteryTelemetry;
 using mentor_pi_mcu::app::microros::BatteryThresholdReply;
@@ -45,6 +52,7 @@ using mentor_pi_mcu::app::microros::GetBusServoStateReply;
 using mentor_pi_mcu::app::microros::HealthSnapshot;
 using mentor_pi_mcu::app::microros::ImuTelemetry;
 using mentor_pi_mcu::app::microros::MotorModelReply;
+using mentor_pi_mcu::app::microros::MotorPidReply;
 using mentor_pi_mcu::app::microros::MotorTelemetry;
 using mentor_pi_mcu::app::microros::PwmOffsetsReply;
 using mentor_pi_mcu::app::microros::PwmServoTelemetry;
@@ -64,7 +72,7 @@ using mentor_pi_mcu::app::microros::WorkerDiagnostics;
 MotorControlConfiguration FullRangeTestMotorConfiguration() {
   // Portable test authority only; this is not first-board HIL qualification.
   MotorControlConfiguration configuration{};
-  configuration.closed_loop_enabled = true;
+  configuration.mode = MotorControlMode::kClosedLoop;
   configuration.maximum_accepted_rps = 6.0F;
   configuration.output_limit_permille =
       mentor_pi::mcu::kMotorOutputLimitPermille;
@@ -83,6 +91,8 @@ struct FakePlatform {
   std::uint32_t motor_apply_calls{0U};
   std::uint32_t bus_exchanges{0U};
   std::uint32_t rgb_transfers{0U};
+  std::uint64_t transport_rx_wire_bytes{0U};
+  std::uint64_t transport_tx_wire_bytes{0U};
   std::uint32_t buzzer_calls{0U};
   std::uint32_t battery_samples{0U};
   std::uint32_t button_reads{0U};
@@ -117,6 +127,7 @@ struct FakePlatform {
   bool bus_expects_reply{false};
   bool rgb_active{false};
   bool rgb_hold_active{false};
+  bool transport_open{false};
   bool stop_probe_enabled{false};
   bool stop_observed_inactive{false};
   bool stop_observed_inside_critical{false};
@@ -428,6 +439,11 @@ struct FakePlatform {
     return IoStatus::kOk;
   }
   static void RgbCancel(void* context) { Self(context)->rgb_active = false; }
+  static TransportActivity ReadTransportActivity(void* context) {
+    FakePlatform* self = Self(context);
+    return {self->transport_rx_wire_bytes, self->transport_tx_wire_bytes,
+            self->transport_open};
+  }
   static std::uint32_t StackHighWater(void*, ControllerTask) { return 512U; }
   static void Memory(void*, std::array<std::uint32_t, 2>* free_bytes,
                      std::array<std::uint32_t, 2>* minimum_bytes) {
@@ -475,6 +491,7 @@ struct FakePlatform {
     hooks.rgb_spi_begin_transmit = &RgbBegin;
     hooks.rgb_spi_poll_transmit = &RgbPoll;
     hooks.rgb_spi_cancel = &RgbCancel;
+    hooks.read_transport_activity = &ReadTransportActivity;
     hooks.task_stack_high_water_bytes = &StackHighWater;
     hooks.read_memory_metrics = &Memory;
     hooks.flash_used_bytes = &FlashUsed;
@@ -494,6 +511,115 @@ bool EstablishStartupReadiness(ControllerRuntime* runtime,
   runtime->RunPeripheralOnce();
   runtime->RunSafetySupervisorOnce();
   return platform->watchdog_refreshes != 0U && platform->critical_depth == 0U;
+}
+
+bool TestStatusRgbSemantics() {
+  HeartbeatLedController heartbeat;
+  CHECK(!heartbeat.Update(0U));
+  CHECK(heartbeat.Update(1U));
+  CHECK(!heartbeat.Update(2U));
+  CHECK(heartbeat.Update(3U));
+  CHECK(mentor_pi::mcu::ValidateLedCommand({3U, 1U, 1U, 1U}).code ==
+        ResultCode::kOutOfRange);
+  CHECK(heartbeat.Update(3U));
+
+  StatusRgbController status;
+  CHECK(status.TransportSampleDue(0U));
+  status.ObserveTransport(0U, {10U, 20U, true});
+  StatusRgbColor color = status.Update(0U);
+  CHECK(color.red == 0U && color.green == 0U && color.blue == 0U);
+  CHECK(!status.TransportSampleDue(99U));
+  CHECK(status.TransportSampleDue(100U));
+
+  status.ObserveTransport(100U, {11U, 20U, true});
+  color = status.Update(100U);
+  CHECK(color.red == StatusRgbController::kBrightness);
+  CHECK(color.green == 0U);
+  CHECK(color.blue == 0U);
+  color = status.Update(149U);
+  CHECK(color.red != 0U && color.green == 0U && color.blue == 0U);
+  color = status.Update(150U);
+  CHECK(color.red == 0U && color.green == 0U && color.blue == 0U);
+
+  status.ObserveTransport(200U, {11U, 21U, true});
+  color = status.Update(200U);
+  CHECK(color.red == 0U);
+  CHECK(color.green == StatusRgbController::kBrightness);
+  CHECK(color.blue == 0U);
+  color = status.Update(250U);
+  CHECK(color.red == 0U && color.green == 0U && color.blue == 0U);
+
+  status.ObserveTransport(300U, {12U, 22U, true});
+  color = status.Update(300U);
+  CHECK(color.red == StatusRgbController::kBrightness);
+  CHECK(color.green == StatusRgbController::kBrightness);
+  CHECK(color.blue == 0U);
+
+  status.ObserveTransport(400U, {13U, 23U, false});
+  color = status.Update(400U);
+  CHECK(color.red == 0U && color.green == 0U && color.blue == 0U);
+
+  StatusRgbController wrapping;
+  wrapping.ObserveTransport(std::numeric_limits<std::uint32_t>::max() - 50U,
+                            {0U, 0U, true});
+  CHECK(wrapping.TransportSampleDue(49U));
+  wrapping.ObserveTransport(std::numeric_limits<std::uint32_t>::max() - 40U,
+                            {1U, 0U, true});
+  color = wrapping.Update(8U);
+  CHECK(color.red == StatusRgbController::kBrightness);
+  color = wrapping.Update(9U);
+  CHECK(color.red == 0U && color.green == 0U && color.blue == 0U);
+  return true;
+}
+
+bool TestStatusRgbControllerIntegration() {
+  FakePlatform platform;
+  platform.transport_open = true;
+  platform.transport_rx_wire_bytes = 10U;
+  platform.transport_tx_wire_bytes = 20U;
+  ControllerRuntime runtime(FullRangeTestMotorConfiguration());
+  CHECK(runtime.Configure(platform.Hooks(), AxisTransform{}));
+  CHECK(runtime.InitializeSafeBoot());
+
+  platform.SetTimeMs(0U);
+  runtime.RunPeripheralOnce();
+  CHECK(platform.rgb_transfers == 1U);
+  CHECK(!platform.leds[mentor_pi::mcu::kHeartbeatLedIndex]);
+  platform.SetTimeMs(1U);
+  runtime.RunPeripheralOnce();
+
+  platform.transport_rx_wire_bytes = 11U;
+  platform.transport_tx_wire_bytes = 21U;
+  platform.SetTimeMs(99U);
+  runtime.RunPeripheralOnce();
+  CHECK(platform.rgb_transfers == 1U);
+
+  platform.SetTimeMs(100U);
+  runtime.RunPeripheralOnce();
+  CHECK(platform.rgb_transfers == 2U);
+  mentor_pi::mcu::RgbState expected{};
+  expected.red[mentor_pi::mcu::kStatusRgbPixelIndex] =
+      StatusRgbController::kBrightness;
+  expected.green[mentor_pi::mcu::kStatusRgbPixelIndex] =
+      StatusRgbController::kBrightness;
+  CHECK(platform.rgb_frame ==
+        mentor_pi::mcu::drivers::EncodeRgbFrame(expected));
+
+  platform.SetTimeMs(101U);
+  runtime.RunPeripheralOnce();
+  runtime.RecordSuccessfulRosHeartbeat();
+  platform.SetTimeMs(102U);
+  runtime.RunPeripheralOnce();
+  CHECK(platform.rgb_transfers == 2U);
+  CHECK(platform.leds[mentor_pi::mcu::kHeartbeatLedIndex]);
+  CHECK(platform.rgb_frame ==
+        mentor_pi::mcu::drivers::EncodeRgbFrame(expected));
+  runtime.RecordSuccessfulRosHeartbeat();
+  platform.SetTimeMs(103U);
+  runtime.RunPeripheralOnce();
+  CHECK(!platform.leds[mentor_pi::mcu::kHeartbeatLedIndex]);
+  CHECK(platform.critical_depth == 0U);
+  return true;
 }
 
 bool TestPlatformHookCompletenessContract() {
@@ -535,6 +661,7 @@ bool TestPlatformHookCompletenessContract() {
   CHECK(rejects_missing(&PlatformHooks::rgb_spi_begin_transmit));
   CHECK(rejects_missing(&PlatformHooks::rgb_spi_poll_transmit));
   CHECK(rejects_missing(&PlatformHooks::rgb_spi_cancel));
+  CHECK(rejects_missing(&PlatformHooks::read_transport_activity));
   CHECK(rejects_missing(&PlatformHooks::task_stack_high_water_bytes));
   CHECK(rejects_missing(&PlatformHooks::read_memory_metrics));
   CHECK(rejects_missing(&PlatformHooks::flash_used_bytes));
@@ -643,6 +770,7 @@ bool TestMicroRosAdapterDelegates() {
       missing_microsecond_clock));
   hooks.wait_milliseconds(hooks.context, 7U);
   hooks.advance_task_heartbeat(hooks.context);
+  hooks.record_successful_ros_heartbeat(hooks.context);
   hooks.emergency_stop_motors(hooks.context);
   CHECK(platform.emergency_stops >= 3U);
 
@@ -671,6 +799,9 @@ bool TestMicroRosAdapterDelegates() {
   led.on_time_ms = 1U;
   led.repeat = 1U;
   CHECK(hooks.publish_led_command(hooks.context, led).result.ok());
+  led.led_id = 3U;
+  CHECK(hooks.publish_led_command(hooks.context, led).result.code ==
+        ResultCode::kOutOfRange);
   BuzzerCommand buzzer{};
   buzzer.frequency_hz = 1000U;
   buzzer.on_time_ms = 1U;
@@ -679,6 +810,9 @@ bool TestMicroRosAdapterDelegates() {
   RgbCommand rgb{};
   rgb.update_mask = 1U;
   CHECK(hooks.publish_rgb_command(hooks.context, rgb).result.ok());
+  rgb.update_mask = 2U;
+  CHECK(hooks.publish_rgb_command(hooks.context, rgb).result.code ==
+        ResultCode::kInvalidArgument);
   OledCommand oled{};
   oled.update_mask = 1U;
   CHECK(hooks.publish_oled_command(hooks.context, oled).result.ok());
@@ -1638,8 +1772,8 @@ bool TestCrossSessionMergedFieldOwnership() {
   LedCommand new_led{2U, 100U, 0U, 0U};
   CHECK(merged_runtime.PublishLedCommand(new_led).result.ok());
   RgbCommand new_rgb{};
-  new_rgb.update_mask = 0x02U;
-  new_rgb.green[1] = 255U;
+  new_rgb.update_mask = 0x01U;
+  new_rgb.blue[0] = 255U;
   CHECK(merged_runtime.PublishRgbCommand(new_rgb).result.ok());
   OledCommand new_oled{};
   new_oled.update_mask = 0x02U;
@@ -1655,7 +1789,7 @@ bool TestCrossSessionMergedFieldOwnership() {
   CHECK(!merged_platform.leds[0]);
   CHECK(merged_platform.leds[1]);
   mentor_pi::mcu::RgbState expected_rgb{};
-  expected_rgb.green[1] = 255U;
+  expected_rgb.blue[0] = 255U;
   CHECK(merged_platform.rgb_frame ==
         mentor_pi::mcu::drivers::EncodeRgbFrame(expected_rgb));
   bool old_oled_line_visible = false;
@@ -1715,10 +1849,6 @@ bool TestCrossSessionAppliedFieldHold() {
   runtime.SetSessionActive(true, 2U);
   LedCommand led_two{2U, 100U, 0U, 0U};
   CHECK(runtime.PublishLedCommand(led_two).result.ok());
-  RgbCommand rgb_two{};
-  rgb_two.update_mask = 0x02U;
-  rgb_two.green[1] = 255U;
-  CHECK(runtime.PublishRgbCommand(rgb_two).result.ok());
   OledCommand oled_two{};
   oled_two.update_mask = 0x02U;
   oled_two.lines[1].size = 1U;
@@ -1731,7 +1861,6 @@ bool TestCrossSessionAppliedFieldHold() {
   CHECK(platform.leds[1]);
   mentor_pi::mcu::RgbState expected_rgb{};
   expected_rgb.red[0] = 255U;
-  expected_rgb.green[1] = 255U;
   CHECK(platform.rgb_frame ==
         mentor_pi::mcu::drivers::EncodeRgbFrame(expected_rgb));
   bool second_oled_line_visible = false;
@@ -1993,6 +2122,18 @@ bool TestMotorCalibrationGate() {
   CHECK(locked.PublishMotorCommand(motion, 1000U).result.code ==
         ResultCode::kUnsupported);
 
+  SetMotorPidCommand locked_pid{};
+  locked_pid.update_mask = 1U;
+  locked_pid.proportional_gain[0] = 10.0F;
+  locked_pid.velocity_filter_new_weight[0] = 1.0F;
+  const ServiceToken locked_pid_token{1U, 2U};
+  CHECK(locked.DispatchMotorPid(locked_pid_token, locked_pid));
+  locked.RunMotorControlOnce();
+  mentor_pi_mcu::app::microros::MotorPidReply locked_pid_reply{};
+  CHECK(locked.PollMotorPid(locked_pid_token, &locked_pid_reply));
+  CHECK(locked_pid_reply.result.code == ResultCode::kUnsupported);
+  CHECK(locked_pid_reply.applied_mask == 0U);
+
   locked.InvalidateSessionWork(1U);
   locked.SetSessionActive(true, 2U);
   CHECK(locked.PublishMotorCommand(motion, 2000U).result.code ==
@@ -2035,9 +2176,150 @@ bool TestMotorCalibrationGate() {
     capped.RunMotorControlOnce();
   }
   CHECK(capped_platform.motor_armed[0]);
-  CHECK(capped_platform.motor_duty[0] >= -300);
-  CHECK(capped_platform.motor_duty[0] <= 300);
+  CHECK(capped_platform.motor_duty[0] >=
+        -mentor_pi::mcu::kMotorDirectionCheckDutyPermille);
+  CHECK(capped_platform.motor_duty[0] <=
+        mentor_pi::mcu::kMotorDirectionCheckDutyPermille);
   CHECK(capped_platform.critical_depth == 0U);
+
+  FakePlatform pid_platform;
+  ControllerRuntime pid_runtime(FullRangeTestMotorConfiguration());
+  CHECK(pid_runtime.Configure(pid_platform.Hooks(), AxisTransform{}));
+  CHECK(pid_runtime.InitializeSafeBoot());
+  CHECK(EstablishStartupReadiness(&pid_runtime, &pid_platform));
+  pid_runtime.SetSessionActive(true, 1U);
+
+  SetMotorPidCommand pid{};
+  pid.update_mask = 5U;
+  pid.proportional_gain[0] = 1000.0F;
+  pid.proportional_gain[2] = 500.0F;
+  pid.velocity_filter_new_weight[0] = 1.0F;
+  pid.velocity_filter_new_weight[2] = 1.0F;
+  const ServiceToken canceled_pid_token{1U, 1U};
+  CHECK(pid_runtime.DispatchMotorPid(canceled_pid_token, pid));
+  CHECK(pid_runtime.CancelMotorPid(canceled_pid_token));
+  pid_runtime.RunMotorControlOnce();
+  mentor_pi_mcu::app::microros::MotorPidReply pid_reply{};
+  CHECK(!pid_runtime.PollMotorPid(canceled_pid_token, &pid_reply));
+
+  const ServiceToken pid_token{1U, 2U};
+  CHECK(pid_runtime.DispatchMotorPid(pid_token, pid));
+  CHECK(!pid_runtime.DispatchMotorPid({1U, 3U}, pid));
+  pid_runtime.RunMotorControlOnce();
+  CHECK(!pid_runtime.CancelMotorPid(pid_token));
+  CHECK(pid_runtime.PollMotorPid(pid_token, &pid_reply));
+  CHECK(pid_reply.result.ok());
+  CHECK(pid_reply.applied_mask == 5U);
+
+  SetMotorPidCommand invalid_pid = pid;
+  invalid_pid.update_mask = 0U;
+  const ServiceToken invalid_pid_token{1U, 3U};
+  CHECK(pid_runtime.DispatchMotorPid(invalid_pid_token, invalid_pid));
+  pid_runtime.RunMotorControlOnce();
+  CHECK(pid_runtime.PollMotorPid(invalid_pid_token, &pid_reply));
+  CHECK(pid_reply.result.code == ResultCode::kInvalidArgument);
+  CHECK(pid_reply.applied_mask == 0U);
+
+  MotorCommand pid_motion{};
+  pid_motion.update_mask = 1U;
+  pid_motion.target_rps[0] = 0.1F;
+  CHECK(pid_runtime.PublishMotorCommand(pid_motion, 0U).result.ok());
+  pid_runtime.RunMotorControlOnce();
+  const ServiceToken busy_pid_token{1U, 4U};
+  CHECK(pid_runtime.DispatchMotorPid(busy_pid_token, pid));
+  pid_runtime.RunMotorControlOnce();
+  CHECK(pid_runtime.PollMotorPid(busy_pid_token, &pid_reply));
+  CHECK(pid_reply.result.code == ResultCode::kBusy);
+  CHECK(pid_reply.applied_mask == 0U);
+  CHECK(pid_platform.critical_depth == 0U);
+  return true;
+}
+
+bool TestMotorControlUsesElapsedPeriod() {
+  auto run_release_at = [](ControllerRuntime* runtime, FakePlatform* platform,
+                           std::uint32_t now_us) {
+    platform->now_us = now_us;
+    platform->now_ms = now_us / 1000U;
+    runtime->RunMotorControlOnce();
+  };
+
+  {
+    FakePlatform platform;
+    ControllerRuntime runtime(FullRangeTestMotorConfiguration());
+    CHECK(runtime.Configure(platform.Hooks(), AxisTransform{}));
+    CHECK(runtime.InitializeSafeBoot());
+    CHECK(EstablishStartupReadiness(&runtime, &platform));
+    runtime.SetSessionActive(true, 1U);
+
+    SetMotorPidCommand gains{};
+    gains.update_mask = 1U;
+    gains.integral_gain[0] = 1000.0F;
+    gains.velocity_filter_new_weight[0] = 1.0F;
+    const ServiceToken token{1U, 1U};
+    CHECK(runtime.DispatchMotorPid(token, gains));
+    run_release_at(&runtime, &platform, 1U);
+    MotorPidReply reply{};
+    CHECK(runtime.PollMotorPid(token, &reply));
+    CHECK(reply.result.ok());
+
+    MotorCommand command{};
+    command.update_mask = 1U;
+    command.target_rps[0] = 6.0F;
+    CHECK(runtime.PublishMotorCommand(command, 1U).result.ok());
+    for (std::uint32_t release = 1U; release <= 8U; ++release) {
+      run_release_at(&runtime, &platform,
+                     release == 8U ? 10000U : release * 1000U);
+    }
+    CHECK(platform.motor_duty[0] ==
+          mentor_pi::mcu::kMotorOutputDeadbandPermille);
+
+    for (std::uint32_t release = 1U; release <= 10U; ++release) {
+      run_release_at(&runtime, &platform, 50000U + release * 1000U);
+    }
+    // The second sample is 50 ms after the first: 1000 * 6 *
+    // (0.01 + 0.05) = 360 permille. A nominal 10 ms handoff would remain in
+    // the 250-permille deadband.
+    CHECK(platform.motor_duty[0] == 360);
+  }
+
+  {
+    FakePlatform platform;
+    ControllerRuntime runtime(FullRangeTestMotorConfiguration());
+    CHECK(runtime.Configure(platform.Hooks(), AxisTransform{}));
+    CHECK(runtime.InitializeSafeBoot());
+    CHECK(EstablishStartupReadiness(&runtime, &platform));
+    runtime.SetSessionActive(true, 1U);
+
+    SetMotorPidCommand gains{};
+    gains.update_mask = 1U;
+    gains.derivative_gain[0] = 40.0F;
+    gains.velocity_filter_new_weight[0] = 1.0F;
+    const ServiceToken token{1U, 1U};
+    CHECK(runtime.DispatchMotorPid(token, gains));
+    run_release_at(&runtime, &platform, 1U);
+    MotorPidReply reply{};
+    CHECK(runtime.PollMotorPid(token, &reply));
+    CHECK(reply.result.ok());
+
+    MotorCommand command{};
+    command.update_mask = 1U;
+    command.target_rps[0] = 1.0F;
+    CHECK(runtime.PublishMotorCommand(command, 1U).result.ok());
+    for (std::uint32_t release = 1U; release <= 8U; ++release) {
+      run_release_at(&runtime, &platform,
+                     release == 8U ? 10000U : release * 1000U);
+    }
+    CHECK(platform.motor_duty[0] == 1000);
+
+    command.target_rps[0] = 0.5F;
+    CHECK(runtime.PublishMotorCommand(command, 10001U).result.ok());
+    for (std::uint32_t release = 1U; release <= 10U; ++release) {
+      run_release_at(&runtime, &platform, 50000U + release * 1000U);
+    }
+    // Kd * delta_error / T = 40 * -0.5 / 0.05 = -400 permille.
+    CHECK(platform.motor_duty[0] == -400);
+  }
+
   return true;
 }
 
@@ -2174,7 +2456,8 @@ bool TestMotorCommandAgeDiagnostics() {
 }  // namespace
 
 int main() {
-  if (!TestPlatformHookCompletenessContract() ||
+  if (!TestStatusRgbSemantics() || !TestStatusRgbControllerIntegration() ||
+      !TestPlatformHookCompletenessContract() ||
       !TestBuzzerFailuresAreObservable() || !TestMicroRosAdapterDelegates() ||
       !TestMicroRosMicrosecondAcceptanceBoundary() ||
       !TestPwmPhysicalFrameTiming() || !TestImuCharacterizationSnapshot() ||
@@ -2189,6 +2472,7 @@ int main() {
       !TestCrossSessionAppliedFieldHold() || !TestGatewayRevocationRace() ||
       !TestSafetySupervisorRevokesMotorAuthority() ||
       !TestFatalMotorOutputRevocation() || !TestMotorCalibrationGate() ||
+      !TestMotorControlUsesElapsedPeriod() ||
       !TestMotorCommandAgeDiagnostics()) {
     return 1;
   }

@@ -1,0 +1,13 @@
+diff --git a/rmw_microxrcedds_c/src/rmw_request.c b/rmw_microxrcedds_c/src/rmw_request.c
+index 49e84ba..5a6316d 100644
+--- a/rmw_microxrcedds_c/src/rmw_request.c
++++ b/rmw_microxrcedds_c/src/rmw_request.c
+@@ -91,7 +91,7 @@ rmw_take_request(
+     rmw_uxrce_find_static_input_buffer_by_owner((void *) custom_service);
+   if (static_buffer_item == NULL) {
+     UXR_UNLOCK(&static_buffer_memory.mutex);
+-    return RMW_RET_ERROR;
++    return RMW_RET_OK;
+   }
+ 
+   rmw_uxrce_static_input_buffer_t * static_buffer =

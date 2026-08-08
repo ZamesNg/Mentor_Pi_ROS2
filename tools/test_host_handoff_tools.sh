@@ -90,7 +90,6 @@ MakeFakePrefix() {
     "${prefix}/lib" \
     "${prefix}/share/ament_index/resource_index/packages" \
     "${prefix}/share/mentor_pi_interfaces" \
-    "${prefix}/share/ros_package_schema" \
     "${prefix}/share/mentor_pi_bringup/config" \
     "${prefix}/share/mentor_pi_bringup/launch" \
     "${prefix}/share/mentor_pi_bringup/systemd" \
@@ -98,28 +97,26 @@ MakeFakePrefix() {
     "${prefix}/test-bin"
   : >"${prefix}/share/ament_index/resource_index/packages/mentor_pi_bringup"
   : >"${prefix}/share/ament_index/resource_index/packages/mentor_pi_interfaces"
-  cp "${PROJECT_ROOT}/src/mentor_pi_interfaces/package.xml" \
+  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces/package.xml" \
     "${prefix}/share/mentor_pi_interfaces/package.xml"
-  cp "${PROJECT_ROOT}/src/ros_package_schema/package_common.xsd" \
-    "${PROJECT_ROOT}/src/ros_package_schema/package_format3.xsd" \
-    "${prefix}/share/ros_package_schema/"
-  cp "${PROJECT_ROOT}/src/mentor_pi_bringup/config/controller.yaml" \
+  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/config/controller.yaml" \
     "${prefix}/share/mentor_pi_bringup/config/controller.yaml"
-  cp "${PROJECT_ROOT}/src/mentor_pi_bringup/launch/controller.launch.xml" \
+  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.xml" \
     "${prefix}/share/mentor_pi_bringup/launch/controller.launch.xml"
   for asset in mentor-pi-configuration-supervisor.default \
       mentor-pi-runtime.service mentor-pi-agent.service \
       mentor-pi-configuration-supervisor.service mentor-pi-controller.target; do
-    cp "${PROJECT_ROOT}/src/mentor_pi_bringup/systemd/${asset}" \
+    cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/systemd/${asset}" \
       "${prefix}/share/mentor_pi_bringup/systemd/${asset}"
   done
-  cp "${PROJECT_ROOT}/src/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in" \
+  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in" \
     "${prefix}/share/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in"
-  cp "${PROJECT_ROOT}/src/mentor_pi_bringup/systemd/promote_host_release" \
-    "${PROJECT_ROOT}/src/mentor_pi_bringup/systemd/require_controller_target_inactive" \
+  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/systemd/promote_host_release" \
+    "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/systemd/require_controller_target_inactive" \
     "${prefix}/lib/mentor_pi_bringup/"
   for executable in configuration_supervisor qualification_campaign \
-      qualification_monitor motor_commissioning capture_board_diagnostics \
+      qualification_monitor motor_commissioning \
+      capture_board_diagnostics \
       install_production_assets run_configuration_supervisor; do
     cat >"${prefix}/lib/mentor_pi_bringup/${executable}" <<'EOF'
 #!/usr/bin/env bash
@@ -132,6 +129,7 @@ EOF
       libmentor_pi_interfaces__rosidl_typesupport_fastrtps_cpp.so; do
     printf 'fixture\n' >"${prefix}/lib/${library}"
   done
+  printf 'fixture\n' >"${prefix}/lib/libmentor_pi_hardwares.so"
   cat >"${prefix}/test-bin/ros2" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -212,12 +210,28 @@ readonly HANDOFF="${TEST_ROOT}/host-handoff"
   Fail "current idle guard is missing from handoff"
 [[ -f "${HANDOFF}/agent-installer/tools/microros_agent_source.lock" ]] ||
   Fail "Agent source lock is missing from handoff"
+[[ -f "${HANDOFF}/agent-installer/tools/patches/micro_xrce_agent_rrclite_modem_lines.patch" ]] ||
+  Fail "RRCLite Agent modem-line patch is missing from handoff"
 [[ -x "${HANDOFF}/agent-installer/tools/build_microros_agent_from_lock.sh" ]] ||
   Fail "shared Agent source-build helper is missing from handoff"
-[[ -f "${HANDOFF}/docs/host-preparation-and-handoff.md" ]] ||
-  Fail "host preparation guide is missing from handoff"
-[[ -f "${HANDOFF}/docs/board-arrival-bringup-checklist.md" ]] ||
-  Fail "board-arrival checklist is missing from handoff"
+readonly PACKAGED_TUTORIALS=(
+  01-prepare-ubuntu-development-host.md
+  02-build-and-flash-locked-firmware.md
+  03-build-and-run-humble-host.md
+  04-run-passive-board-bringup.md
+  05-characterize-board-hardware.md
+  06-commission-one-motor-safely.md
+  07-qualify-hardware-and-recovery.md
+  08-run-stress-soak-and-release-gates.md
+  09-run-mentor-pi-hardwares.md
+)
+for tutorial in "${PACKAGED_TUTORIALS[@]}"; do
+  [[ -f "${HANDOFF}/docs/tutorials/${tutorial}" ]] ||
+    Fail "numbered tutorial is missing from handoff: ${tutorial}"
+done
+grep -Fq 'docs/tutorials/03-build-and-run-humble-host.md' \
+  "${HANDOFF}/INSTALL.txt" ||
+  Fail "handoff installation text does not point to Tutorial 03"
 VerifyManifest "${HANDOFF}"
 grep -Fqx 'package_format=rrclite-host-handoff-v2' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "handoff schema was not upgraded"
@@ -237,6 +251,9 @@ grep -Fqx 'format=rrclite-agent-handoff-v2' \
   "${HANDOFF}/AGENT-METADATA.txt" || Fail "Agent schema was not upgraded"
 grep -Fqx 'ros_distro=humble' "${HANDOFF}/AGENT-METADATA.txt" ||
   Fail "Agent metadata does not bind ROS 2 Humble"
+grep -Eq '^rrclite_patch_sha256=[0-9a-f]{64}$' \
+  "${HANDOFF}/AGENT-METADATA.txt" ||
+  Fail "Agent metadata does not bind the RRCLite modem-line patch"
 grep -Fqx 'builder_image=native-ubuntu-22.04' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "builder provenance was not propagated"
 grep -Fqx 'ubuntu=22.04' "${SCRIPT_DIR}/build_host_release.sh" ||
@@ -280,34 +297,44 @@ grep -Fq 'FINAL_SOURCE_FINGERPRINT}" == "${INITIAL_SOURCE_FINGERPRINT}' \
   Fail "post-relocation source equality is not enforced"
 
 readonly FINGERPRINT_PROJECT="${TEST_ROOT}/fingerprint-project"
-mkdir -p "${FINGERPRINT_PROJECT}/src" "${FINGERPRINT_PROJECT}/tools" \
-  "${FINGERPRINT_PROJECT}/docs"
-cp -R "${PROJECT_ROOT}/src/mentor_pi_interfaces" \
-  "${PROJECT_ROOT}/src/mentor_pi_bringup" \
-  "${FINGERPRINT_PROJECT}/src/"
-cp -R "${PROJECT_ROOT}/src/ros_package_schema" \
-  "${FINGERPRINT_PROJECT}/src/"
+mkdir -p "${FINGERPRINT_PROJECT}/mentor_pi_ros2/src" \
+  "${FINGERPRINT_PROJECT}/tools/patches" \
+  "${FINGERPRINT_PROJECT}/tools/docker" \
+  "${FINGERPRINT_PROJECT}/docs/tutorials"
+cp -R "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces" \
+  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup" \
+  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_hardwares" \
+  "${FINGERPRINT_PROJECT}/mentor_pi_ros2/src/"
+cp -R "${PROJECT_ROOT}/docs/tutorials/." \
+  "${FINGERPRINT_PROJECT}/docs/tutorials/"
 readonly FINGERPRINT_STANDALONE_INPUTS=(
-  docs/board-arrival-bringup-checklist.md
-  docs/host-preparation-and-handoff.md
   Makefile
-  tools/build_microros_agent_from_lock.sh
+  tools/build_agent.sh
   tools/build_host_handoff_container.sh
+  tools/build_microros_agent_from_lock.sh
+  tools/build_host.sh
+  tools/build_host_runtime_image.sh
   tools/build_host_release.sh
+  tools/host_build_container_entrypoint.sh
   tools/host_handoff_container_entrypoint.sh
   tools/host_source_fingerprint.sh
+  tools/docker/host-runtime.Dockerfile
   tools/install_microros_agent.sh
   tools/microros_agent_source.lock
+  tools/open_runtime_shell.sh
   tools/package_host_handoff.sh
+  tools/patches/micro_xrce_agent_rrclite_modem_lines.patch
   tools/prepare_host_build_dependencies.sh
   tools/require_microros_agent_install_idle.sh
+  tools/run_runtime.sh
   tools/select_pinned_build_image.sh
   tools/verify_host_build_environment.sh
   tools/verify_host_release_relocation.sh
   tools/verify_microros_agent_build_container.sh
   tools/verify_microros_agent_build_in_container.sh
-  tools/verify_microros_agent_install_state.sh
   tools/test_active_build_policy.sh
+  tools/test_ros_workspace_layout.sh
+  tools/verify_microros_agent_install_state.sh
 )
 for relative in "${FINGERPRINT_STANDALONE_INPUTS[@]}"; do
   cp "${PROJECT_ROOT}/${relative}" "${FINGERPRINT_PROJECT}/${relative}"
@@ -315,9 +342,18 @@ done
 
 readonly BASELINE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${FINGERPRINT_PROJECT}")"
 readonly FINGERPRINT_SHARED_INPUTS=(
-  src/ros_package_schema/README.md
-  src/ros_package_schema/package_common.xsd
-  src/ros_package_schema/package_format3.xsd
+  mentor_pi_ros2/src/mentor_pi_interfaces/package.xml
+  mentor_pi_ros2/src/mentor_pi_bringup/package.xml
+  mentor_pi_ros2/src/mentor_pi_hardwares/package.xml
+  docs/tutorials/01-prepare-ubuntu-development-host.md
+  docs/tutorials/02-build-and-flash-locked-firmware.md
+  docs/tutorials/03-build-and-run-humble-host.md
+  docs/tutorials/04-run-passive-board-bringup.md
+  docs/tutorials/05-characterize-board-hardware.md
+  docs/tutorials/06-commission-one-motor-safely.md
+  docs/tutorials/07-qualify-hardware-and-recovery.md
+  docs/tutorials/08-run-stress-soak-and-release-gates.md
+  docs/tutorials/09-run-mentor-pi-hardwares.md
 )
 for relative in "${FINGERPRINT_SHARED_INPUTS[@]}"; do
   printf '\n<!-- host-fingerprint-mutation-fixture -->\n' \
@@ -373,8 +409,8 @@ for architecture in amd64 arm64; do
     "${SCRIPT_DIR}/build_host_handoff_container.sh" --print-default-image \
       --architecture "${architecture}"
   )"
-  [[ "${default_host_image}" =~ ^ros:humble-ros-base@sha256:[0-9a-f]{64}$ ]] ||
-    Fail "default ${architecture} host image is not immutable"
+  [[ "${default_host_image}" =~ ^mentor-pi/rrclite-host-runtime:humble-${architecture}-[0-9a-f]{16}$ ]] ||
+    Fail "default ${architecture} host runtime image is not content-addressed"
 done
 grep -Fq 'if [[ -z "${image}" ]]' \
   "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
@@ -382,6 +418,9 @@ grep -Fq 'if [[ -z "${image}" ]]' \
 grep -Fq '"${IMAGE_ARCH}" == "${architecture}"' \
   "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
   Fail "the host wrapper does not verify the local image architecture"
+grep -Fq 'org.mentor-pi.host-runtime.base' \
+  "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
+  Fail "the host wrapper does not verify the runtime image base"
 
 bash -n "${ENVIRONMENT_CHECK}" "${RELOCATION_CHECK}" "${PACKAGE_TOOL}" \
   "${SCRIPT_DIR}/build_host_handoff_container.sh"

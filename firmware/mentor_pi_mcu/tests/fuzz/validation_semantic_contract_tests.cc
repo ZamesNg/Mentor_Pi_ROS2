@@ -198,7 +198,7 @@ InputBuffer ValidPeripheralInput() {
   input.SetU16(9U, 10U);
   input.SetU16(11U, 0U);
   input.SetU16(13U, 0U);
-  input.SetU8(kRgbMaskOffset, kAllRgbPixelMask);
+  input.SetU8(kRgbMaskOffset, kHostRgbPixelMask);
   input.SetU8(kOledMaskOffset, kAllOledLineMask);
   input.SetU8(kOledLine1SizeOffset, 0U);
   input.SetU8(kOledLine1BytesOffset, 0U);

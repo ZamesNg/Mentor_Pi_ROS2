@@ -115,6 +115,10 @@ VerifyBuildMode() {
     echo "Build metadata mode does not match the CMake cache." >&2
     return 1
   }
+  [[ "$(ReadMetadataValue "${metadata}" artifact_mode)" == "NORMAL" ]] || {
+    echo "Only NORMAL firmware artifacts can enter a host handoff." >&2
+    return 1
+  }
   [[ "$(ReadMetadataValue "${metadata}" schema)" == \
       "rrclite-firmware-build-v2" ]] || {
     echo "Unsupported build metadata schema." >&2

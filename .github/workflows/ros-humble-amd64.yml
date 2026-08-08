@@ -6,17 +6,17 @@ on:
       - '.github/workflows/ros-humble-amd64.yml'
       - 'Makefile'
       - 'tools/**'
-      - 'src/**'
+      - 'mentor_pi_ros2/**'
       - 'docs/framework/ros-interface-contract.md'
-      - 'docs/host-preparation-and-handoff.md'
+      - 'docs/tutorials/03-build-and-run-humble-host.md'
   push:
     paths:
       - '.github/workflows/ros-humble-amd64.yml'
       - 'Makefile'
       - 'tools/**'
-      - 'src/**'
+      - 'mentor_pi_ros2/**'
       - 'docs/framework/ros-interface-contract.md'
-      - 'docs/host-preparation-and-handoff.md'
+      - 'docs/tutorials/03-build-and-run-humble-host.md'
   workflow_dispatch:
 
 permissions:
@@ -54,18 +54,20 @@ jobs:
           test "$(dpkg --print-architecture)" = "${HOST_ARCH}"
           docker version
           docker info
-      - name: Pull exact Humble host image
+      - name: Pull exact Agent verification image
         run: |
-          host_image="$(./tools/build_host_handoff_container.sh \
-            --print-default-image --architecture "${HOST_ARCH}")"
-          test -n "${host_image}"
-          docker pull --platform "linux/${HOST_ARCH}" "${host_image}"
           agent_image="$(./tools/verify_microros_agent_build_container.sh \
             --print-default-image --architecture "${HOST_ARCH}")"
           test -n "${agent_image}"
           docker pull --platform "linux/${HOST_ARCH}" "${agent_image}"
       - name: Build, test, package, and relocate host release
-        run: make host
+        run: |
+          make host
+          host_prefix="$(./tools/build_host.sh --print-output)"
+          ./tools/package_host_handoff.sh \
+            --host-prefix "${host_prefix}" \
+            --output-directory "${HOST_OUTPUT}" \
+            --release-id "${HOST_RELEASE_ID}"
       - name: Verify host handoff identity and manifest
         run: |
           test -f "${HOST_OUTPUT}/HOST-HANDOFF.txt"

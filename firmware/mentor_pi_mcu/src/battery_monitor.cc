@@ -28,7 +28,8 @@ BatteryUpdate BatteryMonitor::AddSample(std::uint32_t raw_voltage_mv,
     last_alarm_ms_ = now_ms;
   }
 
-  const bool sample_valid = internal_reference_valid && raw_voltage_mv > 0U &&
+  const bool sample_valid = internal_reference_valid &&
+                            raw_voltage_mv >= kBatteryPresentMinimumMv &&
                             raw_voltage_mv <= 20000U;
   const std::uint32_t valid_elapsed_ms = sample_valid && previous_sample_valid_
                                              ? now_ms - previous_sample_ms_

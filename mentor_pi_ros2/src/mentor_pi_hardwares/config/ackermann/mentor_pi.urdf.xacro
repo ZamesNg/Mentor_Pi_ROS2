@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<robot name="mentor_pi_hardwares_ackermann" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="robot_name" default="mentor_pi"/>
+  <xacro:arg name="feedback_timeout_ms" default="100"/>
+  <xacro:arg name="steering_pwm_channel" default="3"/>
+  <xacro:arg name="steering_pwm_min_us" default="500"/>
+  <xacro:arg name="steering_pwm_center_us" default="1500"/>
+  <xacro:arg name="steering_pwm_max_us" default="2500"/>
+  <xacro:arg name="steering_angle_min_rad" default="-1.5"/>
+  <xacro:arg name="steering_angle_max_rad" default="1.5"/>
+  <xacro:arg name="steering_inverted" default="true"/>
+  <xacro:arg name="steering_duration_ms" default="20"/>
+
+  <xacro:include filename="$(find mentor_pi_hardwares)/config/ackermann/description.urdf.xacro"/>
+  <xacro:include filename="$(find mentor_pi_hardwares)/config/ackermann/ros2_control.xacro"/>
+
+  <xacro:ackermann_car/>
+  <xacro:ackermann_control
+      robot_name="$(arg robot_name)"
+      feedback_timeout_ms="$(arg feedback_timeout_ms)"
+      steering_pwm_channel="$(arg steering_pwm_channel)"
+      steering_pwm_min_us="$(arg steering_pwm_min_us)"
+      steering_pwm_center_us="$(arg steering_pwm_center_us)"
+      steering_pwm_max_us="$(arg steering_pwm_max_us)"
+      steering_angle_min_rad="$(arg steering_angle_min_rad)"
+      steering_angle_max_rad="$(arg steering_angle_max_rad)"
+      steering_inverted="$(arg steering_inverted)"
+      steering_duration_ms="$(arg steering_duration_ms)"/>
+
+</robot>

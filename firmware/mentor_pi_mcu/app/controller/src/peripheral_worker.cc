@@ -39,7 +39,7 @@ void ControllerRuntime::RunPeripheralOnce() {
   ProcessPwmOffsetService(now_ms);
   PreparePendingPwmFrame(now_ms);
   ProcessDiscreteOutputs(now_ms);
-  ProcessRgb(started_us);
+  ProcessRgb(now_ms, started_us);
   ProcessOled(now_ms);
   RecordTaskProgress(ControllerTask::kPeripheral, started_us,
                      kPeripheralMaximumPeriodUs);
@@ -324,7 +324,10 @@ void ControllerRuntime::ProcessDiscreteOutputs(std::uint32_t now_ms) {
   if (battery_alarm_mailbox_.ConsumeLatest(&alarm)) {
     buzzer_controller_.TriggerBatteryAlarm(alarm.timestamp_ms);
   }
-  const auto led_output = led_controller_.Update(now_ms);
+  auto led_output = led_controller_.Update(now_ms);
+  led_output[mentor_pi::mcu::kHeartbeatLedIndex] =
+      heartbeat_led_controller_.Update(
+          successful_ros_heartbeats_.load(std::memory_order_relaxed));
   for (std::size_t led = 0; led < led_output.size(); ++led) {
     gpio_driver_.SetLed(led, led_output[led]);
   }
@@ -335,7 +338,7 @@ void ControllerRuntime::ProcessDiscreteOutputs(std::uint32_t now_ms) {
   RecordPeripheralResult(6U, buzzer_result, ErrorSource::kBuzzer);
 }
 
-void ControllerRuntime::ProcessRgb(std::uint32_t now_us) {
+void ControllerRuntime::ProcessRgb(std::uint32_t now_ms, std::uint32_t now_us) {
   Result polled{};
   {
     CriticalGuard guard(this);
@@ -377,18 +380,15 @@ void ControllerRuntime::ProcessRgb(std::uint32_t now_us) {
         pending_rgb_state_ = active_rgb_state_;
       }
       bool changed = false;
-      for (std::size_t pixel = 0U; pixel < mentor_pi::mcu::kRgbPixelCount;
-           ++pixel) {
-        if (snapshot.field_generation[pixel] == 0U ||
-            snapshot.field_generation[pixel] ==
-                consumed_rgb_field_generation_[pixel]) {
-          continue;
-        }
-        pending_rgb_state_.red[pixel] = snapshot.state.red[pixel];
-        pending_rgb_state_.green[pixel] = snapshot.state.green[pixel];
-        pending_rgb_state_.blue[pixel] = snapshot.state.blue[pixel];
-        consumed_rgb_field_generation_[pixel] =
-            snapshot.field_generation[pixel];
+      constexpr std::size_t kHostPixel = mentor_pi::mcu::kHostRgbPixelIndex;
+      if (snapshot.field_generation[kHostPixel] != 0U &&
+          snapshot.field_generation[kHostPixel] !=
+              consumed_rgb_field_generation_[kHostPixel]) {
+        pending_rgb_state_.red[kHostPixel] = snapshot.state.red[kHostPixel];
+        pending_rgb_state_.green[kHostPixel] = snapshot.state.green[kHostPixel];
+        pending_rgb_state_.blue[kHostPixel] = snapshot.state.blue[kHostPixel];
+        consumed_rgb_field_generation_[kHostPixel] =
+            snapshot.field_generation[kHostPixel];
         changed = true;
       }
       if (changed) {
@@ -397,27 +397,43 @@ void ControllerRuntime::ProcessRgb(std::uint32_t now_us) {
       }
     }
   }
+  if (status_rgb_controller_.TransportSampleDue(now_ms)) {
+    status_rgb_controller_.ObserveTransport(
+        now_ms, hooks_.read_transport_activity(hooks_.context));
+  }
+  const StatusRgbColor status_color = status_rgb_controller_.Update(now_ms);
+
   Result started{ResultCode::kBusy, 0U};
   {
     CriticalGuard guard(this);
+    const bool pending_is_current =
+        pending_rgb_session_generation_ == 0U ||
+        (desired_session_active_.load(std::memory_order_relaxed) &&
+         pending_rgb_session_generation_ ==
+             session_generation_.load(std::memory_order_relaxed));
+    if (!pending_is_current) {
+      pending_rgb_state_ = active_rgb_state_;
+      pending_rgb_session_generation_ = 0U;
+      rgb_pending_ = false;
+    }
+
+    constexpr std::size_t kStatusPixel = mentor_pi::mcu::kStatusRgbPixelIndex;
+    if (pending_rgb_state_.red[kStatusPixel] != status_color.red ||
+        pending_rgb_state_.green[kStatusPixel] != status_color.green ||
+        pending_rgb_state_.blue[kStatusPixel] != status_color.blue) {
+      pending_rgb_state_.red[kStatusPixel] = status_color.red;
+      pending_rgb_state_.green[kStatusPixel] = status_color.green;
+      pending_rgb_state_.blue[kStatusPixel] = status_color.blue;
+      rgb_pending_ = true;
+    }
+
     if (!rgb_driver_.busy() && rgb_pending_) {
-      const bool pending_is_current =
-          pending_rgb_session_generation_ == 0U ||
-          (desired_session_active_.load(std::memory_order_relaxed) &&
-           pending_rgb_session_generation_ ==
-               session_generation_.load(std::memory_order_relaxed));
-      if (!pending_is_current) {
+      started = rgb_driver_.Begin(pending_rgb_state_, now_us + kRgbDeadlineUs);
+      if (started.ok()) {
+        inflight_rgb_state_ = pending_rgb_state_;
         rgb_pending_ = false;
+        active_rgb_session_generation_ = pending_rgb_session_generation_;
         pending_rgb_session_generation_ = 0U;
-      } else {
-        started =
-            rgb_driver_.Begin(pending_rgb_state_, now_us + kRgbDeadlineUs);
-        if (started.ok()) {
-          inflight_rgb_state_ = pending_rgb_state_;
-          rgb_pending_ = false;
-          active_rgb_session_generation_ = pending_rgb_session_generation_;
-          pending_rgb_session_generation_ = 0U;
-        }
       }
     }
   }

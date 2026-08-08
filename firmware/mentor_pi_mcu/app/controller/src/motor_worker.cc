@@ -23,8 +23,8 @@ constexpr std::uint32_t kMaximumMotorReleaseIntervalUs = 2000U;
 constexpr std::uint32_t kMotorCommandAgeThresholdUs = 20000U;
 
 float MotorAdmissionLimit(const mentor_pi::mcu::MotorController& controller) {
-  return controller.closed_loop_enabled() ? controller.maximum_accepted_rps()
-                                          : controller.profile().max_rps;
+  return controller.nonzero_motion_enabled() ? controller.maximum_accepted_rps()
+                                             : controller.profile().max_rps;
 }
 
 }  // namespace
@@ -72,6 +72,7 @@ void ControllerRuntime::RunMotorControlOnce() {
 
   ConsumeMotorCommand(now_us);
   ProcessMotorModelService();
+  ProcessMotorPidService();
 
   const std::uint8_t previous_watchdog_mask =
       motor_controller_.watchdog_stop_mask();
@@ -98,7 +99,19 @@ void ControllerRuntime::RunMotorControlOnce() {
       }
       RecordLastError(result, ErrorSource::kMotors);
     } else {
-      const auto output = motor_controller_.ControlStep(counters);
+      const std::uint32_t control_period_us =
+          motor_control_sample_initialized_
+              ? now_us - last_motor_control_sample_us_
+              : mentor_pi::mcu::kMotorControlPeriodUs;
+      last_motor_control_sample_us_ = now_us;
+      motor_control_sample_initialized_ = true;
+      const auto output =
+          motor_controller_.ControlStep(counters, control_period_us);
+      const std::uint8_t post_control_watchdog_mask =
+          motor_controller_.watchdog_stop_mask();
+      motor_watchdog_mask_.store(post_control_watchdog_mask,
+                                 std::memory_order_release);
+      IncrementMotorWatchdogTrips(watchdog_mask, post_control_watchdog_mask);
       Result result{};
       bool duty_attempted = false;
       {
@@ -251,6 +264,35 @@ void ControllerRuntime::ProcessMotorModelService() {
     }
   }
   Complete(&motor_model_slot_, token, reply);
+}
+
+void ControllerRuntime::ProcessMotorPidService() {
+  mentor_pi_mcu::app::microros::ServiceToken token{};
+  mentor_pi::mcu::SetMotorPidCommand request{};
+  if (!Take(&motor_pid_slot_, &token, &request)) {
+    return;
+  }
+
+  mentor_pi_mcu::app::microros::MotorPidReply reply{};
+  {
+    // PID validation and mutation are fixed-size and execute under the same
+    // owner-side critical section as timeout cancellation, model changes, and
+    // motor commands. Completion is committed before releasing the section so
+    // timeout cancellation and gain application have one deterministic winner.
+    CriticalGuard guard(this);
+    if (motor_pid_slot_.state.load(std::memory_order_acquire) ==
+            SlotState::kCanceled ||
+        !TokenIsCurrent(token)) {
+      motor_pid_slot_.state.store(SlotState::kCanceled,
+                                  std::memory_order_release);
+    } else {
+      const mentor_pi::mcu::MotorPidUpdate update =
+          motor_controller_.SetPid(request);
+      reply.result = update.result;
+      reply.applied_mask = update.applied_mask;
+    }
+    Complete(&motor_pid_slot_, token, reply);
+  }
 }
 
 void ControllerRuntime::PublishMotorSnapshot(std::uint32_t now_ms) {

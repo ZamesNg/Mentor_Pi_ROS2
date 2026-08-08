@@ -89,11 +89,9 @@ USART1 RX is assigned to DMA2 Stream 2, Channel 4 and USART1 TX to DMA2 Stream
 7, Channel 4. The legacy Cube file selects normal mode for both. V2 deliberately
 changes **RX only** to continuous circular DMA as specified in
 [architecture.md](architecture.md); TX remains a bounded normal DMA transfer.
-DMA2 Stream 2 uses NVIC priority 4 as a non-FreeRTOS half/full boundary top
-half. TIM7 uses priority 5, while USART1 and TX DMA use priority 6 and may call
-the approved FreeRTOS `FromISR` APIs. With the configured library maximum
-syscall priority of 5, only the RX boundary top half is above BASEPRI; its
-deferred work runs through USART1.
+TIM7 uses priority 5. USART1 and both of its DMA streams use priority 6, at or
+below the configured FreeRTOS syscall ceiling, and may use standard HAL handlers
+and the approved FreeRTOS `FromISR` APIs.
 
 ## Confirmed active hardware
 
@@ -113,12 +111,16 @@ the two drive-PWM outputs first and its quadrature encoder second.
 | Bus servos | PC12, UART5 TX in single-wire half-duplex mode, 115,200 baud 8N1. |
 | LEDs 1–3 | PD9, PD10, PD11. LEDs 1 and 2 are active-low; LED 3 is active-high. |
 | Buzzer | PA6 GPIO waveform output; TIM12 is the pattern/frequency scheduler. PA8 `BUZZER_OLD` is not an active v2 output. |
-| RGB pixels 1–2 | SPI1 MOSI/PA7 with DMA2 Stream 3, Channel 3; SPI1 SCK is PA5. |
+| RGB pixels 1–2 | SPI1 MOSI/PA7 with DMA2 Stream 3, Channel 3; SPI1 SCK is PA5. RGB1 is host-controlled and RGB2 is firmware status. |
 | Buttons 1–2 | PE1 (`KEY1`) and PE0 (`KEY2`), both active-low. |
 | QMI8658 IMU | Software-I2C SCL/PB10 and SDA/PB11; rising-edge interrupt PB12. |
 | Battery monitor | PB0/ADC1 channel 8 plus ADC1 VREFINT; ADC DMA2 Stream 0, Channel 0. |
 | OLED | I2C1 SCL/PB6 and SDA/PB7. |
 | Host transport | USART1 TX/PA9 and RX/PA10; RX DMA2 Stream 2 and TX DMA2 Stream 7, both Channel 4. |
+
+The measured chassis placement, encoder wiring signs, IMU transform, and RGB2
+semantics are compiled according to the
+[verified board profile](verified-hardware-profile.md).
 
 The data USB-C connector is also the supported programming path when no debug
 probe is available. RRCLite V1.0 connects CH9102F TX/RX to the STM32F407 ROM
@@ -129,8 +131,18 @@ UART download at 115200 baud, 8E1, without flow control. After programming, a
 normal RST samples BOOT0 low and runs application flash. This programming mode
 does not change the 1,000,000-baud 8N1 runtime transport contract and is not a
 native USB/DFU implementation. The schematic also contains a CH9102F
-handshake-driven download circuit, but first-board tooling uses the physical
-BOOT/RST sequence so it does not depend on host-specific DTR/RTS behavior.
+handshake-driven download circuit. Project flashing uses separate modem ioctls:
+RTS asserted with DTR deasserted asserts reset with BOOT0 high; asserting DTR
+while RTS remains asserted releases reset into system memory. After verified
+programming, the normal-boot sequence again asserts reset, then deasserts RTS
+while DTR remains deasserted so BOOT0 is low when reset releases. The physical
+BOOT/RST sequence remains a fallback only when automatic activation fails
+before programming. Automatic ROM entry is source- and mock-verified but
+remains a physical verification item until `make flash-locked` succeeds
+without button input on the board. Runtime uses a tracked patch to the pinned
+Micro-XRCE-DDS-Agent for the same normal-boot reset on its own descriptor.
+DTR/RTS are not runtime data flow, and no second process may hold the serial
+device open as a modem-line guard.
 
 The M1–M4 order above is the public array order. Positive RPS means the drive
 polarity produced by the first-party motor driver for a positive target; the
@@ -140,14 +152,16 @@ forward direction, so chassis code on the host owns any wheel-specific sign
 inversion.
 
 Before that HIL result exists, the implementation uses per-channel wiring signs
-of `+1` and a provisional per-model encoder factor. JGA27 alone currently uses
-factor `-1`, inferred from the legacy JGA27 profile's negative gains; this is
-legacy evidence, not a schematic fact or bench measurement. The normal firmware
-therefore keeps nonzero motor output locked. Commissioning shall first rotate
-each raised wheel manually with bridge outputs disabled and record both raw
-counter direction and normalized `motors/state` direction. Powered tests may
-begin only afterward under the acknowledged 0.25 RPS/300 permille
-commissioning limits, raised-wheel guarding, and a current-limited supply.
+and a provisional per-model encoder factor. JGA27 alone currently uses factor
+`-1`, inferred from the legacy JGA27 profile's negative gains; this is legacy
+evidence, not a schematic fact or bench measurement. A guarded 2,000 ms M1 run
+has now confirmed its current command/encoder sign; M2--M4 remain provisional.
+The normal firmware therefore keeps nonzero motor output locked. Commissioning
+shall first rotate each raised wheel manually with bridge outputs disabled and
+record both raw counter direction and normalized `motors/state` direction.
+Powered tests may begin only afterward under the acknowledged direction-check
+limits: fixed 250-permille output, a 0.25 RPS command-admission bound, a 0.50
+RPS measured-speed cutoff, raised-wheel guarding, and a current-limited supply.
 
 ### IMU frame
 
@@ -160,24 +174,26 @@ description shall provide the static transform from `imu_link` to its chassis
 frame.
 
 The supplied schematic and hardware guide identify the QMI8658 location and
-pins but do not state the package-axis-to-PCB signed permutation. The legacy
-driver uses the sensor's raw X/Y/Z order without proving physical orientation.
-Before the IMU endpoint is enabled at Gate D3, six-face gravity measurements
-and positive rotations about all three board axes shall determine that signed
-permutation. The measured compile-time transform, board serial/revision, and
-fixture result shall be recorded in this section; guessing from the drawing is
-not permitted. This is a bring-up measurement, not an open ROS frame decision.
+pins but do not state the package-axis-to-PCB signed permutation. Six-face
+gravity measurements on 2026-08-07 established the compile-time transform as
+board X = sensor Y, board Y = -sensor X, and board Z = sensor Z. With the
+provisional identity transform, the measured dominant axes were +Y, -Y, -X,
++X, +Z, and -Z for the requested PCB +X, -X, +Y, -Y, +Z, and -Z faces,
+respectively. The complete readings are preserved in
+`build/diagnostics/characterization-20260807T114316Z/imu-six-face.tsv`.
+Positive rotations about all three board axes remain a release-qualification
+check. This is a measured PCB-frame correction, not an open ROS frame decision.
 
 | Function | Quantity and confirmed mapping | V2 disposition |
 | --- | --- | --- |
 | Encoder motors | Four motor-driver stages in the schematic. TIM1 CH1-4, TIM9 CH1-2, TIM10 CH1, and TIM11 CH1 generate drive PWM; TIM2, TIM3, TIM4, and TIM5 are encoder interfaces in the Cube file. | Retain all four. Normal images expose encoder state and zero/stop control while nonzero closed-loop output remains locked; guarded commissioning precedes HIL qualification and any production-motion release. |
 | PWM servos | Four connectors. Firmware/Cube GPIOs are PA11, PA12, PC8, and PC9; TIM13 supplies the legacy frame timing. | Retain four channels. Generate pulses from a short timer ISR using task-prepared shadow values. |
 | Bus servos | Half-duplex bus-servo circuit is driven by the `UART6_TX`/`SERVO_SIGNAL` schematic net. Current firmware maps the signal to UART5 on PC12 and initializes UART5 at 115,200 8N1, no flow control. | Retain on UART5 with one owning worker. Support at most 16 servo IDs in one ROS motion request. |
-| Indicator LEDs | Three GPIO LEDs are present in the schematic and `LED_NUM` is three. | Retain all three. |
+| Indicator LEDs | Three GPIO LEDs are present in the schematic and `LED_NUM` is three. | Retain all three; expose LED1/LED2 to ROS and reserve LED3 for firmware heartbeat status. |
 | Buzzer | One transistor-driven buzzer is present; legacy timing uses TIM12. | Retain one, with bounded frequency and pattern state. |
-| RGB LEDs | Two cascaded RGB devices are present and `Pixel_S1_NUM` is two; legacy output uses SPI1 TX DMA. | Retain exactly two pixels. |
+| RGB LEDs | Two cascaded RGB devices are present and `Pixel_S1_NUM` is two; legacy output uses SPI1 TX DMA. | Retain exactly two pixels: RGB1 for ROS commands and RGB2 for firmware status. |
 | Buttons | Two button inputs are present and the firmware creates two button objects. | Retain both with debounced events. |
-| IMU | The schematic identifies QMI8658 and its interrupt. The active driver uses the board software-I2C port and enables both sensors at 250 Hz with the accelerometer at ±4 g, gyroscope at ±128 degrees/s, and their internal low-pass filters disabled. | Retain that measurement configuration and publish the newest bounded sample at 50 Hz after the measured frame transform. |
+| IMU | The schematic identifies QMI8658 and its interrupt. The active driver uses the board software-I2C port and enables both sensors at 250 Hz with the accelerometer at ±4 g, gyroscope at ±128 degrees/s, and their internal low-pass filters disabled. Six-face hardware characterization measured board X = sensor Y, board Y = -sensor X, and board Z = sensor Z. | Retain that measurement configuration and publish the newest bounded sample at 50 Hz using the measured signed permutation. Positive-axis rotation and extended timing HIL remain release gates. |
 | Battery monitor | ADC1 samples VREFINT then PB0/channel 8 every 50 ms; the schematic contains the battery divider and regulator feedback path. The legacy estimate uses a 0.05 IIR update weight. | Retain calibrated voltage reporting, that filter response, and a configurable low threshold. |
 | OLED | Active firmware enables OLED and configures an SSD1306-compatible 128 x 32 display over hardware I2C1. Cube maps I2C1 to PB6/PB7. | Retain two bounded host-controlled text lines; the controller-owned battery indication remains local. |
 | Independent watchdog | IWDG is enabled in the Cube file and generated firmware. | Retain, but replace scattered refreshes with the supervised policy in [reliability-and-safety.md](reliability-and-safety.md). |

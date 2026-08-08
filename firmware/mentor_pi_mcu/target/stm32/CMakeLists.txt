@@ -65,6 +65,8 @@ option(RRCLITE_MOTOR_COMMISSIONING
   "Enable the raised-wheel, current-limited motor commissioning gate" OFF)
 set(RRCLITE_MOTOR_COMMISSIONING_ACK "" CACHE STRING
   "Required acknowledgement when motor commissioning is enabled")
+option(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP
+  "Use closed-loop PID commissioning controls instead of direction-check" OFF)
 if(RRCLITE_MOTOR_COMMISSIONING)
   if(NOT RRCLITE_MOTOR_COMMISSIONING_ACK STREQUAL "MOTORS_RAISED")
     message(FATAL_ERROR
@@ -76,7 +78,16 @@ if(RRCLITE_MOTOR_COMMISSIONING)
 else()
   set(RRCLITE_MOTOR_COMMISSIONING_DEFINE 0)
 endif()
-
+if(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP)
+  if(NOT RRCLITE_MOTOR_COMMISSIONING)
+    message(FATAL_ERROR
+      "Closed-loop commissioning requires "
+      "-DRRCLITE_MOTOR_COMMISSIONING=ON.")
+  endif()
+  set(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP_DEFINE 1)
+else()
+  set(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP_DEFINE 0)
+endif()
 set(RRCLITE_CUBE_COMMIT
   "52757b5e33259a088509a777a9e3a5b971194c7d")
 set(RRCLITE_MICROROS_UTILS_COMMIT
@@ -146,6 +157,9 @@ rrclite_require_file(
   "Regenerate libmicroros with the project-owned interface package.")
 rrclite_require_file(
   "${RRCLITE_MICROROS_ROOT}/include/mentor_pi_interfaces/srv/set_motor_model.h"
+  "Regenerate libmicroros with the project-owned interface package.")
+rrclite_require_file(
+  "${RRCLITE_MICROROS_ROOT}/include/mentor_pi_interfaces/srv/set_motor_pid.h"
   "Regenerate libmicroros with the project-owned interface package.")
 rrclite_require_file(
   "${RRCLITE_LINKER_SCRIPT}"
@@ -225,6 +239,7 @@ set(RRCLITE_PLATFORM_SOURCES
 )
 set(RRCLITE_MICROROS_SOURCES
   "${RRCLITE_MCU_ROOT}/app/microros/src/arena_allocator.cc"
+  "${RRCLITE_MCU_ROOT}/app/microros/src/reclaiming_arena.cc"
   "${RRCLITE_MCU_ROOT}/app/microros/src/runtime.cc"
   "${RRCLITE_MCU_ROOT}/app/microros/src/runtime_core.cc"
   "${RRCLITE_MCU_ROOT}/app/microros/src/runtime_hooks.cc"
@@ -371,7 +386,7 @@ set_target_properties(rrclite_microros PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES "${RRCLITE_MICROROS_ROOT}/include"
 )
 
-add_executable(mentor_pi_mcu
+set(RRCLITE_EXECUTABLE_SOURCES
   "${RRCLITE_MAIN_SOURCE}"
   ${RRCLITE_DOMAIN_SOURCES}
   ${RRCLITE_DRIVER_SOURCES}
@@ -381,6 +396,7 @@ add_executable(mentor_pi_mcu
   "${RRCLITE_MICROROS_PORT_SOURCE}"
   "${RRCLITE_STARTUP_SOURCE}"
 )
+add_executable(mentor_pi_mcu ${RRCLITE_EXECUTABLE_SOURCES})
 set_target_properties(mentor_pi_mcu PROPERTIES
   OUTPUT_NAME mentor_pi_mcu
   SUFFIX .elf
@@ -400,10 +416,11 @@ target_compile_definitions(mentor_pi_mcu PRIVATE
   USE_HAL_DRIVER
   MENTOR_PI_RRCLITE_V1
   MENTOR_PI_MOTOR_COMMISSIONING=${RRCLITE_MOTOR_COMMISSIONING_DEFINE}
+  MENTOR_PI_MOTOR_COMMISSIONING_CLOSED_LOOP=${RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP_DEFINE}
   CLOCK_MONOTONIC=0
 )
 target_include_directories(mentor_pi_mcu PRIVATE
-  "${RRCLITE_REPOSITORY_ROOT}/src/mentor_pi_interfaces/include"
+  "${RRCLITE_REPOSITORY_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces/include"
   "${RRCLITE_MCU_ROOT}/include"
   "${RRCLITE_MCU_ROOT}/drivers/include"
   "${RRCLITE_MCU_ROOT}/app/controller/include"
@@ -478,8 +495,13 @@ add_custom_command(TARGET mentor_pi_mcu POST_BUILD
 
 message(STATUS "RRCLite target: STM32F407VET6")
 if(RRCLITE_MOTOR_COMMISSIONING)
-  message(WARNING
-    "RRCLite motor mode: COMMISSIONING (0.25 RPS, 300 permille maximum)")
+  if(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP)
+    message(WARNING
+      "RRCLite motor mode: COMMISSIONING CLOSED_LOOP (bounded control)")
+  else()
+    message(WARNING
+      "RRCLite motor mode: COMMISSIONING DIRECTION_CHECK (250 permille fixed, 0.50 RPS cutoff)")
+  endif()
 else()
   message(STATUS "RRCLite motor mode: LOCKED (zero/stop commands only)")
 endif()

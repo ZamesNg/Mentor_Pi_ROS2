@@ -33,6 +33,7 @@ bool PlatformHooksAreComplete(const PlatformHooks& hooks) {
          hooks.rgb_spi_begin_transmit != nullptr &&
          hooks.rgb_spi_poll_transmit != nullptr &&
          hooks.rgb_spi_cancel != nullptr &&
+         hooks.read_transport_activity != nullptr &&
          hooks.task_stack_high_water_bytes != nullptr &&
          hooks.read_memory_metrics != nullptr &&
          hooks.flash_used_bytes != nullptr &&

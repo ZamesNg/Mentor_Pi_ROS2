@@ -29,6 +29,26 @@ extern "C" {
 
 extern "C" void Error_Handler();
 
+// Newlib's rand() lazily allocates per-thread state with malloc(). General
+// libc allocation is intentionally disabled in this firmware, so provide the
+// allocation-free PRNG needed to seed the micro-ROS XRCE client key.
+namespace {
+std::uint32_t g_embedded_random_state{1U};
+}  // namespace
+
+extern "C" void srand(unsigned int seed) {
+  g_embedded_random_state = seed == 0U ? 1U : seed;
+}
+
+extern "C" int rand() {
+  std::uint32_t value = g_embedded_random_state;
+  value ^= value << 13U;
+  value ^= value >> 17U;
+  value ^= value << 5U;
+  g_embedded_random_state = value;
+  return static_cast<int>(value & 0x7FFFFFFFU);
+}
+
 extern "C" {
 extern std::uint8_t __ram_used_end__;
 extern std::uint8_t __ccm_end__;
@@ -240,8 +260,7 @@ Result InitializeMotorOutputs(void* context) {
 Result ArmMotor(void* context, std::size_t motor_index) {
   static_cast<void>(context);
   // MotorControlTask calls this while holding the controller critical section.
-  // DMA2 Stream 2 remains able to latch an error inside that section, so the
-  // authority write is enclosed by checks on both sides.
+  // The authority write is enclosed by transport-latch checks on both sides.
   if (platform::TransportHasFatalError()) {
     platform::EmergencyStopMotors();
     return {ResultCode::kBusy, static_cast<std::uint16_t>(motor_index + 1U)};
@@ -290,9 +309,9 @@ Result ApplyMotorDuty(
       return FromPlatformStatus(status, static_cast<std::uint16_t>(motor + 1U));
     }
   }
-  // The priority-4 RX-DMA top half can run while the controller's BASEPRI
-  // critical section masks the deferred priority-6 stop. Close that window
-  // after the complete four-channel update and before returning authority.
+  // Keep the defensive post-check after the complete four-channel update. A
+  // priority-6 HAL RX/TX error callback latches before motor authority can be
+  // returned.
   if (platform::TransportHasFatalError()) {
     platform::EmergencyStopMotors();
     return {ResultCode::kBusy, 0U};
@@ -567,6 +586,12 @@ std::uint8_t CapturedWatchdogTask(void* context) {
   return platform::CapturedWatchdogTask();
 }
 
+controller::TransportActivity ReadTransportActivity(void* context) {
+  static_cast<void>(context);
+  const platform::TransportSnapshot snapshot = platform::GetTransportSnapshot();
+  return {snapshot.rx_wire_bytes, snapshot.tx_wire_bytes, snapshot.open};
+}
+
 controller::PlatformHooks BuildPlatformHooks() {
   controller::PlatformHooks hooks{};
   hooks.context = &g_target_context;
@@ -599,6 +624,7 @@ controller::PlatformHooks BuildPlatformHooks() {
   hooks.rgb_spi_begin_transmit = &BeginRgbTransmit;
   hooks.rgb_spi_poll_transmit = &PollRgbTransmit;
   hooks.rgb_spi_cancel = &CancelRgbTransmit;
+  hooks.read_transport_activity = &ReadTransportActivity;
   hooks.task_stack_high_water_bytes = &TaskStackHighWaterBytes;
   hooks.read_memory_metrics = &ReadMemoryMetrics;
   hooks.flash_used_bytes = &FlashUsedBytes;
@@ -634,12 +660,21 @@ mentor_pi::mcu::MotorControlConfiguration BuildMotorConfiguration() {
   // This image is only for raised-wheel, current-limited commissioning. The
   // build system requires the explicit MOTORS_RAISED acknowledgement. These
   // deliberately low limits do not qualify encoder polarity or PID gains.
-  constexpr auto configuration =
-      mentor_pi::mcu::CommissioningMotorControlConfiguration();
+  auto configuration = mentor_pi::mcu::CommissioningMotorControlConfiguration();
+#if MENTOR_PI_MOTOR_COMMISSIONING_CLOSED_LOOP
+  configuration.mode = mentor_pi::mcu::MotorControlMode::kClosedLoop;
+  configuration.maximum_accepted_rps =
+      mentor_pi::mcu::kMotorCommissioningClosedLoopMaximumRps;
 #else
-  constexpr auto configuration =
-      mentor_pi::mcu::LockedMotorControlConfiguration();
+  configuration.mode = mentor_pi::mcu::MotorControlMode::kDirectionCheck;
 #endif
+#else
+  auto configuration = mentor_pi::mcu::LockedMotorControlConfiguration();
+#endif
+  // Passive one-wheel-at-a-time captures establish connector order as
+  // M1/front-left, M2/rear-left, M3/front-right, M4/rear-right.
+  // This board requires a positive wiring sign for all four channels.
+  configuration.channel_wiring_sign = {1, 1, 1, 1};
   return configuration;
 }
 
@@ -732,12 +767,11 @@ int main() {
   controller::ControllerRuntime& runtime =
       controller::ControllerInstance(motor_configuration);
   mentor_pi::mcu::drivers::AxisTransform imu_transform{};
-  // The package-to-PCB signed permutation is intentionally not guessed. The
-  // sensor remains present but telemetry stays invalid until the D3
-  // six-face/positive-rotation HIL result sets verified=true in a reviewed
-  // release candidate.
-  imu_transform.output = {{{0U, 1}, {1U, 1}, {2U, 1}}};
-  imu_transform.verified = false;
+  // Six-face gravity measurements on the RRCLite board show that PCB +X is
+  // sensor +Y, PCB +Y is sensor -X, and PCB +Z is sensor +Z. Keep the same
+  // signed permutation for acceleration and angular velocity.
+  imu_transform.output = {{{1U, 1}, {0U, -1}, {2U, 1}}};
+  imu_transform.verified = true;
   if (!runtime.Configure(BuildPlatformHooks(), imu_transform) ||
       !runtime.InitializeSafeBoot()) {
     FailStop();

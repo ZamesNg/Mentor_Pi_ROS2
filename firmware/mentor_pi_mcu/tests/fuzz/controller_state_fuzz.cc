@@ -249,7 +249,7 @@ void CheckPatternState(const std::uint8_t* data, std::size_t size) {
                        input.ReadU16()};
   LedController led_subject;
   LedController led_control;
-  for (std::uint8_t id = 1U; id <= kLedCount; ++id) {
+  for (std::uint8_t id = 1U; id <= kHostLedCount; ++id) {
     const LedCommand baseline{id, 1U, 0U, 0U};
     Require(led_subject.AcceptCommand(baseline, 0U).ok());
     Require(led_control.AcceptCommand(baseline, 0U).ok());

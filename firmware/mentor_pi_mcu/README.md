@@ -18,6 +18,14 @@ currently uses direction factor `-1`, based on the negative gains in the legacy
 firmware; the other retained profiles currently use `+1`. These values remain
 hypotheses until physical evidence confirms them.
 
+Closed-loop control uses a positional PID at 100 Hz. Its error is target RPS
+minus filtered measured RPS; P acts on the current error, I on its accumulated
+time integral, and D on its first time difference. Output is bounded to 1000
+permille with conditional-integration anti-windup and the documented minimum
+effective duty. Every model defaults to `Kp=250.0`, `Ki=0.1`, `Kd=0.5`, and a
+velocity-filter new-sample weight of `0.5`. These are provisional starting
+values under the stated units and require guarded physical retuning.
+
 ## Motor safety modes
 
 The default firmware build is motor-locked. It accepts selected zero-speed
@@ -33,30 +41,52 @@ make firmware
 ```
 
 With no commissioning acknowledgement it must report
-`mode=LOCKED`, `closed_loop_enabled=0`, and zero speed/output authority.
+`mode=LOCKED`, `control_mode=LOCKED`, and zero speed/output authority.
 
 After manually rotating each wheel with motor power disconnected and confirming
 the raw and normalized encoder signs, a guarded non-release image may be built
-from the repository root with:
+from the repository root in either mode:
 
-```sh
-make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
-```
+- Direction-check stage (existing fixed-sign commissioning):
 
-The commissioning build must report
-`mode=COMMISSIONING`, `maximum_accepted_rps=0.25`,
-`output_limit_permille=300`, and `release_qualified=0`. Omitting or changing
+  ```sh
+  make firmware-commissioning
+  ```
+
+  This image reports `control_mode=DIRECTION_CHECK`. It applies a fixed low duty
+  from the requested sign, bypasses PID control, and stops the selected channel
+  if measured speed reaches 0.50 RPS.
+
+- PID test stage (closed-loop commissioning):
+
+  ```sh
+  make firmware-commissioning-pid
+  ```
+
+  This image reports `control_mode=CLOSED_LOOP` and runs bounded closed-loop
+  speed control over the same guarded fixture and power limits.
+
+The direction-check commissioning build must report
+`mode=COMMISSIONING`, `control_mode=DIRECTION_CHECK`, `maximum_accepted_rps=0.25`,
+`output_limit_permille=1000`, and `release_qualified=0`. The closed-loop
+commissioning test build reports
+`mode=COMMISSIONING_PID`, `control_mode=CLOSED_LOOP`, `maximum_accepted_rps=6.0`,
+`output_limit_permille=1000`, and `release_qualified=0`. Omitting or changing
 the acknowledgement fails even for this non-building probe.
 
 Both the wrapper and CMake fail closed if the exact acknowledgement is absent.
-The commissioning image limits accepted commands to 0.25 RPS and applied output
-to 300 permille. Use it only with every wheel raised or equivalently contained,
+The direction-check image limits accepted commands to 0.25 RPS, applies fixed
+250-permille output from the command sign, and the PID test image allows up to
+6.0 RPS with bounded closed-loop duty. Each motor model retains its lower
+profile limit where applicable. Direction-check control disarms at 0.50 RPS.
+Active channel wiring signs are fixed as `{1, 1, 1, 1}` in firmware.
+Use it only with every wheel raised or equivalently contained,
 a current-limited supply, an accessible motor-power stop, and one motor under
 test at a time. It is not a release image. D3 HIL must qualify or replace every
 PID, filter, deadband, motor/channel polarity, and full-range behavior before a
 production image may accept nonzero motion. See
-[`docs/flashing-and-first-bringup.md`](../../docs/flashing-and-first-bringup.md)
-for the ordered procedure.
+[Tutorial 06](../../docs/tutorials/06-commission-one-motor-safely.md) for the
+ordered guarded procedure.
 
 Every successful supported build also writes
 `build/stm32/rrclite-build-metadata.txt`. The direct CubeProgrammer flash

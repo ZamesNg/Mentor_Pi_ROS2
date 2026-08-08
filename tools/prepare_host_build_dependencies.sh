@@ -40,8 +40,7 @@ set +u
 source "${ROS_SETUP}"
 set -u
 rosdep install --from-paths \
-  "${PROJECT_ROOT}/src/mentor_pi_interfaces" \
-  "${PROJECT_ROOT}/src/mentor_pi_bringup" \
+  "${PROJECT_ROOT}/mentor_pi_ros2/src" \
   --ignore-src --rosdistro humble --as-root pip:false -y
 
 "${ENVIRONMENT_CHECK}" --check-tools yes

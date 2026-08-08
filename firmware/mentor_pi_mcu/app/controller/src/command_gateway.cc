@@ -60,7 +60,7 @@ CommandAdmission ControllerRuntime::PublishMotorCommand(
     return {validation, false, 0U};
   }
   if (RequestsMotorMotion(command) &&
-      !motor_controller_.closed_loop_enabled()) {
+      !motor_controller_.nonzero_motion_enabled()) {
     motor_controller_.RecordRejectedCommand(command.update_mask);
     return {{ResultCode::kUnsupported, 0U}, false, 0U};
   }
@@ -268,6 +268,48 @@ bool ControllerRuntime::DispatchMotorModel(ServiceToken token,
 bool ControllerRuntime::PollMotorModel(
     ServiceToken token, mentor_pi_mcu::app::microros::MotorModelReply* output) {
   return Poll(&motor_model_slot_, token, output);
+}
+
+bool ControllerRuntime::DispatchMotorPid(
+    ServiceToken token, const mentor_pi::mcu::SetMotorPidCommand& command) {
+  return Dispatch(&motor_pid_slot_, token, command);
+}
+
+bool ControllerRuntime::PollMotorPid(
+    ServiceToken token, mentor_pi_mcu::app::microros::MotorPidReply* output) {
+  return Poll(&motor_pid_slot_, token, output);
+}
+
+bool ControllerRuntime::CancelMotorPid(ServiceToken token) {
+  CriticalGuard guard(this);
+  if (motor_pid_slot_.token.session_generation != token.session_generation ||
+      motor_pid_slot_.token.request_generation != token.request_generation) {
+    return true;
+  }
+  SlotState state = motor_pid_slot_.state.load(std::memory_order_acquire);
+  while (true) {
+    switch (state) {
+      case SlotState::kIdle:
+      case SlotState::kCanceled:
+        return true;
+      case SlotState::kComplete:
+        return false;
+      case SlotState::kWriting:
+        return false;
+      case SlotState::kReady:
+      case SlotState::kProcessing: {
+        const SlotState replacement = state == SlotState::kReady
+                                          ? SlotState::kIdle
+                                          : SlotState::kCanceled;
+        if (motor_pid_slot_.state.compare_exchange_weak(
+                state, replacement, std::memory_order_acq_rel,
+                std::memory_order_acquire)) {
+          return true;
+        }
+        break;
+      }
+    }
+  }
 }
 
 bool ControllerRuntime::DispatchPwmOffsets(

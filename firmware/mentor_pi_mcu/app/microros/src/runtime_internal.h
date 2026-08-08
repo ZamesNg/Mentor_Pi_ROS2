@@ -29,6 +29,7 @@ extern "C" {
 #include "mentor_pi_interfaces/srv/get_bus_servo_state.h"
 #include "mentor_pi_interfaces/srv/set_battery_threshold.h"
 #include "mentor_pi_interfaces/srv/set_motor_model.h"
+#include "mentor_pi_interfaces/srv/set_motor_pid.h"
 #include "mentor_pi_interfaces/srv/set_pwm_servo_offsets.h"
 #include "mentor_pi_interfaces/srv/stop_bus_servos.h"
 #include "rcl/rcl.h"
@@ -70,6 +71,7 @@ enum class SubscriptionIndex : std::uint8_t {
 
 enum class ServiceIndex : std::uint8_t {
   kMotorModel = 0,
+  kMotorPid,
   kPwmOffsets,
   kBusGetState,
   kBusConfigure,
@@ -82,8 +84,8 @@ inline constexpr std::size_t kPublisherCount =
     static_cast<std::size_t>(PublisherIndex::kCount);
 inline constexpr std::size_t kServiceCount =
     static_cast<std::size_t>(ServiceIndex::kCount);
-inline constexpr std::size_t kServiceSlotCount = 4U;
-inline constexpr std::size_t kServiceRequestGroupCount = 4U;
+inline constexpr std::size_t kServiceSlotCount = 5U;
+inline constexpr std::size_t kServiceRequestGroupCount = 5U;
 inline constexpr std::size_t kBusServiceEndpointCount = 3U;
 inline constexpr std::size_t kBestEffortPublisherCount = 3U;
 inline constexpr std::size_t kReliablePublisherCount = 4U;
@@ -119,6 +121,8 @@ struct PublicationMessages {
 struct ServiceMessages {
   mentor_pi_interfaces__srv__SetMotorModel_Request motor_model_request{};
   mentor_pi_interfaces__srv__SetMotorModel_Response motor_model_response{};
+  mentor_pi_interfaces__srv__SetMotorPid_Request motor_pid_request{};
+  mentor_pi_interfaces__srv__SetMotorPid_Response motor_pid_response{};
   mentor_pi_interfaces__srv__SetPwmServoOffsets_Request pwm_offsets_request{};
   mentor_pi_interfaces__srv__SetPwmServoOffsets_Response pwm_offsets_response{};
   mentor_pi_interfaces__srv__GetBusServoState_Request bus_get_request{};
@@ -240,8 +244,10 @@ class MicroRosRuntime {
   bool TakeBusStopRequest(std::uint32_t now_ms);
   bool TakeBusGetRequest(std::uint32_t now_ms);
   bool TakeBusConfigureRequest(std::uint32_t now_ms);
+  bool TakeMotorPidRequest(std::uint32_t now_ms);
   bool PollOneServiceCompletion(std::uint32_t now_ms);
   bool PollMotorModelCompletion(std::uint32_t now_ms);
+  bool PollMotorPidCompletion(std::uint32_t now_ms);
   bool PollPwmOffsetsCompletion(std::uint32_t now_ms);
   bool PollBatteryThresholdCompletion(std::uint32_t now_ms);
   bool PollBusCompletion(std::uint32_t now_ms);
@@ -318,6 +324,7 @@ class MicroRosRuntime {
   PublicationMessages publication_messages_{};
   ServiceMessages service_messages_{};
   PendingServiceSlot motor_model_slot_{};
+  PendingServiceSlot motor_pid_slot_{};
   PendingServiceSlot pwm_offsets_slot_{};
   PendingServiceSlot battery_threshold_slot_{};
   PendingBusServiceSlot bus_service_slot_{};
@@ -338,6 +345,7 @@ class MicroRosRuntime {
   bool has_motor_telemetry_{false};
   bool has_pwm_telemetry_{false};
   bool has_imu_sample_{false};
+  bool initial_invalid_imu_published_{false};
   bool has_battery_telemetry_{false};
   bool time_synchronized_{false};
   bool time_offset_initialized_{false};

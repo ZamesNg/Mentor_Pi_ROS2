@@ -17,6 +17,7 @@ readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/firmware-builder.Dockerfile"
 readonly FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
 readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
 readonly ARTIFACT_VERIFIER="${PROJECT_ROOT}/tools/verify_firmware_artifact.sh"
+readonly MEMORY_CHECKER="${PROJECT_ROOT}/tools/check_firmware_memory.sh"
 readonly DEPENDENCY_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
 readonly IMAGE="mentor-pi/rrclite-firmware-builder:gcc-13.2.1"
 readonly CUBE_REPOSITORY="https://github.com/STMicroelectronics/STM32CubeF4.git"
@@ -24,7 +25,8 @@ readonly MICROROS_REPOSITORY="https://github.com/micro-ROS/micro_ros_stm32cubemx
 readonly EXPECTED_CUBE_COMMIT="52757b5e33259a088509a777a9e3a5b971194c7d"
 readonly EXPECTED_MICROROS_COMMIT="bd531b273c1bcd070b3143c5642128ec75a6f04e"
 readonly COMMISSIONING_MAXIMUM_RPS="0.25"
-readonly COMMISSIONING_OUTPUT_LIMIT_PERMILLE="300"
+readonly COMMISSIONING_CLOSED_LOOP_MAXIMUM_RPS="6.0"
+readonly COMMISSIONING_OUTPUT_LIMIT_PERMILLE="1000"
 
 declare -a docker_build_command=(docker build)
 for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
@@ -82,6 +84,7 @@ if [[ "$#" -gt 1 || ("$#" -eq 1 && "$1" != "--print-motor-profile") ]]; then
   Fail "usage: ./tools/build_firmware.sh [--print-motor-profile]"
 fi
 
+readonly MOTOR_COMMISSIONING_CLOSED_LOOP_RAW="${RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:-0}"
 case "${RRCLITE_MOTOR_COMMISSIONING:-0}" in
   0)
     readonly MOTOR_COMMISSIONING_OPTION="OFF"
@@ -98,18 +101,41 @@ case "${RRCLITE_MOTOR_COMMISSIONING:-0}" in
     ;;
 esac
 
+case "${MOTOR_COMMISSIONING_CLOSED_LOOP_RAW}" in
+  0)
+    readonly MOTOR_COMMISSIONING_CLOSED_LOOP="OFF"
+    ;;
+  1)
+    [[ "${RRCLITE_MOTOR_COMMISSIONING:-0}" == "1" ]] || \
+      Fail "RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP requires RRCLITE_MOTOR_COMMISSIONING=1"
+    readonly MOTOR_COMMISSIONING_CLOSED_LOOP="ON"
+    ;;
+  *)
+    Fail "RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP must be 0 or 1"
+    ;;
+esac
+
 if [[ "${1:-}" == "--print-motor-profile" ]]; then
   if [[ "${MOTOR_COMMISSIONING_OPTION}" == "ON" ]]; then
+    if [[ "${MOTOR_COMMISSIONING_CLOSED_LOOP}" == "ON" ]]; then
+      readonly MOTOR_COMMISSIONING_CONTROL_MODE="CLOSED_LOOP"
+      readonly MOTOR_COMMISSIONING_MAXIMUM_RPS="${COMMISSIONING_CLOSED_LOOP_MAXIMUM_RPS}"
+    else
+      readonly MOTOR_COMMISSIONING_CONTROL_MODE="DIRECTION_CHECK"
+      readonly MOTOR_COMMISSIONING_MAXIMUM_RPS="${COMMISSIONING_MAXIMUM_RPS}"
+    fi
     printf '%s\n' \
-      'mode=COMMISSIONING' \
-      'closed_loop_enabled=1' \
-      "maximum_accepted_rps=${COMMISSIONING_MAXIMUM_RPS}" \
+      "mode=$([[ "${MOTOR_COMMISSIONING_CLOSED_LOOP}" == "ON" ]] && echo COMMISSIONING_PID || echo COMMISSIONING)" \
+      "control_mode=${MOTOR_COMMISSIONING_CONTROL_MODE}" \
+      'nonzero_motion_enabled=1' \
+      "maximum_accepted_rps=${MOTOR_COMMISSIONING_MAXIMUM_RPS}" \
       "output_limit_permille=${COMMISSIONING_OUTPUT_LIMIT_PERMILLE}" \
       'release_qualified=0'
   else
     printf '%s\n' \
       'mode=LOCKED' \
-      'closed_loop_enabled=0' \
+      'control_mode=LOCKED' \
+      'nonzero_motion_enabled=0' \
       'maximum_accepted_rps=0.0' \
       'output_limit_permille=0' \
       'release_qualified=0'
@@ -125,6 +151,7 @@ RequireFile "${FINGERPRINT_TOOL}" "Restore the firmware fingerprint tool."
 RequireFile "${MICROROS_FINGERPRINT_TOOL}" \
   "Restore the micro-ROS artifact fingerprint tool."
 RequireFile "${ARTIFACT_VERIFIER}" "Restore the artifact verifier."
+RequireFile "${MEMORY_CHECKER}" "Restore the firmware memory checker."
 RequireFile "${MICROROS_ARCHIVE_HASH}" \
   "Restore the pinned micro-ROS archive hash."
 RequireFile "${MICROROS_TREE_HASH}" \
@@ -188,6 +215,7 @@ if [[ "${RRCLITE_BUILD_LOCAL:-0}" == "1" ]]; then
     -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_FILE}" \
     -DCMAKE_BUILD_TYPE=MinSizeRel \
     -DRRCLITE_MOTOR_COMMISSIONING="${MOTOR_COMMISSIONING_OPTION}" \
+    -DRRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP="${MOTOR_COMMISSIONING_CLOSED_LOOP}" \
     -DRRCLITE_MOTOR_COMMISSIONING_ACK="${MOTOR_COMMISSIONING_ACK}"
   cmake --build "${BUILD_ROOT}" --parallel
 else
@@ -201,6 +229,7 @@ else
     --user "$(id -u):$(id -g)" \
     --env SOURCE_DATE_EPOCH=0 \
     --env RRCLITE_CMAKE_MOTOR_OPTION="${MOTOR_COMMISSIONING_OPTION}" \
+    --env RRCLITE_CMAKE_MOTOR_CLOSED_LOOP="${MOTOR_COMMISSIONING_CLOSED_LOOP}" \
     --env RRCLITE_CMAKE_MOTOR_ACK="${MOTOR_COMMISSIONING_ACK}" \
     --volume "${PROJECT_ROOT}:/workspace" \
     --workdir /workspace \
@@ -212,6 +241,7 @@ else
         -DCMAKE_TOOLCHAIN_FILE=/workspace/firmware/mentor_pi_mcu/target/stm32/arm-none-eabi-toolchain.cmake \
         -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DRRCLITE_MOTOR_COMMISSIONING="${RRCLITE_CMAKE_MOTOR_OPTION}" \
+        -DRRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP="${RRCLITE_CMAKE_MOTOR_CLOSED_LOOP}" \
         -DRRCLITE_MOTOR_COMMISSIONING_ACK="${RRCLITE_CMAKE_MOTOR_ACK}"
       cmake --build firmware/mentor_pi_mcu/build/stm32 --parallel
     '
@@ -248,11 +278,18 @@ if [[ "${SOURCE_FINGERPRINT_BEFORE}" != "${SOURCE_FINGERPRINT_AFTER}" ]]; then
   Fail "project-owned firmware inputs changed during the build"
 fi
 
-if [[ "${MOTOR_COMMISSIONING_OPTION}" == "ON" ]]; then
+if [[ "${MOTOR_COMMISSIONING_CLOSED_LOOP}" == "ON" ]]; then
+  readonly MOTOR_MODE="COMMISSIONING_PID"
+  readonly CONTROL_MODE="CLOSED_LOOP"
+elif [[ "${MOTOR_COMMISSIONING_OPTION}" == "ON" ]]; then
   readonly MOTOR_MODE="COMMISSIONING"
+  readonly CONTROL_MODE="DIRECTION_CHECK"
 else
   readonly MOTOR_MODE="LOCKED"
+  readonly CONTROL_MODE="LOCKED"
 fi
+readonly ARTIFACT_MODE="NORMAL"
+readonly VERIFICATION_MODE="${MOTOR_MODE}"
 readonly METADATA="${BUILD_ROOT}/rrclite-build-metadata.txt"
 readonly METADATA_TEMP="${METADATA}.tmp"
 printf '%s\n' \
@@ -260,6 +297,8 @@ printf '%s\n' \
   'target=STM32F407VET6' \
   'ros_distro=humble' \
   "motor_mode=${MOTOR_MODE}" \
+  "control_mode=${CONTROL_MODE}" \
+  "artifact_mode=${ARTIFACT_MODE}" \
   "commissioning_ack=${MOTOR_COMMISSIONING_ACK}" \
   'release_qualified=0' \
   "source_sha256=${SOURCE_FINGERPRINT_AFTER}" \
@@ -273,6 +312,7 @@ printf '%s\n' \
   >"${METADATA_TEMP}"
 mv "${METADATA_TEMP}" "${METADATA}"
 
-"${ARTIFACT_VERIFIER}" "${MOTOR_MODE}" "${PROJECT_ROOT}" >/dev/null
+"${ARTIFACT_VERIFIER}" "${VERIFICATION_MODE}" "${PROJECT_ROOT}" >/dev/null
+"${MEMORY_CHECKER}" "${VERIFICATION_MODE}" "${PROJECT_ROOT}"
 
 echo "Firmware artifacts: ${BUILD_ROOT}"

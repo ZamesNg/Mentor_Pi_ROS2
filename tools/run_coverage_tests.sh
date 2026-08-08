@@ -98,7 +98,7 @@ cmake -S firmware/mentor_pi_mcu/app/microros \
   "${COMMON_CMAKE_ARGUMENTS[@]}"
 cmake --build "${BUILD_ROOT}/microros"
 
-cmake -S src/mentor_pi_bringup \
+cmake -S mentor_pi_ros2/src/mentor_pi_bringup \
   -B "${BUILD_ROOT}/bringup" \
   "${COMMON_CMAKE_ARGUMENTS[@]}" \
   -DMENTOR_PI_BUILD_ROS2=OFF
@@ -142,20 +142,20 @@ readonly -a microros_sources=(
   firmware/mentor_pi_mcu/app/microros/include/mentor_pi_mcu/app/microros/runtime_core.h
 )
 readonly -a configuration_sources=(
-  src/mentor_pi_bringup/src/configuration.cc
-  src/mentor_pi_bringup/include/mentor_pi_bringup/configuration.h
+  mentor_pi_ros2/src/mentor_pi_bringup/src/configuration.cc
+  mentor_pi_ros2/src/mentor_pi_bringup/include/mentor_pi_bringup/configuration.h
 )
 readonly -a supervisor_sources=(
-  src/mentor_pi_bringup/src/supervisor_core.cc
-  src/mentor_pi_bringup/include/mentor_pi_bringup/supervisor_core.h
+  mentor_pi_ros2/src/mentor_pi_bringup/src/supervisor_core.cc
+  mentor_pi_ros2/src/mentor_pi_bringup/include/mentor_pi_bringup/supervisor_core.h
 )
 readonly -a qualification_sources=(
-  src/mentor_pi_bringup/src/qualification_monitor_core.cc
-  src/mentor_pi_bringup/include/mentor_pi_bringup/qualification_monitor_core.h
+  mentor_pi_ros2/src/mentor_pi_bringup/src/qualification_monitor_core.cc
+  mentor_pi_ros2/src/mentor_pi_bringup/include/mentor_pi_bringup/qualification_monitor_core.h
 )
 readonly -a commissioning_sources=(
-  src/mentor_pi_bringup/src/motor_commissioning_core.cc
-  src/mentor_pi_bringup/include/mentor_pi_bringup/motor_commissioning_core.h
+  mentor_pi_ros2/src/mentor_pi_bringup/src/motor_commissioning_core.cc
+  mentor_pi_ros2/src/mentor_pi_bringup/include/mentor_pi_bringup/motor_commissioning_core.h
 )
 {
   echo "DOMAIN"

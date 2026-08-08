@@ -6,6 +6,8 @@
 #include <iostream>
 #include <limits>
 
+#include "mentor_pi_mcu/app/microros/reclaiming_arena.h"
+#include "mentor_pi_mcu/app/microros/runtime_core.h"
 #include "mentor_pi_mcu/domain/battery_monitor.h"
 #include "mentor_pi_mcu/domain/bus_servo.h"
 #include "mentor_pi_mcu/domain/button_controller.h"
@@ -19,6 +21,7 @@
 #include "mentor_pi_mcu/domain/pwm_servo_controller.h"
 #include "mentor_pi_mcu/domain/state_merger.h"
 #include "mentor_pi_mcu/domain/validation.h"
+#include "mentor_pi_mcu/platform/stm32/transport.h"
 
 namespace mentor_pi::mcu {
 namespace {
@@ -59,7 +62,7 @@ MotorControlConfiguration FullRangeTestMotorConfiguration() {
   // This enables mathematical unit coverage only. It is not hardware HIL
   // evidence and must never be reused as the production target default.
   MotorControlConfiguration configuration{};
-  configuration.closed_loop_enabled = true;
+  configuration.mode = MotorControlMode::kClosedLoop;
   configuration.maximum_accepted_rps = 6.0F;
   configuration.output_limit_permille = kMotorOutputLimitPermille;
   return configuration;
@@ -116,9 +119,9 @@ void TestValidationAndStateMerging() {
   RgbCommand rgb_second{};
   rgb_second.update_mask = 2U;
   rgb_second.red[1] = 40U;
-  CHECK(MergeRgbCommand(rgb_second, &rgb).ok());
+  CHECK(MergeRgbCommand(rgb_second, &rgb).code == ResultCode::kInvalidArgument);
   CHECK(rgb.red[0] == 10U && rgb.green[0] == 20U && rgb.blue[0] == 30U);
-  CHECK(rgb.red[1] == 40U);
+  CHECK(rgb.red[1] == 0U);
 
   OledState oled{};
   OledCommand oled_command{};
@@ -145,7 +148,7 @@ void TestValidationAndStateMerging() {
   RgbCommand rgb_mask{};
   for (std::uint16_t mask = 0; mask <= 0xffU; ++mask) {
     rgb_mask.update_mask = static_cast<std::uint8_t>(mask);
-    const bool expected_valid = mask >= 1U && mask <= kAllRgbPixelMask;
+    const bool expected_valid = mask == kHostRgbPixelMask;
     CHECK(ValidateRgbCommand(rgb_mask).ok() == expected_valid);
   }
 }
@@ -173,6 +176,38 @@ void TestValidationBoundaries() {
             .code == ResultCode::kInvalidArgument);
   CHECK(ValidateMotorCommand(motor, std::numeric_limits<float>::quiet_NaN())
             .code == ResultCode::kInvalidArgument);
+
+  SetMotorPidCommand pid{};
+  pid.update_mask = 1U;
+  pid.proportional_gain[0] = 1000.0F;
+  pid.integral_gain[0] = 1000.0F;
+  pid.derivative_gain[0] = 1000.0F;
+  pid.velocity_filter_new_weight[0] = 1.0F;
+  CHECK(ValidateSetMotorPidCommand(pid).ok());
+  pid.update_mask = 0U;
+  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
+  pid.update_mask = 0x10U;
+  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
+  pid.update_mask = 1U;
+  pid.proportional_gain[0] = std::nextafter(
+      kMotorPidMaximumGain, std::numeric_limits<float>::infinity());
+  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kOutOfRange);
+  pid.proportional_gain[0] = -std::numeric_limits<float>::epsilon();
+  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kOutOfRange);
+  pid.proportional_gain[0] = std::numeric_limits<float>::quiet_NaN();
+  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
+  pid.proportional_gain[0] = 0.0F;
+  pid.integral_gain[0] = std::numeric_limits<float>::infinity();
+  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
+  pid.integral_gain[0] = 0.0F;
+  pid.derivative_gain[0] = -std::numeric_limits<float>::infinity();
+  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
+  pid.derivative_gain[0] = 0.0F;
+  pid.velocity_filter_new_weight[0] =
+      std::nextafter(1.0F, std::numeric_limits<float>::infinity());
+  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kOutOfRange);
+  pid.velocity_filter_new_weight[0] = std::numeric_limits<float>::quiet_NaN();
+  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
 
   PwmServoCommand pwm{};
   pwm.duration_ms = 20U;
@@ -336,7 +371,8 @@ void TestValidationBoundaries() {
   CHECK(ValidateGetBusServoStateCommand(get).code == ResultCode::kOutOfRange);
 
   CHECK(ValidateLedCommand({1U, 0U, 0U, 0U}).ok());
-  CHECK(ValidateLedCommand({3U, 0U, 0U, 0U}).ok());
+  CHECK(ValidateLedCommand({2U, 0U, 0U, 0U}).ok());
+  CHECK(ValidateLedCommand({3U, 0U, 0U, 0U}).code == ResultCode::kOutOfRange);
   CHECK(ValidateLedCommand({0U, 0U, 0U, 0U}).code == ResultCode::kOutOfRange);
   CHECK(ValidateLedCommand({4U, 0U, 0U, 0U}).code == ResultCode::kOutOfRange);
   CHECK(ValidateBuzzerCommand({0U, 65535U, 65535U, 65535U}).ok());
@@ -492,12 +528,12 @@ void TestCommandMailboxes() {
 
   LedCommandMailbox leds;
   CHECK(leds.Publish({1U, 10U, 20U, 1U}).result.ok());
-  CHECK(leds.Publish({3U, 30U, 40U, 2U}).result.ok());
+  CHECK(leds.Publish({2U, 30U, 40U, 2U}).result.ok());
   LedCommandSnapshot led_snapshot{};
   CHECK(leds.ConsumeLatest(&led_snapshot));
   CHECK(led_snapshot.commands[0].on_time_ms == 10U);
-  CHECK(led_snapshot.commands[1].on_time_ms == 0U);
-  CHECK(led_snapshot.commands[2].on_time_ms == 30U);
+  CHECK(led_snapshot.commands[1].on_time_ms == 30U);
+  CHECK(led_snapshot.commands[2].on_time_ms == 0U);
 
   BusMotionMailbox bus;
   BusServoCommand bus_first{};
@@ -521,7 +557,7 @@ void TestCommandMailboxes() {
 
   RgbCommandMailbox rgb;
   RgbCommand rgb_full{};
-  rgb_full.update_mask = kAllRgbPixelMask;
+  rgb_full.update_mask = kHostRgbPixelMask;
   rgb_full.red = {10U, 20U};
   rgb_full.green = {30U, 40U};
   rgb_full.blue = {50U, 60U};
@@ -551,9 +587,9 @@ void TestCommandMailboxes() {
   CHECK(rgb_snapshot.state.red[0] == 100U);
   CHECK(rgb_snapshot.state.green[0] == 110U);
   CHECK(rgb_snapshot.state.blue[0] == 120U);
-  CHECK(rgb_snapshot.state.red[1] == 20U);
-  CHECK(rgb_snapshot.state.green[1] == 40U);
-  CHECK(rgb_snapshot.state.blue[1] == 60U);
+  CHECK(rgb_snapshot.state.red[1] == 0U);
+  CHECK(rgb_snapshot.state.green[1] == 0U);
+  CHECK(rgb_snapshot.state.blue[1] == 0U);
   CHECK(!rgb.ConsumeLatest(&rgb_snapshot));
   RgbCommand invalid_rgb{};
   const CommandAdmission rejected_rgb = rgb.Publish(invalid_rgb);
@@ -631,14 +667,15 @@ void TestCommandMailboxes() {
   CHECK(rgb.Publish(rgb_update).result.ok());
   rgb.ResetMergedFields();
   RgbCommand rgb_new_session{};
-  rgb_new_session.update_mask = 2U;
-  rgb_new_session.blue[1] = 200U;
+  rgb_new_session.update_mask = kHostRgbPixelMask;
+  rgb_new_session.blue[0] = 200U;
   CHECK(rgb.Publish(rgb_new_session).result.ok());
   CHECK(rgb.ConsumeLatest(&rgb_snapshot));
-  CHECK(rgb_snapshot.field_generation[0] == 0U);
+  CHECK(rgb_snapshot.field_generation[0] == 5U);
   CHECK(rgb_snapshot.state.red[0] == 0U);
-  CHECK(rgb_snapshot.field_generation[1] == 5U);
-  CHECK(rgb_snapshot.state.blue[1] == 200U);
+  CHECK(rgb_snapshot.state.blue[0] == 200U);
+  CHECK(rgb_snapshot.field_generation[1] == 0U);
+  CHECK(rgb_snapshot.state.blue[1] == 0U);
 
   CHECK(oled.Publish(oled_update).result.ok());
   oled.ResetMergedFields();
@@ -794,9 +831,9 @@ void TestMotorController() {
   // Commissioning limits are independent hard caps below model limits.
   const MotorControlConfiguration commissioning =
       CommissioningMotorControlConfiguration();
-  CHECK(commissioning.closed_loop_enabled);
+  CHECK(commissioning.mode == MotorControlMode::kDirectionCheck);
   CHECK_NEAR(commissioning.maximum_accepted_rps, 0.25F, 0.0001F);
-  CHECK(commissioning.output_limit_permille == 300);
+  CHECK(commissioning.output_limit_permille == 1000);
   MotorController capped(commissioning);
   capped.SetSessionActive(true);
   MotorCommand limited{};
@@ -806,8 +843,9 @@ void TestMotorController() {
   std::array<std::uint32_t, kMotorCount> stationary{};
   for (std::size_t sample = 0U; sample < 100U; ++sample) {
     const auto capped_output = capped.ControlStep(stationary);
-    CHECK(capped_output[0] >= -300);
-    CHECK(capped_output[0] <= 300);
+    CHECK(capped_output[0] == kMotorDirectionCheckDutyPermille);
+    CHECK(capped.channels()[0].output_permille ==
+          kMotorDirectionCheckDutyPermille);
   }
   limited.target_rps[0] = -0.25F;
   CHECK(capped.AcceptCommand(limited, 50000U).ok());
@@ -824,6 +862,18 @@ void TestMotorController() {
   capped.EvaluateLeases(50000U + kMotorLeaseExpiryUs);
   CHECK(!capped.channels()[0].armed);
 
+  MotorController overspeed(commissioning);
+  overspeed.SetSessionActive(true);
+  limited.target_rps[0] = 0.1F;
+  CHECK(overspeed.AcceptCommand(limited, 0U).ok());
+  stationary.fill(100U);
+  CHECK(overspeed.ControlStep(stationary)[0] ==
+        kMotorDirectionCheckDutyPermille);
+  stationary[0] = 0U;
+  CHECK(overspeed.ControlStep(stationary)[0] == 0);
+  CHECK(!overspeed.channels()[0].armed);
+  CHECK(overspeed.watchdog_stop_mask() == 1U);
+
   MotorController rejection_accounting(commissioning);
   rejection_accounting.RecordRejectedCommand(0U);
   rejection_accounting.RecordRejectedCommand(0x10U);
@@ -838,6 +888,100 @@ void TestMotorController() {
   CHECK(rejection_accounting.command_rejection_count(3U) == 0U);
   CHECK(!capped.channels()[0].armed);
   CHECK(capped.lease_expiry_count(0U) == 1U);
+
+  SetMotorPidCommand pid_update{};
+  pid_update.update_mask = 3U;
+  pid_update.proportional_gain[0] = 1000.0F;
+  pid_update.proportional_gain[1] = 500.0F;
+  pid_update.velocity_filter_new_weight[0] = 1.0F;
+  pid_update.velocity_filter_new_weight[1] = 1.0F;
+  CHECK(locked.SetPid(pid_update).result.code == ResultCode::kUnsupported);
+  CHECK(capped.SetPid(pid_update).result.code == ResultCode::kUnsupported);
+
+  MotorController pid_controller(FullRangeTestMotorConfiguration());
+  MotorPidUpdate pid_result = pid_controller.SetPid(pid_update);
+  CHECK(pid_result.result.ok());
+  CHECK(pid_result.applied_mask == 3U);
+
+  SetMotorPidCommand invalid_atomic = pid_update;
+  invalid_atomic.proportional_gain[1] = 1000.1F;
+  pid_result = pid_controller.SetPid(invalid_atomic);
+  CHECK(pid_result.result.code == ResultCode::kOutOfRange);
+  CHECK(pid_result.applied_mask == 0U);
+
+  pid_controller.SetSessionActive(true);
+  MotorCommand pid_drive{};
+  pid_drive.update_mask = 3U;
+  pid_drive.target_rps[0] = 0.5F;
+  pid_drive.target_rps[1] = 0.5F;
+  CHECK(pid_controller.AcceptCommand(pid_drive, 0U).ok());
+  const auto overridden_output = pid_controller.ControlStep(stationary);
+  CHECK(overridden_output[0] == 500);
+  CHECK(overridden_output[1] == kMotorOutputDeadbandPermille);
+  CHECK(pid_controller.SetPid(pid_update).result.code == ResultCode::kBusy);
+
+  MotorCommand pid_stop = pid_drive;
+  pid_stop.target_rps.fill(0.0F);
+  CHECK(pid_controller.AcceptCommand(pid_stop, 1U).ok());
+  CHECK(pid_controller.SetPid(pid_update).result.ok());
+
+  // A transport/session loss disarms and clears PID history, but the volatile
+  // gain override survives reconnection until reset or a model change.
+  pid_controller.SetSessionActive(false);
+  pid_controller.SetSessionActive(true);
+  CHECK(pid_controller.AcceptCommand(pid_drive, 2U).ok());
+  CHECK(pid_controller.ControlStep(stationary)[0] == 500);
+  CHECK(pid_controller.AcceptCommand(pid_stop, 3U).ok());
+  CHECK(pid_controller.SetModel(MotorModel::kJgb37).result.ok());
+  CHECK(pid_controller.AcceptCommand(pid_drive, 4U).ok());
+  CHECK(pid_controller.ControlStep(stationary)[0] ==
+        kMotorOutputDeadbandPermille);
+
+  // Measured motion alone blocks all-channel updates, even while disarmed.
+  MotorController moving_pid(FullRangeTestMotorConfiguration());
+  moving_pid.ControlStep(stationary);
+  stationary[0] = 1U;
+  moving_pid.ControlStep(stationary);
+  CHECK(std::fabs(moving_pid.channels()[0].measured_rps) >=
+        kMotorPidUpdateMaximumMeasuredRps);
+  CHECK(moving_pid.SetPid(pid_update).result.code == ResultCode::kBusy);
+  CHECK(moving_pid.SetModel(MotorModel::kJgb37).result.ok());
+  CHECK(moving_pid.SetPid(pid_update).result.ok());
+
+  MotorController saturated_pid(FullRangeTestMotorConfiguration());
+  SetMotorPidCommand saturation_gains{};
+  saturation_gains.update_mask = 1U;
+  saturation_gains.proportional_gain[0] = 1000.0F;
+  saturation_gains.velocity_filter_new_weight[0] = 1.0F;
+  CHECK(saturated_pid.SetPid(saturation_gains).result.ok());
+  saturated_pid.SetSessionActive(true);
+  MotorCommand saturation_drive{};
+  saturation_drive.update_mask = 1U;
+  saturation_drive.target_rps[0] = 6.0F;
+  CHECK(saturated_pid.AcceptCommand(saturation_drive, 0U).ok());
+  stationary.fill(0U);
+  CHECK(saturated_pid.ControlStep(stationary)[0] == 1000);
+
+  constexpr std::array<float, 4> kProfileLimits{1.5F, 3.0F, 6.0F, 1.1F};
+  MotorController profile_limits(FullRangeTestMotorConfiguration());
+  profile_limits.SetSessionActive(true);
+  for (std::size_t index = 0U; index < kModels.size(); ++index) {
+    CHECK(profile_limits.SetModel(kModels[index]).result.ok());
+    CHECK_NEAR(profile_limits.profile().pid.proportional_gain, 250.0F, 0.0001F);
+    CHECK_NEAR(profile_limits.profile().pid.integral_gain, 0.1F, 0.0001F);
+    CHECK_NEAR(profile_limits.profile().pid.derivative_gain, 0.5F, 0.0001F);
+    CHECK_NEAR(profile_limits.profile().pid.velocity_filter_new_weight, 0.5F,
+               0.0001F);
+    MotorCommand limit_command{};
+    limit_command.update_mask = 1U;
+    limit_command.target_rps[0] = kProfileLimits[index];
+    CHECK(profile_limits.AcceptCommand(limit_command, 10U).ok());
+    limit_command.target_rps[0] = 0.0F;
+    CHECK(profile_limits.AcceptCommand(limit_command, 11U).ok());
+    limit_command.target_rps[0] = std::nextafter(kProfileLimits[index], 7.0F);
+    CHECK(profile_limits.AcceptCommand(limit_command, 12U).code ==
+          ResultCode::kOutOfRange);
+  }
 
   // Legacy evidence gives JGA27 the opposite provisional model polarity. The
   // per-channel wiring sign multiplies this model sign; neither is claimed as
@@ -863,6 +1007,125 @@ void TestMotorController() {
   stationary[0] = 10U;
   compensated.ControlStep(stationary);
   CHECK(compensated.channels()[0].encoder_count == 10);
+}
+
+void TestPositionalPidController() {
+  const std::array<std::uint32_t, kMotorCount> stationary{};
+  auto configure_pid = [](MotorController* controller, float kp, float ki,
+                          float kd, float filter_weight = 1.0F) {
+    SetMotorPidCommand gains{};
+    gains.update_mask = 1U;
+    gains.proportional_gain[0] = kp;
+    gains.integral_gain[0] = ki;
+    gains.derivative_gain[0] = kd;
+    gains.velocity_filter_new_weight[0] = filter_weight;
+    CHECK(controller->SetPid(gains).result.ok());
+    controller->SetSessionActive(true);
+  };
+  auto command_speed = [](MotorController* controller, float target_rps,
+                          std::uint32_t now_us = 0U) {
+    MotorCommand command{};
+    command.update_mask = 1U;
+    command.target_rps[0] = target_rps;
+    CHECK(controller->AcceptCommand(command, now_us).ok());
+  };
+
+  // P uses the current error directly: u = Kp * e.
+  MotorController proportional(FullRangeTestMotorConfiguration());
+  configure_pid(&proportional, 400.0F, 0.0F, 0.0F);
+  command_speed(&proportional, 1.0F);
+  CHECK(proportional.ControlStep(stationary)[0] == 400);
+  command_speed(&proportional, 0.75F, 1U);
+  CHECK(proportional.ControlStep(stationary)[0] == 300);
+
+  // I stores the time integral of error. Five 10 ms samples at 6 RPS with
+  // Ki=1000 produce 1000 * (6 * 0.05) = 300 permille.
+  MotorController integral(FullRangeTestMotorConfiguration());
+  configure_pid(&integral, 0.0F, 1000.0F, 0.0F);
+  command_speed(&integral, 6.0F);
+  std::int16_t integral_output = 0;
+  for (std::size_t sample = 0U; sample < 5U; ++sample) {
+    integral_output = integral.ControlStep(stationary, 10000U)[0];
+  }
+  CHECK(integral_output == 300);
+
+  MotorController longer_period(FullRangeTestMotorConfiguration());
+  configure_pid(&longer_period, 0.0F, 1000.0F, 0.0F);
+  command_speed(&longer_period, 6.0F);
+  for (std::size_t sample = 0U; sample < 3U; ++sample) {
+    integral_output = longer_period.ControlStep(stationary, 20000U)[0];
+  }
+  CHECK(integral_output == 360);
+
+  // D is the first difference of error. A 1.0 RPS step at 10 ms with Kd=6
+  // produces 600; changing the target to 0.5 RPS produces -300.
+  MotorController derivative(FullRangeTestMotorConfiguration());
+  configure_pid(&derivative, 0.0F, 0.0F, 6.0F);
+  command_speed(&derivative, 1.0F);
+  CHECK(derivative.ControlStep(stationary)[0] == 600);
+  command_speed(&derivative, 0.5F, 1U);
+  CHECK(derivative.ControlStep(stationary)[0] == -300);
+
+  MotorController combined(FullRangeTestMotorConfiguration());
+  configure_pid(&combined, 300.0F, 1000.0F, 2.0F);
+  command_speed(&combined, 1.0F);
+  CHECK(combined.ControlStep(stationary)[0] == 510);
+
+  // Saturation rejects only an integral update that would push farther into
+  // the active limit. The next smaller same-sign command therefore starts
+  // from zero stored integral: 1000*0.5 + 1000*(0.5*0.01) = 505.
+  MotorController positive_windup(FullRangeTestMotorConfiguration());
+  configure_pid(&positive_windup, 1000.0F, 1000.0F, 0.0F);
+  command_speed(&positive_windup, 6.0F);
+  CHECK(positive_windup.ControlStep(stationary)[0] == 1000);
+  command_speed(&positive_windup, 0.5F, 1U);
+  CHECK(positive_windup.ControlStep(stationary)[0] == 505);
+
+  MotorController negative_windup(FullRangeTestMotorConfiguration());
+  configure_pid(&negative_windup, 1000.0F, 1000.0F, 0.0F);
+  command_speed(&negative_windup, -6.0F);
+  CHECK(negative_windup.ControlStep(stationary)[0] == -1000);
+  command_speed(&negative_windup, -0.5F, 1U);
+  CHECK(negative_windup.ControlStep(stationary)[0] == -505);
+
+  MotorController deadband(FullRangeTestMotorConfiguration());
+  configure_pid(&deadband, 100.0F, 0.0F, 0.0F);
+  command_speed(&deadband, 1.0F);
+  CHECK(deadband.ControlStep(stationary)[0] == kMotorOutputDeadbandPermille);
+  command_speed(&deadband, -1.0F, 1U);
+  CHECK(deadband.ControlStep(stationary)[0] == -kMotorOutputDeadbandPermille);
+
+  // The PID error uses filtered RPS. For default JGA27 polarity, decrementing
+  // the raw counter by one yields positive instantaneous speed.
+  MotorController filtered(FullRangeTestMotorConfiguration());
+  configure_pid(&filtered, 500.0F, 0.0F, 0.0F, 0.5F);
+  command_speed(&filtered, 1.0F);
+  std::array<std::uint32_t, kMotorCount> filter_counters{};
+  filter_counters[0] = 100U;
+  CHECK(filtered.ControlStep(filter_counters)[0] == 500);
+  filter_counters[0] = 99U;
+  CHECK_NEAR(filtered.ControlStep(filter_counters)[0], 476, 0.0F);
+  CHECK_NEAR(filtered.channels()[0].measured_rps, 0.0480769F, 0.000001F);
+
+  // Stop and lease-expiry paths clear positional I and D history.
+  MotorController reset(FullRangeTestMotorConfiguration());
+  configure_pid(&reset, 0.0F, 1000.0F, 0.0F);
+  command_speed(&reset, 6.0F);
+  for (std::size_t sample = 0U; sample < 5U; ++sample) {
+    integral_output = reset.ControlStep(stationary)[0];
+  }
+  CHECK(integral_output == 300);
+  command_speed(&reset, 0.0F, 10U);
+  command_speed(&reset, 6.0F, 11U);
+  CHECK(reset.ControlStep(stationary)[0] == kMotorOutputDeadbandPermille);
+  reset.EvaluateLeases(11U + kMotorLeaseExpiryUs);
+  CHECK(!reset.channels()[0].armed);
+  command_speed(&reset, 6.0F, 12U + kMotorLeaseExpiryUs);
+  CHECK(reset.ControlStep(stationary)[0] == kMotorOutputDeadbandPermille);
+  reset.SetSessionActive(false);
+  reset.SetSessionActive(true);
+  command_speed(&reset, 6.0F, 13U + kMotorLeaseExpiryUs);
+  CHECK(reset.ControlStep(stationary)[0] == kMotorOutputDeadbandPermille);
 }
 
 void TestMotorLeaseBoundariesAndScheduleModel() {
@@ -1202,6 +1465,14 @@ void TestBatteryMonitor() {
   update = battery.AddSample(0U, false, 100U);
   CHECK(!update.state.valid && update.state.voltage_mv == 0U);
 
+  BatteryMonitor battery_presence;
+  update = battery_presence.AddSample(kBatteryPresentMinimumMv - 1U, true, 0U);
+  CHECK(!update.state.valid && update.state.voltage_mv == 0U);
+  CHECK(!update.state.below_threshold && !update.request_alarm_pattern);
+  update = battery_presence.AddSample(kBatteryPresentMinimumMv, true, 50U);
+  CHECK(update.state.valid &&
+        update.state.voltage_mv == kBatteryPresentMinimumMv);
+
   BatteryMonitor low_battery;
   for (std::uint32_t now_ms = 0U; now_ms <= 10000U; now_ms += 50U) {
     update = low_battery.AddSample(6000U, true, now_ms);
@@ -1455,6 +1726,17 @@ void TestCircularDmaPosition() {
   CHECK(after_boundary_wrap - before_boundary_wrap == 1U);
 }
 
+void TestUsart1WriteDeadlines() {
+  using mentor_pi_mcu::platform::stm32::Usart1WriteDeadlineMs;
+
+  CHECK(Usart1WriteDeadlineMs(23U, 115200U) == 4U);
+  CHECK(Usart1WriteDeadlineMs(512U, 115200U) == 47U);
+  CHECK(Usart1WriteDeadlineMs(1024U, 115200U) == 91U);
+  CHECK(Usart1WriteDeadlineMs(512U, 921600U) == 8U);
+  CHECK(Usart1WriteDeadlineMs(1024U, 921600U) == 14U);
+  CHECK(Usart1WriteDeadlineMs(512U) == 8U);
+}
+
 void TestCircularRxRing() {
   using TinyRing = CircularRxRing<8U>;
   const std::array<std::uint8_t, 8> ring{0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U};
@@ -1609,6 +1891,74 @@ void TestCircularRxRing() {
   CHECK(malformed.consumer_position() == malformed_consumer);
 }
 
+void TestPeriodicReleaseSchedule() {
+  using mentor_pi_mcu::app::microros::AdvancePeriodicRelease;
+
+  CHECK(AdvancePeriodicRelease(120U, 100U, 20U) == 120U);
+  CHECK(AdvancePeriodicRelease(121U, 100U, 20U) == 120U);
+  CHECK(AdvancePeriodicRelease(171U, 100U, 20U) == 160U);
+  CHECK(AdvancePeriodicRelease(119U, 100U, 20U) == 100U);
+  CHECK(AdvancePeriodicRelease(120U, 100U, 0U) == 100U);
+
+  constexpr std::uint32_t kBeforeWrap =
+      std::numeric_limits<std::uint32_t>::max() - 9U;
+  CHECK(AdvancePeriodicRelease(15U, kBeforeWrap, 20U) == 10U);
+}
+
+void TestReclaimingArena() {
+  using mentor_pi_mcu::app::microros::ReclaimingArena;
+
+  alignas(std::max_align_t) std::array<std::uint8_t, 1024U> storage{};
+  ReclaimingArena arena;
+  CHECK(arena.Initialize(storage.data(), storage.size()));
+  CHECK(arena.healthy());
+  CHECK(arena.bytes_used() == 0U);
+
+  void* const first = arena.Allocate(192U);
+  void* const second = arena.Allocate(192U);
+  void* const third = arena.Allocate(192U);
+  CHECK(first != nullptr && second != nullptr && third != nullptr);
+  CHECK(arena.Deallocate(first));
+  CHECK(arena.Deallocate(second));
+  void* const coalesced = arena.Allocate(384U);
+  CHECK(coalesced == first);
+  CHECK(arena.Deallocate(coalesced));
+  CHECK(arena.Deallocate(third));
+  CHECK(arena.bytes_used() == 0U);
+
+  auto* bytes = static_cast<std::uint8_t*>(arena.Allocate(64U));
+  CHECK(bytes != nullptr);
+  if (bytes != nullptr) {
+    for (std::size_t index = 0U; index < 64U; ++index) {
+      bytes[index] = static_cast<std::uint8_t>(index);
+    }
+  }
+  auto* const grown = static_cast<std::uint8_t*>(arena.Reallocate(bytes, 160U));
+  CHECK(grown == bytes);
+  if (grown != nullptr) {
+    for (std::size_t index = 0U; index < 64U; ++index) {
+      CHECK(grown[index] == static_cast<std::uint8_t>(index));
+    }
+  }
+  CHECK(arena.Deallocate(grown));
+
+  auto* const zeroed = static_cast<std::uint8_t*>(arena.ZeroAllocate(8U, 8U));
+  CHECK(zeroed != nullptr);
+  if (zeroed != nullptr) {
+    for (std::size_t index = 0U; index < 64U; ++index) {
+      CHECK(zeroed[index] == 0U);
+    }
+  }
+  CHECK(arena.Deallocate(zeroed));
+  CHECK(arena.ZeroAllocate(std::numeric_limits<std::size_t>::max(), 2U) ==
+        nullptr);
+
+  arena.Reset();
+  CHECK(arena.healthy());
+  CHECK(arena.bytes_used() == 0U);
+  CHECK(arena.Allocate(900U) != nullptr);
+}
+
 }  // namespace
 }  // namespace mentor_pi::mcu
 
@@ -1618,6 +1968,7 @@ int main() {
   mentor_pi::mcu::TestFixedContainers();
   mentor_pi::mcu::TestCommandMailboxes();
   mentor_pi::mcu::TestMotorController();
+  mentor_pi::mcu::TestPositionalPidController();
   mentor_pi::mcu::TestMotorLeaseBoundariesAndScheduleModel();
   mentor_pi::mcu::TestPwmServoController();
   mentor_pi::mcu::TestButtons();
@@ -1626,7 +1977,10 @@ int main() {
   mentor_pi::mcu::TestPatterns();
   mentor_pi::mcu::TestBusServoCodecAndScheduler();
   mentor_pi::mcu::TestCircularDmaPosition();
+  mentor_pi::mcu::TestUsart1WriteDeadlines();
   mentor_pi::mcu::TestCircularRxRing();
+  mentor_pi::mcu::TestPeriodicReleaseSchedule();
+  mentor_pi::mcu::TestReclaimingArena();
 
   if (mentor_pi::mcu::test_failures != 0U) {
     std::cerr << mentor_pi::mcu::test_failures << " test checks failed\n";

@@ -4,10 +4,86 @@ Read `README.md` and `docs/NEXT_STEPS.md` before changing this repository.
 Treat the framework documents as the detailed contract when a task needs exact
 interface, hardware, or safety requirements.
 
+## Next-version migration mandate
+
+The default-firmware portion of this user-authorized migration remains the next
+implementation priority. The ROS workspace and schema-removal portions below
+describe the current required layout and must remain enforced.
+
+### Default PID firmware
+
+- Change `make firmware`, `make flash`, and `make start` to build, verify,
+  flash, and run the normal motor-enabled `PID` artifact with
+  `control_mode=CLOSED_LOOP`. This default path shall not require the former
+  commissioning build, flash, or runtime acknowledgements.
+- Preserve the configuration supervisor and its current authorization gate,
+  startup inhibition, atomic command validation, model-specific RPS limits,
+  the 6 RPS implementation ceiling, the +/-1000-permille output limit,
+  independent 198 ms leases, session-loss disarming, and transport-failure
+  shutdown.
+- Retain independently classified recovery targets named `firmware-locked`,
+  `flash-locked`, and `start-locked`. Retain the guarded direction-check image
+  separately. Cross-mode artifact substitution must fail closed.
+- Retain the former commissioning-PID Make commands temporarily as aliases to
+  the normal PID path. They must not build or identify a fourth firmware mode.
+- Update framework requirements, safety text, tutorials, metadata, artifact
+  verification, packaging, and runtime checks together. The existing locked
+  hardware evidence does not qualify the new PID default.
+
+### Standard ROS 2 workspace
+
+- Keep the three ROS packages in the directly buildable Humble workspace:
+
+  ```text
+  mentor_pi_ros2/
+    src/
+      mentor_pi_interfaces/
+      mentor_pi_bringup/
+      mentor_pi_hardwares/
+  ```
+
+- Do not add a root compatibility symlink, duplicate package tree, or stale
+  root-source fallback. Package-internal `src/` directories containing C++
+  implementation files remain unchanged.
+- On Ubuntu 22.04 with ROS 2 Humble, support conventional direct use from
+  `mentor_pi_ros2` with `rosdep`, `colcon build`, and `colcon test`. Keep the
+  root Makefile as the verified convenience interface and keep the pinned
+  Ubuntu 22.04/Humble Docker path for every other supported Ubuntu release.
+- Update all project-owned CMake paths, firmware interface includes, Docker
+  inputs, source fingerprints, installers, packaging, CI filters, tests,
+  launch/runtime tools, and documentation atomically to use
+  `mentor_pi_ros2/src`.
+
+### Manifest validation
+
+- Do not restore the former non-package schema snapshot, `xml-model`
+  declarations, schema installation/copying, or schema dependencies in
+  fingerprints, deployment, CI, fixtures, and tests.
+- Continue validating manifests with `ament_xmllint`, `ament_package`,
+  `rosdep`, and `colcon`. Do not replace the removed snapshot with a build-time
+  network download.
+
+### Migration acceptance
+
+- Run focused tests while migrating, then run the complete regression target
+  once after every focused group passes.
+- Verify direct native Humble colcon use and the root adaptive Make/Docker
+  path. Verify `PID`, `LOCKED`, and direction-check artifacts independently.
+- Keep path-contract tests rejecting a root package tree or a dependency on
+  the removed schema snapshot. Distinguish package-internal, ignored
+  legacy-evidence, and upstream third-party `src/` paths.
+- Update `README.md`, `docs/NEXT_STEPS.md`, framework contracts, tutorials,
+  and repository maps with every remaining default-firmware migration. Record
+  actual artifact hashes and test evidence. Do not make PID performance,
+  powered motion, or release-qualification claims without recorded HIL
+  evidence.
+
 ## Supported stack
 
-- Support only Ubuntu 22.04 and ROS 2 Humble for production. Ubuntu 24.04 is a
-  Docker development host and must not receive a native ROS installation.
+- Support only Ubuntu 22.04 and ROS 2 Humble for production. Development may
+  use any Ubuntu release on amd64 or arm64: Ubuntu 22.04 uses native Humble;
+  every other release uses the pinned Ubuntu 22.04/Humble Docker runtime and
+  must not receive a native ROS installation.
 - Use the root `Makefile` as the developer interface. CMake/Ninja is
   authoritative for firmware and `colcon` is authoritative for host packages.
 - Do not restore PlatformIO or add a second IDE build graph. Do not introduce
@@ -20,9 +96,6 @@ interface, hardware, or safety requirements.
 - Preserve `mentor_pi_interfaces`, `/mentor_pi/controller`, topic and service
   names, QoS, units, limits, and safety behavior unless the user explicitly
   authorizes a public-interface change.
-- The normal firmware must remain motor-locked. Never weaken artifact checks,
-  flash acknowledgements, command validation, the independent 200 ms motor
-  leases, or transport-failure motor disarming.
 - Invalid motor commands must remain atomic and must not refresh leases. PWM
   and bus servos hold their last accepted state on host loss.
 - Commissioning motion requires passive encoder-direction checks, raised or

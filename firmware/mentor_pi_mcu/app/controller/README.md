@@ -89,24 +89,26 @@ so adapter vtables contain no deleting destructor and import no global
 
 ## Qualification locks
 
-- The QMI8658 signed axis permutation remains `verified=false` until the
-  six-face and positive-rotation HIL procedure records the PCB transform.
-  Sensor presence can be tested, but IMU telemetry intentionally remains
-  invalid/degraded before that result.
+- The STM32 composition root applies the six-face measured QMI8658 transform:
+  PCB X = sensor Y, PCB Y = -sensor X, and PCB Z = sensor Z. The driver applies
+  the same signed permutation to acceleration and angular velocity. Positive
+  rotation and extended timing HIL remain release-qualification checks.
 - `MotorControlConfiguration{}` is production-safe and locked:
-  `closed_loop_enabled=false`, `maximum_accepted_rps=0`, and
+  `mode=MotorControlMode::kLocked`, `maximum_accepted_rps=0`, and
   `output_limit_permille=0`. Nonzero selected targets return `UNSUPPORTED` and
   cannot arm or refresh a lease; selected zero targets still stop. Commissioning
-  requires an explicit raised-wheel build configuration capped at 0.25 RPS and
-  300 permille. Target code selects the constexpr
+  requires an explicit raised-wheel build configuration. Its
+  `kDirectionCheck` mode bypasses PID, applies fixed 250-permille drive from the
+  command sign, admits no command above 0.25 RPS, and stops above 3.0 measured
+  RPS. Target code selects the constexpr
   `LockedMotorControlConfiguration()` or
   `CommissioningMotorControlConfiguration()` factory at compile time; native
   tests and the STM32 composition root use those same profile constants.
 - Encoder direction and all PID/filter/deadband values are release-provisional.
   The legacy evidence supplies provisional model polarity -1 for JGA27 and +1
   for JGB520/JGB37/JGB528, multiplied by each channel's wiring sign. These are
-  not HIL-qualified until raised-wheel testing records all four signs and each
-  motor profile.
+  Direction-check commissioning does not exercise the PID values. They remain
+  unqualified until a later raised-wheel control test records each profile.
 - The controller uses the platform's pulse-shadow generator rather than the
   separate driver edge-plan abstraction; there must be only one PWM frame
   generator in the target.

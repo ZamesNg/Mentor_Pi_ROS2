@@ -15,6 +15,7 @@ Result ValidateBusServoCommand(const BusServoCommand& command);
 Result ValidateStopBusServosCommand(const StopBusServosCommand& command);
 Result ValidateConfigureBusServoCommand(
     const ConfigureBusServoCommand& command);
+Result ValidateSetMotorPidCommand(const SetMotorPidCommand& command);
 Result ValidateGetBusServoStateCommand(const GetBusServoStateCommand& command);
 Result ValidateLedCommand(const LedCommand& command);
 Result ValidateBuzzerCommand(const BuzzerCommand& command);

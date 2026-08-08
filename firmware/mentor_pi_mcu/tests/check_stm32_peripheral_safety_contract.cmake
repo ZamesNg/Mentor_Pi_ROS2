@@ -12,6 +12,27 @@ endforeach()
 file(READ "${TARGET_SOURCE}" target_source)
 file(READ "${PERIPHERAL_SOURCE}" peripheral_source)
 
+foreach(required_imu_fragment
+    "imu_transform.output = {{{1U, 1}, {0U, -1}, {2U, 1}}}"
+    "imu_transform.verified = true")
+  string(FIND "${target_source}" "${required_imu_fragment}" imu_position)
+  if(imu_position EQUAL -1)
+    message(FATAL_ERROR
+            "STM32 composition root lacks measured IMU transform: ${required_imu_fragment}")
+  endif()
+endforeach()
+
+foreach(required_board_profile_fragment
+    "configuration.channel_wiring_sign = {1, 1, 1, 1}"
+    "M1/front-left, M2/rear-left, M3/front-right, M4/rear-right")
+  string(FIND "${target_source}" "${required_board_profile_fragment}"
+         profile_position)
+  if(profile_position EQUAL -1)
+    message(FATAL_ERROR
+            "STM32 composition root lacks measured board profile: ${required_board_profile_fragment}")
+  endif()
+endforeach()
+
 function(extract_function source start_marker end_marker output)
   string(FIND "${source}" "${start_marker}" start)
   string(FIND "${source}" "${end_marker}" end)

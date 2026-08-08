@@ -31,16 +31,16 @@ renumbered when this document is edited; retired IDs remain reserved.
 
 | ID | Requirement | Verification |
 |---|---|---|
-| PLAT-001 | The deployment host **shall** run ROS 2 Humble on Ubuntu 22.04 amd64 or arm64. An Ubuntu 24.04 development host shall keep ROS out of the native OS. ROS-dependent host builds and micro-ROS generation shall use pinned Ubuntu 22.04/Humble containers; ROS-free cross-compilation, analysis, and portable tests may use pinned Ubuntu 24.04 utility containers. Native macOS is not a deployment target. | Test |
+| PLAT-001 | The production deployment host **shall** run ROS 2 Humble natively on Ubuntu 22.04 amd64 or arm64. A connected development host may use any Ubuntu release on those architectures: Ubuntu 22.04 shall build and run Humble natively, while every other release shall keep ROS out of the native OS and use the pinned Ubuntu 22.04/Humble containers for ROS-dependent builds, the Agent, host nodes, and MCU access. Architecture shall be detected from the native host, not selected by the operator. Native macOS is not a deployment target. | Test |
 | PLAT-002 | The MCU software **shall** target STM32F407VET6 using STM32 HAL, FreeRTOS, and the pinned ROS 2 Humble-compatible micro-ROS client stack. | Inspection |
 | PLAT-003 | MCU application objects, queues, and buffers **shall** be statically sized. Middleware arena setup is allowed only in bounded `CREATE_ENTITIES` preparation before the allocation seal; `ACTIVE` shall perform no allocation, reallocation, or free, and `TEARDOWN` shall finalize references then reset the complete arena to its pre-create baseline before another create cycle. | Analysis, Test |
 | PLAT-004 | The authoritative firmware build **shall** use CMake/Ninja behind the thin root Makefile, compile project-owned sources with warnings treated as errors, and emit ELF, HEX/BIN, map, metadata, and size reports. Independent IDE build graphs shall not be part of the supported build or flash path. | Test |
 | HW-001 | The firmware **shall** control four encoder DC motor channels, M1 through M4. | Test |
 | HW-002 | The firmware **shall** control four PWM servo outputs, numbered 1 through 4. | Test |
 | HW-003 | The firmware **shall** control and query as many as 16 addressable half-duplex bus servos. | Test |
-| HW-004 | The firmware **shall** control all three onboard discrete LEDs, numbered 1 through 3. | Test |
+| HW-004 | The firmware **shall** expose onboard discrete LEDs 1 and 2 to validated ROS pattern commands and reserve LED3 for the successful-ROS-heartbeat indicator. | Test |
 | HW-005 | The firmware **shall** control the single onboard PWM buzzer. | Test |
-| HW-006 | The firmware **shall** independently control the two onboard RGB pixels, numbered 1 and 2. | Test |
+| HW-006 | The firmware **shall** expose onboard RGB pixel 1 to validated ROS commands and reserve RGB pixel 2 for allocation-free RX-red/TX-green transport activity; its blue component shall remain off. | Test |
 | HW-007 | The firmware **shall** update the two host-controlled text lines of the onboard 128 x 32 OLED; the battery line remains controller-owned. | Test |
 | HW-008 | The firmware **shall** publish raw QMI8658 accelerometer and gyroscope measurements in SI units. | Test |
 | HW-009 | The firmware **shall** publish events from the two onboard buttons, numbered 1 and 2. | Test |
@@ -70,7 +70,7 @@ legacy source file shall be resolved in favor of that verified baseline.
 | TRN-005 | A normal Agent loss **shall** leave PWM servos and bus servos holding their last valid target and torque state. | Test |
 | TRN-006 | A transport RX overrun, any USART1 framing/noise/overrun/parity error, or transport TX timeout **shall** cause immediate safe transport teardown and motor disarm before reconnection is attempted. | Test |
 | ROS-001 | The interface package **shall** be named `mentor_pi_interfaces`, and the MCU node **shall** have fully qualified name `/mentor_pi/controller`. | Inspection, Test |
-| ROS-002 | The node **shall** create exactly the seven application publishers, seven application subscriptions, and six application services defined by [ros-interface-contract.md](ros-interface-contract.md); middleware-internal discovery entities are not part of this count. | Inspection, Test |
+| ROS-002 | The node **shall** create exactly the seven application publishers, seven application subscriptions, and seven application services defined by [ros-interface-contract.md](ros-interface-contract.md); middleware-internal discovery entities are not part of this count. | Inspection, Test |
 | ROS-003 | Every custom array **shall** be fixed-size, and every custom string **shall** be bounded. No custom interface shall contain an unbounded sequence or string. | Inspection |
 | ROS-004 | Topic and service names, types, field meanings, units, ranges, validation rules, and QoS **shall** conform exactly to [ros-interface-contract.md](ros-interface-contract.md). | Test |
 | ROS-005 | Services **shall** return the common numeric `Result` model; topic validation failures shall be observable through diagnostics. | Test |
@@ -90,8 +90,8 @@ legacy source file shall be resolved in favor of that verified baseline.
 | CTRL-007 | A bus-servo move **shall** accept one through 16 unique IDs, one position per ID, and one shared duration. | Test |
 | CTRL-008 | Bus-servo state query and configuration **shall** expose ID, position, offset, voltage, temperature, position limits, voltage limits, temperature limit, and torque state. | Test |
 | CTRL-009 | When the shared bus-service slot is free, stop requests **shall** have dispatch priority over query/configuration, and any accepted bus service shall have priority over pending move traffic. An accepted service is non-preemptible; a stop received while another bus service owns the slot shall receive `BUSY` and may be retried. Accepting a stop shall interrupt an active move between frames and invalidate both its unsent remainder and every pending move generation accepted before that stop; only a post-stop move command may restart motion traffic. | Test |
-| CTRL-010 | LED and buzzer pattern commands **shall** support steady off, steady on, finite repetition, and indefinite repetition. | Test |
-| CTRL-011 | RGB commands **shall** independently update either or both RGB pixels using 8-bit red, green, and blue components. | Test |
+| CTRL-010 | LED1/LED2 and buzzer pattern commands **shall** support steady off, steady on, finite repetition, and indefinite repetition. LED3 commands shall be rejected without changing its heartbeat state. | Test |
+| CTRL-011 | RGB commands **shall** update RGB pixel 1 using 8-bit red, green, and blue components. Masks selecting firmware-owned RGB pixel 2, including the legacy all-pixels mask, shall be rejected atomically. | Test |
 | CTRL-012 | OLED commands **shall** independently replace or clear either host-controlled line and shall reject unsupported characters or oversized strings. | Test |
 | CTRL-013 | Button event values **shall** preserve pressed, long-press, long-press-repeat, short/long release, click, double-click, and triple-click distinctions. | Test |
 | CTRL-014 | The battery threshold **shall** be runtime configurable from 5000 through 20000 millivolts and shall default to 6300 millivolts after reset. | Test |
@@ -114,7 +114,7 @@ legacy source file shall be resolved in favor of that verified baseline.
 | SAFE-003 | The watchdog and transport safety path **shall** execute without depending on receipt or processing of another ROS message. | Analysis, Test |
 | SAFE-004 | Bus-servo configuration **shall** validate the complete request before the first write. If an I/O failure occurs after one or more writes, the response shall report `PARTIAL` and the exact applied-field mask. | Test |
 | SAFE-005 | Service success for a write-only bus-servo operation **shall** mean that the command was transmitted successfully; it shall not claim physical application without readback. | Review, Test |
-| SAFE-006 | A normal firmware build **shall** keep closed-loop motor motion disabled, accept selected zero targets as stop commands, and reject every selected nonzero motor target atomically as `UNSUPPORTED`. A commissioning build may enable nonzero targets only through `make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED`; the underlying CMake gates shall still require both exact internal commissioning values. It shall cap accepted magnitude at 0.25 RPS and absolute drive output at 300 permille. | Inspection, Test |
+| SAFE-006 | A normal firmware build **shall** keep nonzero motor motion disabled, accept selected zero targets as stop commands, and reject every selected nonzero motor target atomically as `UNSUPPORTED`. The initial commissioning build may enable nonzero targets only through `make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED`; the underlying CMake gates shall still require both exact internal commissioning values. Its direction-check mode shall bypass PID, derive only direction from the signed command, apply exactly 250 permille, reject magnitudes above 0.25 RPS, and stop/disarm a selected channel above 0.50 measured RPS. The separately acknowledged `make firmware-commissioning-pid COMMISSIONING_BUILD_ACK=MOTORS_RAISED` target **shall** produce a distinctly classified closed-loop artifact with a 6 RPS implementation ceiling, per-model limits, and a 1000-permille output clamp. | Inspection, Test |
 | SAFE-007 | Before the first powered motor command on a board, commissioning **shall** complete a passive, manually driven encoder direction test with motor outputs disabled. Wheels shall then remain raised or equivalently guarded and the board shall use a current-limited supply for every unqualified powered test. The JGA27 model polarity factor is provisionally `-1` from legacy evidence only; neither that polarity nor any motor PID profile is release-qualified until the required motor HIL passes and its evidence is recorded. | Review, Test |
 
 The detailed task ownership, queueing rules, and fault-state transitions are
@@ -145,7 +145,7 @@ defined by [architecture.md](architecture.md) and
 | PERF-002 | The PERF-001 test **shall** complete with no deadlock, executor overrun, unexpected reset, memory/queue growth, stale command replay, or failure of the 100 Hz motor loop or 200 ms motor lease. | Test |
 | SOAK-001 | The integrated MCU, Agent, and C++ supervisor **shall** complete a continuous 24-hour nominal-load soak with no unexpected reset, deadlock, resource growth, stale replay, missed safety transition, or loss of required ROS entities. | Test |
 | REC-001 | The release **shall** pass 100 USB cable removal/restoration cycles, 100 Agent kill/restart cycles, and 100 MCU reset cycles. | Test |
-| REC-002 | In every REC-001 cycle, all seven publishers, seven subscriptions, and six services **shall** be present in the ROS graph within 5 seconds after the physical transport and Agent are available. | Test |
+| REC-002 | In every REC-001 cycle, all seven publishers, seven subscriptions, and seven services **shall** be present in the ROS graph within 5 seconds after the physical transport and Agent are available. | Test |
 | REC-003 | No actuator command accepted before a disconnect or reset **shall** be replayed after entity recreation; DC motors shall require a new post-recovery command that is still subject to the active build's motor lock or commissioning cap. | Test |
 
 ## 9. Related documents

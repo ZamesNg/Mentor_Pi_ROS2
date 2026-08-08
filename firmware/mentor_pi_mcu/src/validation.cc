@@ -163,6 +163,35 @@ Result ValidateConfigureBusServoCommand(
   return OkResult();
 }
 
+Result ValidateSetMotorPidCommand(const SetMotorPidCommand& command) {
+  const Result mask_result = ValidateMask(command.update_mask, kAllMotorMask);
+  if (!mask_result.ok()) {
+    return mask_result;
+  }
+  for (std::size_t index = 0; index < kMotorCount; ++index) {
+    const auto bit = static_cast<std::uint8_t>(1U << index);
+    if ((command.update_mask & bit) == 0U) {
+      continue;
+    }
+    const float proportional = command.proportional_gain[index];
+    const float integral = command.integral_gain[index];
+    const float derivative = command.derivative_gain[index];
+    const float filter = command.velocity_filter_new_weight[index];
+    if (!std::isfinite(proportional) || !std::isfinite(integral) ||
+        !std::isfinite(derivative) || !std::isfinite(filter)) {
+      return {ResultCode::kInvalidArgument,
+              static_cast<std::uint16_t>(index + 1U)};
+    }
+    if (proportional < 0.0F || integral < 0.0F || derivative < 0.0F ||
+        proportional > kMotorPidMaximumGain ||
+        integral > kMotorPidMaximumGain || derivative > kMotorPidMaximumGain ||
+        filter < 0.0F || filter > 1.0F) {
+      return {ResultCode::kOutOfRange, static_cast<std::uint16_t>(index + 1U)};
+    }
+  }
+  return OkResult();
+}
+
 Result ValidateGetBusServoStateCommand(const GetBusServoStateCommand& command) {
   const Result mask_result =
       ValidateMask(command.fields, GetBusServoStateCommand::kAllFields);
@@ -181,7 +210,7 @@ Result ValidateGetBusServoStateCommand(const GetBusServoStateCommand& command) {
 }
 
 Result ValidateLedCommand(const LedCommand& command) {
-  if (command.led_id < 1U || command.led_id > kLedCount) {
+  if (command.led_id < 1U || command.led_id > kHostLedCount) {
     return {ResultCode::kOutOfRange, command.led_id};
   }
   return OkResult();
@@ -198,7 +227,7 @@ Result ValidateBuzzerCommand(const BuzzerCommand& command) {
 }
 
 Result ValidateRgbCommand(const RgbCommand& command) {
-  return ValidateMask(command.update_mask, kAllRgbPixelMask);
+  return ValidateMask(command.update_mask, kHostRgbPixelMask);
 }
 
 Result ValidateOledCommand(const OledCommand& command) {

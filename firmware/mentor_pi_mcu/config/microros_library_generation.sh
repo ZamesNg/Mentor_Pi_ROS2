@@ -84,7 +84,25 @@ set -u
   echo "The static library generator must run in ROS 2 Humble." >&2
   exit 1
 }
-ros2 run micro_ros_setup create_firmware_ws.sh generate_lib
+readonly MICROROS_SETUP_PREFIX="$(ros2 pkg prefix micro_ros_setup)"
+readonly CREATE_FIRMWARE_WORKSPACE_SCRIPT="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup/create_firmware_ws.sh"
+readonly CREATE_WORKSPACE_SCRIPT="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup/create_ws.sh"
+[[ -x "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}" &&
+   -x "${CREATE_WORKSPACE_SCRIPT}" ]] || {
+  echo "Pinned micro-ROS workspace scripts are missing under ${MICROROS_SETUP_PREFIX}." >&2
+  exit 1
+}
+# The upstream creator launches create_ws.sh through ros2run. ros2run replaces
+# useful vcs-import diagnostics with only "Process exited with failure N" on
+# failure. This disposable container is the sole owner of the installed copy,
+# so call the exact same pinned script directly and retain its real error.
+sed -i \
+  "s#ros2 run micro_ros_setup create_ws.sh#${CREATE_WORKSPACE_SCRIPT}#g" \
+  "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
+if ! "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}" generate_lib; then
+  echo "Pinned micro-ROS workspace creation failed; see the repository import error above." >&2
+  exit 1
+fi
 
 pushd firmware/mcu_ws >/dev/null
 git clone --branch humble --no-tags https://github.com/ros2/geometry2
@@ -185,6 +203,19 @@ bash /rrclite_tools/apply_microros_source_lock.sh \
   /uros_ws/firmware /project/config/microros_sources.lock \
   --deferred-repository "${MICROROS_LIBYAML_REPOSITORY}"
 
+# The pinned Humble RMW treats an empty static service-input queue as an error,
+# despite already setting taken=false. Apply the reviewed one-line semantic
+# correction after provenance locking and before compilation. Deserialization
+# failures and every other RMW error remain unchanged.
+readonly RMW_REPOSITORY="/uros_ws/firmware/mcu_ws/uros/rmw_microxrcedds"
+readonly RMW_IDLE_SERVICE_PATCH="/project/config/patches/rmw_microxrcedds_idle_service.patch"
+[[ -f "${RMW_IDLE_SERVICE_PATCH}" && ! -L "${RMW_IDLE_SERVICE_PATCH}" ]]
+git -C "${RMW_REPOSITORY}" apply --check "${RMW_IDLE_SERVICE_PATCH}"
+git -C "${RMW_REPOSITORY}" apply "${RMW_IDLE_SERVICE_PATCH}"
+[[ "$(git -C "${RMW_REPOSITORY}" diff --name-only)" == \
+  "rmw_microxrcedds_c/src/rmw_request.c" ]]
+git -C "${RMW_REPOSITORY}" diff --check
+
 while IFS= read -r colcon_ignore; do
   [[ -n "${colcon_ignore}" ]] || continue
   [[ ! -e "${colcon_ignore}" && ! -L "${colcon_ignore}" ]] || {
@@ -196,9 +227,15 @@ done <"${GENERATED_COLCON_IGNORES}"
 rm -f -- "${GENERATED_COLCON_IGNORES}"
 
 export TOOLCHAIN_PREFIX="${PINNED_TOOLCHAIN_ROOT}/arm-none-eabi-"
-ros2 run micro_ros_setup build_firmware.sh \
-  "${BASE_PATH}/library_generation/toolchain.cmake" \
-  "${BASE_PATH}/library_generation/colcon.meta"
+if ! ros2 run micro_ros_setup build_firmware.sh \
+    "${BASE_PATH}/library_generation/toolchain.cmake" \
+    "${BASE_PATH}/library_generation/colcon.meta"; then
+  echo "micro-ROS firmware build failed; non-empty package logs follow:" >&2
+  find /uros_ws/firmware/mcu_ws/log -type f \
+    \( -name stderr.log -o -name stdout_stderr.log \) -size +0c \
+    -print -exec sed -n '1,240p' {} \; >&2 || true
+  exit 1
+fi
 
 find firmware/build/include -name '*.c' -delete
 mkdir -p "${BASE_PATH}/libmicroros/include"

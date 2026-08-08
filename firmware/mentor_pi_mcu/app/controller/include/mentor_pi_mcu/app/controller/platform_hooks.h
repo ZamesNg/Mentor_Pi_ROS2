@@ -40,6 +40,12 @@ struct BatterySample {
   bool available{false};
 };
 
+struct TransportActivity {
+  std::uint64_t rx_wire_bytes{0U};
+  std::uint64_t tx_wire_bytes{0U};
+  bool open{false};
+};
+
 // Every function is bounded and allocation-free. Deadlines are absolute
 // monotonic values in the unit named by the field. Target glue may delegate to
 // STM32 HAL/platform functions or to the portable driver HAL interfaces.
@@ -115,6 +121,7 @@ struct PlatformHooks {
   mentor_pi::mcu::drivers::IoStatus (*rgb_spi_poll_transmit)(
       void* context, std::uint32_t now_us){nullptr};
   void (*rgb_spi_cancel)(void* context){nullptr};
+  TransportActivity (*read_transport_activity)(void* context){nullptr};
 
   std::uint32_t (*task_stack_high_water_bytes)(void* context,
                                                ControllerTask task){nullptr};

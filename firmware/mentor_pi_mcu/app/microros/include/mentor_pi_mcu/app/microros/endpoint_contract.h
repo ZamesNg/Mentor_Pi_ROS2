@@ -47,8 +47,9 @@ inline constexpr std::array<TopicEndpoint, 7> kSubscriptionEndpoints{{
     {"oled/command", Reliability::kReliable, 1U},
 }};
 
-inline constexpr std::array<ServiceEndpoint, 6> kServiceEndpoints{{
+inline constexpr std::array<ServiceEndpoint, 7> kServiceEndpoints{{
     {"motors/set_model"},
+    {"motors/set_pid"},
     {"pwm_servos/set_offsets"},
     {"bus_servos/get_state"},
     {"bus_servos/configure"},

@@ -123,15 +123,18 @@ void MicroRosRuntime::PublishOneDueBestEffortTelemetry(std::uint32_t now_ms) {
 
     switch (static_cast<BestEffortPublisherIndex>(publisher)) {
       case BestEffortPublisherIndex::kMotors:
-        last_motor_publish_ms_ = now_ms;
+        last_motor_publish_ms_ = AdvancePeriodicRelease(
+            now_ms, last_motor_publish_ms_, kMotorPublishPeriodMs);
         PublishMotorState(now_ms);
         break;
       case BestEffortPublisherIndex::kPwmServos:
-        last_pwm_publish_ms_ = now_ms;
+        last_pwm_publish_ms_ = AdvancePeriodicRelease(
+            now_ms, last_pwm_publish_ms_, kPwmPublishPeriodMs);
         PublishPwmServoState(now_ms);
         break;
       case BestEffortPublisherIndex::kImu:
-        last_imu_publish_ms_ = now_ms;
+        last_imu_publish_ms_ = AdvancePeriodicRelease(
+            now_ms, last_imu_publish_ms_, kImuPublishPeriodMs);
         PublishImuState(now_ms);
         break;
     }
@@ -172,16 +175,26 @@ void MicroRosRuntime::PublishOneDueReliableTelemetry(std::uint32_t now_ms) {
         attempted = PublishButtonEvent(now_ms);
         break;
       case ReliablePublisherIndex::kBattery:
-        last_battery_publish_ms_ = now_ms;
         attempted = PublishBatteryState(now_ms);
+        if (attempted) {
+          last_battery_publish_ms_ = AdvancePeriodicRelease(
+              now_ms, last_battery_publish_ms_, kBatteryPublishPeriodMs);
+        }
         break;
       case ReliablePublisherIndex::kHeartbeat:
-        last_heartbeat_publish_ms_ = now_ms;
         attempted = PublishHeartbeat(now_ms);
+        if (attempted) {
+          last_heartbeat_publish_ms_ = AdvancePeriodicRelease(
+              now_ms, last_heartbeat_publish_ms_, kHeartbeatPublishPeriodMs);
+        }
         break;
       case ReliablePublisherIndex::kDiagnostics:
-        last_diagnostics_publish_ms_ = now_ms;
         attempted = PublishDiagnostics(now_ms);
+        if (attempted) {
+          last_diagnostics_publish_ms_ =
+              AdvancePeriodicRelease(now_ms, last_diagnostics_publish_ms_,
+                                     kDiagnosticsPublishPeriodMs);
+        }
         break;
     }
     if (lifecycle_.state() != SessionState::kActive) {
@@ -244,7 +257,9 @@ void MicroRosRuntime::PublishImuState(std::uint32_t now_ms) {
   static_cast<void>(now_ms);
   ImuTelemetry snapshot = imu_telemetry_cache_;
   ImuTelemetry update{};
-  if (hooks_.read_imu_telemetry(hooks_.context, &update)) {
+  const bool update_received =
+      hooks_.read_imu_telemetry(hooks_.context, &update);
+  if (update_received) {
     if (update.valid) {
       imu_telemetry_cache_ = update;
       has_imu_sample_ = true;
@@ -254,6 +269,15 @@ void MicroRosRuntime::PublishImuState(std::uint32_t now_ms) {
       imu_telemetry_cache_.valid = false;
     }
     snapshot = imu_telemetry_cache_;
+  }
+  if (!has_imu_sample_) {
+    // Before the board-axis transform is verified, forward at most one invalid
+    // sensor-owner update. Do not manufacture periodic samples from an
+    // untouched empty cache or duplicate the volatile characterization marker.
+    if (!update_received || initial_invalid_imu_published_) {
+      return;
+    }
+    initial_invalid_imu_published_ = true;
   }
   auto& message = publication_messages_.imu;
   if (has_imu_sample_) {
@@ -304,8 +328,7 @@ bool MicroRosRuntime::PublishBatteryState(std::uint32_t now_ms) {
   message.low_threshold_mv = snapshot.low_threshold_mv;
   message.valid = snapshot.valid;
   message.below_threshold = snapshot.below_threshold;
-  static_cast<void>(Publish(ToIndex(PublisherIndex::kBattery), &message, true));
-  return true;
+  return Publish(ToIndex(PublisherIndex::kBattery), &message, true);
 }
 
 bool MicroRosRuntime::PublishHeartbeat(std::uint32_t now_ms) {
@@ -342,9 +365,12 @@ bool MicroRosRuntime::PublishHeartbeat(std::uint32_t now_ms) {
   } else {
     message.state = static_cast<std::uint8_t>(HeartbeatState::kReady);
   }
-  static_cast<void>(
-      Publish(ToIndex(PublisherIndex::kHeartbeat), &message, true));
-  return true;
+  const bool published =
+      Publish(ToIndex(PublisherIndex::kHeartbeat), &message, true);
+  if (published) {
+    hooks_.record_successful_ros_heartbeat(hooks_.context);
+  }
+  return published;
 }
 
 bool MicroRosRuntime::PublishDiagnostics(std::uint32_t now_ms) {
@@ -431,9 +457,7 @@ bool MicroRosRuntime::PublishDiagnostics(std::uint32_t now_ms) {
     message.last_error_source = worker.last_error_source;
   }
 
-  static_cast<void>(
-      Publish(ToIndex(PublisherIndex::kDiagnostics), &message, true));
-  return true;
+  return Publish(ToIndex(PublisherIndex::kDiagnostics), &message, true);
 }
 
 bool MicroRosRuntime::Publish(std::size_t publisher_index, const void* message,
@@ -444,10 +468,8 @@ bool MicroRosRuntime::Publish(std::size_t publisher_index, const void* message,
   }
   if (reliable && !active_slice_budget_.TryStartBlockingOperation(
                       ActiveWorkClass::kReliableTelemetry)) {
-    SaturatingIncrement(&counters_.publication_errors);
-    RequestTeardown(TeardownReason::kEntityError, ErrorSource::kExecutor,
-                    {mentor_pi::mcu::ResultCode::kIoError,
-                     static_cast<std::uint16_t>(publisher_index)});
+    // A scheduling-permit collision is local backpressure, not a broken XRCE
+    // session. Leave the timestamp due so the next reliable slice retries it.
     return false;
   }
   const MiddlewareBoundary boundary =

@@ -4,8 +4,8 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-readonly HOST_BUILDER_TOOL="${SCRIPT_DIR}/build_host_handoff_container.sh"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
+readonly HOST_RUNTIME_BUILDER="${SCRIPT_DIR}/build_host_runtime_image.sh"
 readonly -a BUILD_DOCKERFILE_COMPONENTS=(
   "ubuntu:${SCRIPT_DIR}/docker/firmware-builder.Dockerfile"
   "microros:${SCRIPT_DIR}/docker/microros-builder.Dockerfile"
@@ -58,13 +58,10 @@ if [[ "${dry_run}" == "0" ]]; then
   docker info >/dev/null 2>&1 || \
     Fail "Docker Desktop/Engine is not running or is not accessible"
 fi
-[[ -x "${HOST_BUILDER_TOOL}" ]] || \
-  Fail "host container build tool is missing or not executable"
 [[ -x "${IMAGE_SELECTOR}" ]] || \
   Fail "pinned image selector is missing or not executable"
 
-host_image="$(${HOST_BUILDER_TOOL} --print-default-image \
-  --architecture "${architecture}")" || \
+host_image="$(${IMAGE_SELECTOR} host "${architecture}")" || \
   Fail "could not read the pinned Humble host image"
 PullImage "${host_image}" "host build"
 
@@ -92,7 +89,10 @@ for component_and_dockerfile in "${BUILD_DOCKERFILE_COMPONENTS[@]}"; do
 done
 
 if [[ "${dry_run}" == "1" ]]; then
+  printf './tools/build_host_runtime_image.sh --architecture %q\n' \
+    "${architecture}"
   echo "Pinned RRCLite image pull plan is valid for linux/${architecture}."
 else
+  "${HOST_RUNTIME_BUILDER}" --architecture "${architecture}"
   echo "Pinned RRCLite build images are present locally for linux/${architecture}."
 fi

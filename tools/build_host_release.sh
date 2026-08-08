@@ -12,11 +12,12 @@ readonly ROS_SETUP="/opt/ros/humble/setup.bash"
 project_root="${DEFAULT_PROJECT_ROOT}"
 output_prefix=""
 work_directory=""
+skip_tests=0
 
 Usage() {
   cat >&2 <<'EOF'
 Usage: build_host_release.sh --output-prefix ABSOLUTE_PATH
-  --work-directory ABSOLUTE_PATH [--project-root ABSOLUTE_PATH]
+  --work-directory ABSOLUTE_PATH [--project-root ABSOLUTE_PATH] [--skip-tests]
 EOF
   exit 2
 }
@@ -31,6 +32,7 @@ while (($# > 0)); do
     --output-prefix) output_prefix="${2:-}"; shift 2 ;;
     --work-directory) work_directory="${2:-}"; shift 2 ;;
     --project-root) project_root="${2:-}"; shift 2 ;;
+    --skip-tests) skip_tests=1; shift ;;
     *) Usage ;;
   esac
 done
@@ -46,8 +48,8 @@ done
 [[ -x "${ENVIRONMENT_CHECK}" && -x "${FINGERPRINT_TOOL}" &&
       -x "${RELOCATION_CHECK}" ]] ||
   Fail "host build verification tools are missing"
-for package in mentor_pi_interfaces mentor_pi_bringup; do
-  [[ -f "${project_root}/src/${package}/package.xml" ]] ||
+for package in mentor_pi_interfaces mentor_pi_bringup mentor_pi_hardwares; do
+  [[ -f "${project_root}/mentor_pi_ros2/src/${package}/package.xml" ]] ||
     Fail "missing source package ${package}"
 done
 readonly INITIAL_SOURCE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${project_root}")"
@@ -58,8 +60,7 @@ set +u
 source "${ROS_SETUP}"
 set -u
 rosdep check --from-paths \
-  "${project_root}/src/mentor_pi_interfaces" \
-  "${project_root}/src/mentor_pi_bringup" \
+  "${project_root}/mentor_pi_ros2/src" \
   --ignore-src --rosdistro humble
 
 mkdir -p "$(dirname "${output_prefix}")" "$(dirname "${work_directory}")"
@@ -67,27 +68,35 @@ mkdir "${work_directory}"
 readonly LOG_ROOT="${work_directory}/log"
 readonly BUILD_ROOT="${work_directory}/build"
 
+if ((skip_tests == 1)); then
+  readonly BUILD_TESTING=OFF
+else
+  readonly BUILD_TESTING=ON
+fi
+
 colcon --log-base "${LOG_ROOT}" build \
   --merge-install \
   --base-paths \
-    "${project_root}/src/mentor_pi_interfaces" \
-    "${project_root}/src/mentor_pi_bringup" \
+    "${project_root}/mentor_pi_ros2/src" \
   --build-base "${BUILD_ROOT}" \
   --install-base "${output_prefix}" \
-  --packages-up-to mentor_pi_bringup \
+  --packages-up-to mentor_pi_bringup mentor_pi_hardwares \
   --event-handlers console_direct+ \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+  --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING="${BUILD_TESTING}"
 
-set +u
-source "${output_prefix}/setup.bash"
-set -u
-colcon --log-base "${LOG_ROOT}" test \
-  --merge-install \
-  --build-base "${BUILD_ROOT}" \
-  --install-base "${output_prefix}" \
-  --packages-select mentor_pi_interfaces mentor_pi_bringup \
-  --event-handlers console_direct+
-colcon test-result --test-result-base "${BUILD_ROOT}" --verbose
+if ((skip_tests == 0)); then
+  set +u
+  source "${output_prefix}/setup.bash"
+  set -u
+  colcon --log-base "${LOG_ROOT}" test \
+    --merge-install \
+    --build-base "${BUILD_ROOT}" \
+    --install-base "${output_prefix}" \
+    --packages-select mentor_pi_interfaces mentor_pi_bringup \
+      mentor_pi_hardwares \
+    --event-handlers console_direct+
+  colcon test-result --test-result-base "${BUILD_ROOT}" --verbose
+fi
 
 readonly POST_TEST_SOURCE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${project_root}")"
 [[ "${POST_TEST_SOURCE_FINGERPRINT}" == "${INITIAL_SOURCE_FINGERPRINT}" ]] ||
@@ -112,6 +121,7 @@ source_sha256=${INITIAL_SOURCE_FINGERPRINT}
 created_utc=${CREATED_UTC}
 compiler=${COMPILER_VERSION}
 builder_image=${BUILDER_IMAGE}
+tests=$([[ "${skip_tests}" == 1 ]] && echo skipped || echo passed)
 EOF
 
 required_paths=(
@@ -129,8 +139,15 @@ required_paths=(
   share/mentor_pi_bringup/launch/controller.launch.xml
   share/mentor_pi_bringup/systemd/mentor-pi-agent.service
   share/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in
-  share/ros_package_schema/package_common.xsd
-  share/ros_package_schema/package_format3.xsd
+  lib/libmentor_pi_hardwares.so
+  share/mentor_pi_hardwares/ros2_control_plugins.xml
+  share/mentor_pi_hardwares/launch/mecanum.launch.py
+  share/mentor_pi_hardwares/launch/ackermann.launch.py
+  share/mentor_pi_hardwares/launch/vehicle.launch.py
+  share/mentor_pi_hardwares/config/mecanum/hardware.yaml
+  share/mentor_pi_hardwares/config/ackermann/hardware.yaml
+  share/mentor_pi_hardwares/config/mecanum/mentor_pi.urdf.xacro
+  share/mentor_pi_hardwares/config/ackermann/mentor_pi.urdf.xacro
 )
 for relative in "${required_paths[@]}"; do
   [[ -f "${output_prefix}/${relative}" ]] ||

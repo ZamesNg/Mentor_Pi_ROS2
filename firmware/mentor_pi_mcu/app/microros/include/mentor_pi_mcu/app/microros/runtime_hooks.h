@@ -102,6 +102,11 @@ struct MotorModelReply {
   float max_rps{0.0F};
 };
 
+struct MotorPidReply {
+  mentor_pi::mcu::Result result{};
+  std::uint8_t applied_mask{0U};
+};
+
 struct PwmOffsetsReply {
   mentor_pi::mcu::Result result{};
   std::uint8_t applied_mask{0U};
@@ -166,6 +171,7 @@ struct RuntimeHooks {
   std::uint32_t (*monotonic_microseconds)(void* context){nullptr};
   void (*wait_milliseconds)(void* context, std::uint32_t maximum_ms){nullptr};
   void (*advance_task_heartbeat)(void* context){nullptr};
+  void (*record_successful_ros_heartbeat)(void* context){nullptr};
   void (*emergency_stop_motors)(void* context){nullptr};
   void (*set_session_active)(void* context, bool active,
                              std::uint32_t generation){nullptr};
@@ -205,6 +211,12 @@ struct RuntimeHooks {
                                mentor_pi::mcu::MotorModel model){nullptr};
   bool (*poll_motor_model)(void* context, ServiceToken token,
                            MotorModelReply* output){nullptr};
+  bool (*dispatch_motor_pid)(void* context, ServiceToken token,
+                             const mentor_pi::mcu::SetMotorPidCommand& command){
+      nullptr};
+  bool (*poll_motor_pid)(void* context, ServiceToken token,
+                         MotorPidReply* output){nullptr};
+  bool (*cancel_motor_pid)(void* context, ServiceToken token){nullptr};
   bool (*dispatch_pwm_offsets)(
       void* context, ServiceToken token,
       const mentor_pi::mcu::PwmServoOffsetCommand& command){nullptr};

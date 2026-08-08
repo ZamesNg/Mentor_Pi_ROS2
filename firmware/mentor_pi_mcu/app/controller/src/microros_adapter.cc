@@ -17,6 +17,7 @@ using mentor_pi_mcu::app::microros::GetBusServoStateReply;
 using mentor_pi_mcu::app::microros::HealthSnapshot;
 using mentor_pi_mcu::app::microros::ImuTelemetry;
 using mentor_pi_mcu::app::microros::MotorModelReply;
+using mentor_pi_mcu::app::microros::MotorPidReply;
 using mentor_pi_mcu::app::microros::MotorTelemetry;
 using mentor_pi_mcu::app::microros::PwmOffsetsReply;
 using mentor_pi_mcu::app::microros::PwmServoTelemetry;
@@ -43,6 +44,10 @@ void HookWaitMilliseconds(void* context, std::uint32_t maximum_ms) {
 
 void HookAdvanceHeartbeat(void* context) {
   Runtime(context)->AdvanceMicroRosHeartbeat();
+}
+
+void HookRecordSuccessfulRosHeartbeat(void* context) {
+  Runtime(context)->RecordSuccessfulRosHeartbeat();
 }
 
 void HookEmergencyStop(void* context) {
@@ -136,6 +141,20 @@ bool HookPollMotorModel(void* context, ServiceToken token,
   return Runtime(context)->PollMotorModel(token, output);
 }
 
+bool HookDispatchMotorPid(void* context, ServiceToken token,
+                          const mentor_pi::mcu::SetMotorPidCommand& command) {
+  return Runtime(context)->DispatchMotorPid(token, command);
+}
+
+bool HookPollMotorPid(void* context, ServiceToken token,
+                      MotorPidReply* output) {
+  return Runtime(context)->PollMotorPid(token, output);
+}
+
+bool HookCancelMotorPid(void* context, ServiceToken token) {
+  return Runtime(context)->CancelMotorPid(token);
+}
+
 bool HookDispatchPwmOffsets(
     void* context, ServiceToken token,
     const mentor_pi::mcu::PwmServoOffsetCommand& command) {
@@ -198,6 +217,7 @@ RuntimeHooks ControllerRuntime::BuildMicroRosHooks() {
   hooks.monotonic_microseconds = &HookMonotonicMicroseconds;
   hooks.wait_milliseconds = &HookWaitMilliseconds;
   hooks.advance_task_heartbeat = &HookAdvanceHeartbeat;
+  hooks.record_successful_ros_heartbeat = &HookRecordSuccessfulRosHeartbeat;
   hooks.emergency_stop_motors = &HookEmergencyStop;
   hooks.set_session_active = &HookSetSessionActive;
   hooks.invalidate_session_work = &HookInvalidateSessionWork;
@@ -218,6 +238,9 @@ RuntimeHooks ControllerRuntime::BuildMicroRosHooks() {
   hooks.read_worker_diagnostics = &HookReadDiagnostics;
   hooks.dispatch_motor_model = &HookDispatchMotorModel;
   hooks.poll_motor_model = &HookPollMotorModel;
+  hooks.dispatch_motor_pid = &HookDispatchMotorPid;
+  hooks.poll_motor_pid = &HookPollMotorPid;
+  hooks.cancel_motor_pid = &HookCancelMotorPid;
   hooks.dispatch_pwm_offsets = &HookDispatchPwmOffsets;
   hooks.poll_pwm_offsets = &HookPollPwmOffsets;
   hooks.dispatch_battery_threshold = &HookDispatchBatteryThreshold;

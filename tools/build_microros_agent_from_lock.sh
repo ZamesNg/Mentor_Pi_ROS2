@@ -5,6 +5,7 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SOURCE_LOCK="${SCRIPT_DIR}/microros_agent_source.lock"
 readonly STATE_VALIDATOR="${SCRIPT_DIR}/verify_microros_agent_install_state.sh"
+readonly XRCE_AGENT_PATCH="${SCRIPT_DIR}/patches/micro_xrce_agent_rrclite_modem_lines.patch"
 
 mode=""
 work_root=""
@@ -69,6 +70,8 @@ fi
 [[ -f "${SOURCE_LOCK}" && ! -L "${SOURCE_LOCK}" ]] || \
   Fail "Agent source lock is missing or symbolic"
 [[ -x "${STATE_VALIDATOR}" ]] || Fail "Agent source validator is unavailable"
+[[ -f "${XRCE_AGENT_PATCH}" && ! -L "${XRCE_AGENT_PATCH}" ]] || \
+  Fail "RRCLite Agent patch is missing or symbolic"
 [[ "${ROS_DISTRO:-}" == "humble" ]] || \
   Fail "the loaded ROS environment must identify ROS_DISTRO=humble"
 
@@ -113,6 +116,25 @@ CloneAndVerify() {
   fi
 }
 
+RestoreUnmodifiedXrceAgent() {
+  local repository="${SOURCE_ROOT}/Micro-XRCE-DDS-Agent"
+  if git -C "${repository}" apply --check "${XRCE_AGENT_PATCH}"; then
+    return
+  fi
+  if git -C "${repository}" apply --reverse --check "${XRCE_AGENT_PATCH}"; then
+    git -C "${repository}" apply --reverse "${XRCE_AGENT_PATCH}"
+    return
+  fi
+  Fail "XRCE Agent source is neither clean nor exactly RRCLite-patched"
+}
+
+ApplyRrcliteAgentPatch() {
+  local repository="${SOURCE_ROOT}/Micro-XRCE-DDS-Agent"
+  git -C "${repository}" apply --check "${XRCE_AGENT_PATCH}" || \
+    Fail "RRCLite modem-line patch does not apply to the pinned XRCE Agent"
+  git -C "${repository}" apply "${XRCE_AGENT_PATCH}"
+}
+
 ValidateSources() {
   "${STATE_VALIDATOR}" \
     --os-release /etc/os-release \
@@ -137,6 +159,7 @@ if [[ "${mode}" == "fetch" ]]; then
     "${SOURCE_ROOT}/micro_ros_msgs"
   CloneAndVerify "${XRCE_AGENT_REPOSITORY}" "${XRCE_AGENT_COMMIT}" \
     "${SOURCE_ROOT}/Micro-XRCE-DDS-Agent"
+  RestoreUnmodifiedXrceAgent
   ValidateSources
   echo "Fetched and verified pinned Humble micro-ROS Agent sources."
   exit 0
@@ -144,7 +167,9 @@ fi
 
 [[ -d "${work_root}" && ! -L "${work_root}" ]] || \
   Fail "Agent build work root is missing or symbolic"
+RestoreUnmodifiedXrceAgent
 ValidateSources
+ApplyRrcliteAgentPatch
 case "${dependency_mode}" in
   preinstalled)
     echo "Using the immutable builder's preinstalled dependency set."

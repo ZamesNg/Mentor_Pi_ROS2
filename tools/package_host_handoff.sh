@@ -163,8 +163,9 @@ validation_root=""
 staging_root="$(mktemp -d "${output_parent}/.mentor-pi-host-handoff.XXXXXX")"
 mkdir -p "${staging_root}/host" \
   "${staging_root}/agent-installer/tools" \
-  "${staging_root}/agent-installer/src/mentor_pi_bringup/scripts" \
-  "${staging_root}/docs"
+  "${staging_root}/agent-installer/tools/patches" \
+  "${staging_root}/agent-installer/mentor_pi_ros2/src/mentor_pi_bringup/scripts" \
+  "${staging_root}/docs/tutorials"
 cp -a "${host_prefix}/." "${staging_root}/host/"
 install -m 0755 \
   "${SCRIPT_DIR}/install_microros_agent.sh" \
@@ -174,23 +175,28 @@ install -m 0755 \
   "${staging_root}/agent-installer/tools/"
 install -m 0644 "${AGENT_SOURCE_LOCK}" \
   "${staging_root}/agent-installer/tools/microros_agent_source.lock"
-install -m 0755 \
-  "${PROJECT_ROOT}/src/mentor_pi_bringup/scripts/run_micro_ros_agent" \
-  "${staging_root}/agent-installer/src/mentor_pi_bringup/scripts/"
 install -m 0644 \
-  "${PROJECT_ROOT}/docs/host-preparation-and-handoff.md" \
-  "${PROJECT_ROOT}/docs/board-arrival-bringup-checklist.md" \
-  "${staging_root}/docs/"
+  "${SCRIPT_DIR}/patches/micro_xrce_agent_rrclite_modem_lines.patch" \
+  "${staging_root}/agent-installer/tools/patches/"
+install -m 0755 \
+  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/scripts/run_micro_ros_agent" \
+  "${staging_root}/agent-installer/mentor_pi_ros2/src/mentor_pi_bringup/scripts/"
+cp -a "${PROJECT_ROOT}/docs/tutorials/." \
+  "${staging_root}/docs/tutorials/"
 
 readonly CREATED_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 readonly PACKAGED_AGENT_SOURCE_LOCK="${staging_root}/agent-installer/tools/microros_agent_source.lock"
 readonly AGENT_LOCK_SHA="$(Sha256 "${PACKAGED_AGENT_SOURCE_LOCK}")"
+readonly PACKAGED_AGENT_PATCH="${staging_root}/agent-installer/tools/patches/micro_xrce_agent_rrclite_modem_lines.patch"
+readonly AGENT_PATCH_SHA="$(Sha256 "${PACKAGED_AGENT_PATCH}")"
 cat >"${staging_root}/AGENT-METADATA.txt" <<EOF
 format=rrclite-agent-handoff-v2
 ros_distro=humble
 installation=pinned-source-build
 source_lock=agent-installer/tools/microros_agent_source.lock
 source_lock_sha256=${AGENT_LOCK_SHA}
+rrclite_patch=agent-installer/tools/patches/micro_xrce_agent_rrclite_modem_lines.patch
+rrclite_patch_sha256=${AGENT_PATCH_SHA}
 installer=agent-installer/tools/install_microros_agent.sh
 runtime_executable=/opt/mentor_pi/bin/mentor_pi_micro_ros_agent
 EOF
@@ -220,8 +226,8 @@ On Ubuntu 22.04 ${ARCHITECTURE}, with mentor-pi-controller.target inactive:
     --staged-prefix "\${PWD}/host" --release-id ${release_id}
 
 Connect exactly one CH9102F, identify its tty/serial or ID_PATH, then follow
-docs/host-preparation-and-handoff.md from the matching project source before
-installing udev/systemd site assets. Do not enable the target before review.
+docs/tutorials/03-build-and-run-humble-host.md before installing
+udev/systemd site assets. Do not enable the target before review.
 EOF
 
 readonly POST_STAGING_SOURCE="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"

@@ -129,6 +129,11 @@ class FakePeripheral final : public PeripheralHardware {
 
 class FakeRegisterI2c final : public RegisterI2c {
  public:
+  struct WriteOperation {
+    std::uint8_t reg{0U};
+    std::uint8_t value{0U};
+  };
+
   IoStatus Read(std::uint8_t address, std::uint8_t reg, std::uint8_t* data,
                 std::size_t size, std::uint32_t deadline_us) override {
     last_deadline_us = deadline_us;
@@ -154,6 +159,11 @@ class FakeRegisterI2c final : public RegisterI2c {
     }
     for (std::size_t index = 0; index < size; ++index) {
       registers[static_cast<std::size_t>(reg) + index] = data[index];
+      if (write_count < writes.size()) {
+        writes[write_count] = {static_cast<std::uint8_t>(reg + index),
+                               data[index]};
+        ++write_count;
+      }
     }
     return IoStatus::kOk;
   }
@@ -165,6 +175,8 @@ class FakeRegisterI2c final : public RegisterI2c {
   std::uint8_t write_failure_register{0xffU};
   IoStatus read_failure_status{IoStatus::kIoError};
   IoStatus write_failure_status{IoStatus::kIoError};
+  std::array<WriteOperation, 16> writes{};
+  std::size_t write_count{0U};
 };
 
 class FakeSpi final : public AsyncSpi {
@@ -473,6 +485,23 @@ bool TestImuAndOled() {
         mentor_pi::mcu::ResultCode::kInvalidArgument);
   CHECK(imu.Initialize(1000U).ok());
   CHECK(imu.address() == 0x6aU && imu.revision() == 0x42U);
+  constexpr std::array<FakeRegisterI2c::WriteOperation, 7>
+      kExpectedInitializationWrites{{
+          {8U, 0x00U},
+          {2U, 0x78U},
+          {3U, 0x15U},
+          {4U, 0x35U},
+          {6U, 0x00U},
+          {9U, 0xc0U},
+          {8U, 0x03U},
+      }};
+  CHECK(i2c.write_count == kExpectedInitializationWrites.size());
+  for (std::size_t index = 0U; index < kExpectedInitializationWrites.size();
+       ++index) {
+    CHECK(i2c.writes[index].reg == kExpectedInitializationWrites[index].reg);
+    CHECK(i2c.writes[index].value ==
+          kExpectedInitializationWrites[index].value);
+  }
   CHECK(imu.ReadRawSample(4321U, &sample).ok());
   CHECK(i2c.last_deadline_us == 4321U);
   CHECK(std::fabs(sample.acceleration_mps2[0] - 9.80665F) < 0.0001F);

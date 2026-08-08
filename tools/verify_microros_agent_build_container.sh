@@ -121,7 +121,7 @@ readonly IMAGE_ARCH="$(docker image inspect "${DEFAULT_IMAGE}" \
 readonly IMAGE_ID="$(docker image inspect "${DEFAULT_IMAGE}" \
   --format '{{.Id}}' 2>/dev/null || true)"
 [[ "${IMAGE_ARCH}" == "${architecture}" ]] || \
-  Fail "pinned builder for ${architecture} is not local; run make setup HOST_ARCH=${architecture}"
+  Fail "pinned builder for ${architecture} is not local; run make setup"
 [[ "${IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
   Fail "could not resolve the pinned builder image ID"
 
@@ -194,6 +194,7 @@ readonly -a EVIDENCE_FILES=(
   fetch.log
   install-tree-files.sha256
   install-tree-symlinks.txt
+  micro_xrce_agent_rrclite_modem_lines.patch
   microros_agent_source.lock
 )
 : >"${STAGING_ROOT}/SHA256SUMS"
@@ -211,6 +212,8 @@ done
 readonly METADATA="${STAGING_ROOT}/AGENT-BUILD-EVIDENCE.txt"
 readonly CAPTURED_LOCK="${STAGING_ROOT}/microros_agent_source.lock"
 readonly PROJECT_LOCK="${PROJECT_ROOT}/tools/microros_agent_source.lock"
+readonly CAPTURED_PATCH="${STAGING_ROOT}/micro_xrce_agent_rrclite_modem_lines.patch"
+readonly PROJECT_PATCH="${PROJECT_ROOT}/tools/patches/micro_xrce_agent_rrclite_modem_lines.patch"
 RequireMetadataEquals() {
   local key="$1"
   local expected="$2"
@@ -251,7 +254,10 @@ RequireMetadataEquals xrce_agent_repository "${XRCE_AGENT_REPOSITORY}"
 RequireMetadataEquals xrce_agent_commit "${XRCE_AGENT_COMMIT}"
 cmp "${CAPTURED_LOCK}" "${PROJECT_LOCK}" >/dev/null || \
   Fail "captured Agent source lock differs from the project lock"
+cmp "${CAPTURED_PATCH}" "${PROJECT_PATCH}" >/dev/null || \
+  Fail "captured RRCLite Agent patch differs from the project patch"
 RequireMetadataSha source_lock_sha256 "$(Sha256 "${PROJECT_LOCK}")"
+RequireMetadataSha rrclite_patch_sha256 "$(Sha256 "${PROJECT_PATCH}")"
 RequireMetadataSha host_source_sha256 "${SOURCE_FINGERPRINT_BEFORE}"
 RequireMetadataSha install_tree_manifest_sha256 \
   "$(Sha256 "${STAGING_ROOT}/install-tree-files.sha256")"
@@ -268,7 +274,7 @@ RequireMetadataSha production_installer_sha256 \
 RequireMetadataSha shared_build_helper_sha256 \
   "$(Sha256 "${SCRIPT_DIR}/build_microros_agent_from_lock.sh")"
 RequireMetadataSha runtime_wrapper_sha256 \
-  "$(Sha256 "${PROJECT_ROOT}/src/mentor_pi_bringup/scripts/run_micro_ros_agent")"
+  "$(Sha256 "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/scripts/run_micro_ros_agent")"
 readonly EXECUTABLE_MANIFEST_ROW_COUNT="$(grep -Ec \
   '  [*]?.[/]lib/micro_ros_agent/micro_ros_agent$' \
   "${STAGING_ROOT}/install-tree-files.sha256" || true)"

@@ -40,6 +40,8 @@ ExpectFailure() {
 CreateFixture() {
   local name="$1"
   local mode="${2:-LOCKED}"
+  local motor_mode="${mode}"
+  local artifact_mode="NORMAL"
   local root="${TEST_ROOT}/${name}"
   local build_root="${root}/firmware/mentor_pi_mcu/build/stm32"
   mkdir -p "${root}/tools" "${build_root}" "${root}/tmp"
@@ -51,7 +53,8 @@ CreateFixture() {
   local digest
   digest="$(Sha256 "${build_root}/mentor_pi_mcu.elf")"
   printf '%s\n' \
-    "motor_mode=${mode}" \
+    "motor_mode=${motor_mode}" \
+    "artifact_mode=${artifact_mode}" \
     "elf_sha256=${digest}" \
     >"${build_root}/rrclite-build-metadata.txt"
 
@@ -93,6 +96,11 @@ CreateFixture() {
     '  fi' \
     '  shift' \
     'done' \
+    'if [[ -z "${snapshot}" ]]; then' \
+    '  sleep "${FAKE_PROGRAMMER_PREFLIGHT_DELAY_SEC:-0}"' \
+    '  exit "${FAKE_PROGRAMMER_PREFLIGHT_EXIT_CODE:-0}"' \
+    'fi' \
+    'sleep "${FAKE_PROGRAMMER_FLASH_DELAY_SEC:-0}"' \
     '[[ -n "${snapshot}" && -f "${snapshot}" && ! -L "${snapshot}" ]]' \
     'if command -v sha256sum >/dev/null 2>&1; then' \
     '  read -r snapshot_hash _ < <(sha256sum "${snapshot}")' \
@@ -109,6 +117,16 @@ CreateFixture() {
     >"${root}/STM32_Programmer_CLI"
   chmod +x "${root}/STM32_Programmer_CLI"
 
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    ': "${FAKE_BOOT_CONTROL_LOG:?}"' \
+    '[[ "$#" == 4 && "$1" == "--device" && "$3" == "--mode" ]]' \
+    'printf "%s\n" "$4" >>"${FAKE_BOOT_CONTROL_LOG}"' \
+    'if [[ "${FAKE_BOOT_CONTROL_FAIL_MODE:-}" == "$4" ]]; then exit 19; fi' \
+    >"${root}/ch9102_boot_control"
+  chmod +x "${root}/ch9102_boot_control"
+
   printf '%s' "${root}"
 }
 
@@ -120,6 +138,7 @@ RunFlash() {
   env \
     FAKE_PROGRAMMER_LOG="${root}/programmer.log" \
     FAKE_PROGRAMMER_SNAPSHOT_LOG="${root}/programmer-snapshot.log" \
+    FAKE_BOOT_CONTROL_LOG="${root}/boot-control.log" \
     FAKE_VERIFIER_LOG="${root}/verifier.log" \
     FAKE_VERIFIER_COUNT="${root}/verifier.count" \
     RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
@@ -147,6 +166,19 @@ ExpectFailure "existing character device" \
 commissioning_root="$(CreateFixture commissioning COMMISSIONING)"
 ExpectFailure "RRCLITE_COMMISSIONING_FLASH_ACK=" \
   RunFlash "${commissioning_root}" COMMISSIONING /dev/null
+
+pid_root="$(CreateFixture commissioning-pid COMMISSIONING_PID)"
+ExpectFailure "RRCLITE_COMMISSIONING_FLASH_ACK=" \
+  RunFlash "${pid_root}" COMMISSIONING_PID /dev/null
+RunFlash "${pid_root}" COMMISSIONING_PID /dev/null \
+  RRCLITE_COMMISSIONING_FLASH_ACK=MOTORS_RAISED_CURRENT_LIMITED \
+  >/dev/null
+printf '%s\t%s\n' \
+  COMMISSIONING_PID "${pid_root}" \
+  COMMISSIONING_PID "${pid_root}" \
+  >"${pid_root}/expected-verifier.log"
+cmp "${pid_root}/expected-verifier.log" "${pid_root}/verifier.log" || \
+  Fail "PID flash did not verify the exact COMMISSIONING_PID artifact twice"
 
 wrong_mode_root="$(CreateFixture wrong-mode LOCKED)"
 ExpectFailure "metadata mode changed" \
@@ -225,12 +257,88 @@ printf '%s\n' \
   db=8 \
   sb=1 \
   fc=OFF \
+  rts=low \
+  dtr=low \
   -w \
   "${success_snapshot}" \
   -v \
   >"${EXPECTED_PROGRAMMER_LOG}"
 cmp "${EXPECTED_PROGRAMMER_LOG}" "${success_root}/programmer.log" || \
   Fail "CubeProgrammer arguments differ from the reviewed UART command"
+
+automatic_root="$(CreateFixture automatic)"
+RunFlash "${automatic_root}" LOCKED /dev/null \
+  RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
+  RRCLITE_CH9102_BOOT_CONTROL="${automatic_root}/ch9102_boot_control" \
+  >/dev/null
+printf '%s\n' bootloader application >"${automatic_root}/expected-boot.log"
+cmp "${automatic_root}/expected-boot.log" \
+  "${automatic_root}/boot-control.log" || \
+  Fail "automatic flash did not enter bootloader then reset the application"
+
+activation_failure_root="$(CreateFixture activation-failure)"
+ExpectFailure "automatic bootloader activation failed" \
+  RunFlash "${activation_failure_root}" LOCKED /dev/null \
+    RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
+    RRCLITE_CH9102_BOOT_CONTROL="${activation_failure_root}/ch9102_boot_control" \
+    FAKE_PROGRAMMER_PREFLIGHT_EXIT_CODE=18
+grep -Fqx bootloader "${activation_failure_root}/boot-control.log" || \
+  Fail "activation failure did not preserve bootloader-only state"
+[[ "$(wc -l <"${activation_failure_root}/boot-control.log")" == "1" ]] || \
+  Fail "activation failure reset into the application"
+
+automatic_program_failure_root="$(CreateFixture automatic-program-failure)"
+ExpectFailure "programming or read-back verification failed" \
+  RunFlash "${automatic_program_failure_root}" LOCKED /dev/null \
+    RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
+    RRCLITE_CH9102_BOOT_CONTROL="${automatic_program_failure_root}/ch9102_boot_control" \
+    FAKE_PROGRAMMER_EXIT_CODE=17
+grep -Fqx bootloader \
+  "${automatic_program_failure_root}/boot-control.log" || \
+  Fail "program failure did not preserve bootloader-only state"
+[[ "$(wc -l <"${automatic_program_failure_root}/boot-control.log")" == "1" ]] || \
+  Fail "program failure reset into the application"
+
+automatic_interrupt_root="$(CreateFixture automatic-interrupt)"
+ExpectFailure "programming or read-back verification failed" \
+  RunFlash "${automatic_interrupt_root}" LOCKED /dev/null \
+    RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
+    RRCLITE_CH9102_BOOT_CONTROL="${automatic_interrupt_root}/ch9102_boot_control" \
+    FAKE_PROGRAMMER_EXIT_CODE=130
+[[ "$(cat "${automatic_interrupt_root}/boot-control.log")" == bootloader ]] || \
+  Fail "interrupted programming reset into the application"
+
+preflight_timeout_root="$(CreateFixture preflight-timeout)"
+ExpectFailure "automatic bootloader activation failed" \
+  RunFlash "${preflight_timeout_root}" LOCKED /dev/null \
+    RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
+    RRCLITE_CH9102_BOOT_CONTROL="${preflight_timeout_root}/ch9102_boot_control" \
+    RRCLITE_PROGRAMMER_PREFLIGHT_TIMEOUT_SEC=1 \
+    FAKE_PROGRAMMER_PREFLIGHT_DELAY_SEC=2
+[[ "$(cat "${preflight_timeout_root}/boot-control.log")" == bootloader ]] || \
+  Fail "preflight timeout reset into the application"
+
+flash_timeout_root="$(CreateFixture flash-timeout)"
+ExpectFailure "programming or read-back verification failed" \
+  RunFlash "${flash_timeout_root}" LOCKED /dev/null \
+    RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
+    RRCLITE_CH9102_BOOT_CONTROL="${flash_timeout_root}/ch9102_boot_control" \
+    RRCLITE_PROGRAMMER_FLASH_TIMEOUT_SEC=1 \
+    FAKE_PROGRAMMER_FLASH_DELAY_SEC=2
+[[ "$(cat "${flash_timeout_root}/boot-control.log")" == bootloader ]] || \
+  Fail "programming timeout reset into the application"
+
+application_reset_failure_root="$(CreateFixture application-reset-failure)"
+ExpectFailure "automatic normal-boot reset failed" \
+  RunFlash "${application_reset_failure_root}" LOCKED /dev/null \
+    RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
+    RRCLITE_CH9102_BOOT_CONTROL="${application_reset_failure_root}/ch9102_boot_control" \
+    FAKE_BOOT_CONTROL_FAIL_MODE=application
+printf '%s\n' bootloader application \
+  >"${application_reset_failure_root}/expected-boot.log"
+cmp "${application_reset_failure_root}/expected-boot.log" \
+  "${application_reset_failure_root}/boot-control.log" || \
+  Fail "application reset failure sequence differs"
 
 printf 'later authoritative replacement\n' \
   >"${success_build}/mentor_pi_mcu.elf"

@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include "mentor_pi_mcu/app/controller/platform_hooks.h"
+#include "mentor_pi_mcu/app/controller/status_rgb.h"
 #include "mentor_pi_mcu/app/microros/runtime_core.h"
 #include "mentor_pi_mcu/app/microros/runtime_hooks.h"
 #include "mentor_pi_mcu/domain/battery_monitor.h"
@@ -114,6 +115,11 @@ class ControllerRuntime {
                           mentor_pi::mcu::MotorModel model);
   bool PollMotorModel(mentor_pi_mcu::app::microros::ServiceToken token,
                       mentor_pi_mcu::app::microros::MotorModelReply* output);
+  bool DispatchMotorPid(mentor_pi_mcu::app::microros::ServiceToken token,
+                        const mentor_pi::mcu::SetMotorPidCommand& command);
+  bool PollMotorPid(mentor_pi_mcu::app::microros::ServiceToken token,
+                    mentor_pi_mcu::app::microros::MotorPidReply* output);
+  bool CancelMotorPid(mentor_pi_mcu::app::microros::ServiceToken token);
   bool DispatchPwmOffsets(mentor_pi_mcu::app::microros::ServiceToken token,
                           const mentor_pi::mcu::PwmServoOffsetCommand& command);
   bool PollPwmOffsets(mentor_pi_mcu::app::microros::ServiceToken token,
@@ -142,6 +148,7 @@ class ControllerRuntime {
                    mentor_pi_mcu::app::microros::StopBusServosReply* output);
 
   void AdvanceMicroRosHeartbeat();
+  void RecordSuccessfulRosHeartbeat();
 
  private:
   enum class SlotState : std::uint8_t {
@@ -307,6 +314,7 @@ class ControllerRuntime {
   bool TokenIsCurrent(mentor_pi_mcu::app::microros::ServiceToken token) const;
   void ConsumeMotorCommand(std::uint32_t now_us);
   void ProcessMotorModelService();
+  void ProcessMotorPidService();
   void PublishMotorSnapshot(std::uint32_t now_ms);
   void SynchronizePwmSession(std::uint32_t now_ms);
   void ProcessPwmCommands(std::uint32_t now_ms);
@@ -315,7 +323,7 @@ class ControllerRuntime {
   void ProcessPwmFrameLocked(std::uint32_t now_ms);
   void PreparePendingPwmFrame(std::uint32_t now_ms);
   void ProcessDiscreteOutputs(std::uint32_t now_ms);
-  void ProcessRgb(std::uint32_t now_us);
+  void ProcessRgb(std::uint32_t now_ms, std::uint32_t now_us);
   void ProcessOled(std::uint32_t now_ms);
   void ProcessBusDriver(std::uint32_t now_ms);
   void StartNextBusWork(std::uint32_t now_ms);
@@ -374,6 +382,8 @@ class ControllerRuntime {
   mentor_pi::mcu::ButtonController button_controller_{};
   mentor_pi::mcu::LedController led_controller_{};
   mentor_pi::mcu::BuzzerController buzzer_controller_{};
+  StatusRgbController status_rgb_controller_{};
+  HeartbeatLedController heartbeat_led_controller_{};
 
   mentor_pi::mcu::MotorCommandMailbox motor_mailbox_{};
   mentor_pi::mcu::PwmCommandMailbox pwm_mailbox_{};
@@ -397,6 +407,9 @@ class ControllerRuntime {
 
   ServiceSlot<MotorModelRequest, mentor_pi_mcu::app::microros::MotorModelReply>
       motor_model_slot_{};
+  ServiceSlot<mentor_pi::mcu::SetMotorPidCommand,
+              mentor_pi_mcu::app::microros::MotorPidReply>
+      motor_pid_slot_{};
   ServiceSlot<mentor_pi::mcu::PwmServoOffsetCommand,
               mentor_pi_mcu::app::microros::PwmOffsetsReply>
       pwm_offsets_slot_{};
@@ -514,9 +527,12 @@ class ControllerRuntime {
   std::atomic<bool> imu_healthy_{false};
   std::atomic<bool> low_battery_{false};
   std::atomic<bool> bus_busy_{false};
+  std::atomic<std::uint32_t> successful_ros_heartbeats_{0U};
   std::atomic<std::uint8_t> motor_watchdog_mask_{0U};
   std::uint32_t motor_release_count_{0U};
+  std::uint32_t last_motor_control_sample_us_{0U};
   std::uint32_t motor_owner_session_generation_{0U};
+  bool motor_control_sample_initialized_{false};
   std::uint32_t safety_startup_deadline_ms_{0U};
   bool safety_startup_grace_started_{false};
   bool watchdog_task_persist_requested_{false};

@@ -37,6 +37,6 @@ Checks: >
   modernize-use-transparent-functors,
   modernize-use-using
 WarningsAsErrors: '*'
-HeaderFilterRegex: '(^|/)(firmware/mentor_pi_mcu/(include|src|drivers/(include|src)|app/(controller|microros)/(include|src)|platform/stm32/(include|src)|target/stm32)|src/mentor_pi_bringup/(include|src))/'
+HeaderFilterRegex: '(^|/)(firmware/mentor_pi_mcu/(include|src|drivers/(include|src)|app/(controller|microros)/(include|src)|platform/stm32/(include|src)|target/stm32)|mentor_pi_ros2/src/mentor_pi_bringup/(include|src))/'
 FormatStyle: file
 ...

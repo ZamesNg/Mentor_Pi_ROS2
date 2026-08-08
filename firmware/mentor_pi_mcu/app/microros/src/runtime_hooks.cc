@@ -12,6 +12,7 @@ bool RuntimeHooksAreComplete(const RuntimeHooks& hooks) {
          hooks.monotonic_microseconds != nullptr &&
          hooks.wait_milliseconds != nullptr &&
          hooks.advance_task_heartbeat != nullptr &&
+         hooks.record_successful_ros_heartbeat != nullptr &&
          hooks.emergency_stop_motors != nullptr &&
          hooks.set_session_active != nullptr &&
          hooks.invalidate_session_work != nullptr &&
@@ -31,6 +32,8 @@ bool RuntimeHooksAreComplete(const RuntimeHooks& hooks) {
          hooks.read_worker_diagnostics != nullptr &&
          hooks.dispatch_motor_model != nullptr &&
          hooks.poll_motor_model != nullptr &&
+         hooks.dispatch_motor_pid != nullptr &&
+         hooks.poll_motor_pid != nullptr && hooks.cancel_motor_pid != nullptr &&
          hooks.dispatch_pwm_offsets != nullptr &&
          hooks.poll_pwm_offsets != nullptr &&
          hooks.dispatch_battery_threshold != nullptr &&

@@ -31,7 +31,7 @@ ReadMetadata() {
 
 Usage() {
   cat <<'EOF'
-Usage: ./tools/verify_firmware_artifact.sh LOCKED|COMMISSIONING [PROJECT_ROOT]
+Usage: ./tools/verify_firmware_artifact.sh LOCKED|COMMISSIONING|COMMISSIONING_PID [PROJECT_ROOT]
 
 Verify that the authoritative ELF, build profile, micro-ROS interface library,
 and project-owned sources all match the successful-build metadata. This is a
@@ -46,11 +46,11 @@ EOF
 readonly EXPECTED_MODE="$1"
 readonly PROJECT_ROOT="${2:-${DEFAULT_PROJECT_ROOT}}"
 case "${EXPECTED_MODE}" in
-  LOCKED | COMMISSIONING)
+  LOCKED | COMMISSIONING | COMMISSIONING_PID)
     ;;
   *)
     Usage >&2
-    Fail "expected mode must be LOCKED or COMMISSIONING"
+    Fail "expected mode must be LOCKED, COMMISSIONING, or COMMISSIONING_PID"
     ;;
 esac
 
@@ -94,24 +94,44 @@ readonly PINNED_MICROROS_TREE_HASH="${PROJECT_ROOT}/firmware/mentor_pi_mcu/confi
   Fail "build metadata must classify the artifact as non-release"
 
 readonly RECORDED_MODE="$(ReadMetadata motor_mode)"
-[[ "${RECORDED_MODE}" == "${EXPECTED_MODE}" ]] || \
-  Fail "artifact is ${RECORDED_MODE}, but ${EXPECTED_MODE} was requested"
+readonly RECORDED_ARTIFACT_MODE="$(ReadMetadata artifact_mode)"
+readonly EXPECTED_MOTOR_MODE="${EXPECTED_MODE}"
+[[ "${RECORDED_MODE}" == "${EXPECTED_MOTOR_MODE}" ]] || \
+  Fail "artifact motor mode is ${RECORDED_MODE}, but ${EXPECTED_MOTOR_MODE} was requested"
+[[ "${RECORDED_ARTIFACT_MODE}" == "NORMAL" ]] || \
+  Fail "artifact mode is ${RECORDED_ARTIFACT_MODE}, but NORMAL was requested"
 readonly RECORDED_COMMISSIONING_ACK="$(ReadMetadata commissioning_ack)"
 
-if [[ "${EXPECTED_MODE}" == "LOCKED" ]]; then
-  [[ -z "${RECORDED_COMMISSIONING_ACK}" ]] || \
-    Fail "locked build metadata contains a commissioning acknowledgement"
-  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING:BOOL=OFF' "${CACHE}" || \
-    Fail "CMake cache is not motor-locked"
-  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=' "${CACHE}" || \
-    Fail "locked build contains a commissioning acknowledgement"
-else
+if [[ "${EXPECTED_MODE}" == "COMMISSIONING" || \
+      "${EXPECTED_MODE}" == "COMMISSIONING_PID" ]]; then
   [[ "${RECORDED_COMMISSIONING_ACK}" == "MOTORS_RAISED" ]] || \
     Fail "commissioning build metadata acknowledgement is missing or invalid"
   grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING:BOOL=ON' "${CACHE}" || \
     Fail "CMake cache is not a commissioning build"
   grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=MOTORS_RAISED' \
     "${CACHE}" || Fail "commissioning acknowledgement is missing"
+  if [[ "${EXPECTED_MODE}" == "COMMISSIONING_PID" ]]; then
+    grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=ON' "${CACHE}" || \
+      Fail "CMake cache is not a closed-loop commissioning build"
+    [[ "$(ReadMetadata control_mode)" == "CLOSED_LOOP" ]] || \
+      Fail "build metadata is not classified as closed-loop PID"
+  else
+    grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF' "${CACHE}" || \
+      Fail "CMake cache is not a direction-check commissioning build"
+    [[ "$(ReadMetadata control_mode)" == "DIRECTION_CHECK" ]] || \
+      Fail "build metadata is not classified as direction-check"
+  fi
+else
+  [[ -z "${RECORDED_COMMISSIONING_ACK}" ]] || \
+    Fail "locked build metadata contains a commissioning acknowledgement"
+  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING:BOOL=OFF' "${CACHE}" || \
+    Fail "CMake cache is not motor-locked"
+  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=' "${CACHE}" || \
+    Fail "locked build contains a commissioning acknowledgement"
+  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF' "${CACHE}" || \
+    Fail "locked build contains closed-loop commissioning authority"
+  [[ "$(ReadMetadata control_mode)" == "LOCKED" ]] || \
+    Fail "build metadata is not classified as locked"
 fi
 
 readonly CURRENT_SOURCE_SHA256="$(

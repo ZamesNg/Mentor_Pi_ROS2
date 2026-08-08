@@ -112,6 +112,9 @@ const rosidl_service_type_support_t* ServiceTypeSupport(std::size_t index) {
     case ServiceIndex::kMotorModel:
       return ROSIDL_GET_SRV_TYPE_SUPPORT(mentor_pi_interfaces, srv,
                                          SetMotorModel);
+    case ServiceIndex::kMotorPid:
+      return ROSIDL_GET_SRV_TYPE_SUPPORT(mentor_pi_interfaces, srv,
+                                         SetMotorPid);
     case ServiceIndex::kPwmOffsets:
       return ROSIDL_GET_SRV_TYPE_SUPPORT(mentor_pi_interfaces, srv,
                                          SetPwmServoOffsets);
@@ -223,13 +226,12 @@ void MicroRosRuntime::WaitAgentStep(std::uint32_t now_ms) {
         return static_cast<std::int32_t>(
             rmw_uros_ping_agent(static_cast<int>(kWaitAgentPingTimeoutMs), 1U));
       }));
-  const bool available = ping == RMW_RET_OK;
   const auto transport = ReadTransportSnapshot();
   if (transport.error_flags != 0U) {
     RecordTransportFault(transport.error_flags);
   }
   AdvanceHeartbeat();
-  lifecycle_.OnAgentPing(available, now_ms);
+  lifecycle_.OnAgentPing(ping == RMW_RET_OK, now_ms);
 }
 
 void MicroRosRuntime::CreateEntitiesStep(std::uint32_t now_ms) {
@@ -999,6 +1001,7 @@ void MicroRosRuntime::RecordTransportFault(std::uint8_t flags) {
 
 void MicroRosRuntime::ClearServiceSlots() {
   motor_model_slot_ = {};
+  motor_pid_slot_ = {};
   pwm_offsets_slot_ = {};
   battery_threshold_slot_ = {};
   bus_service_slot_ = {};

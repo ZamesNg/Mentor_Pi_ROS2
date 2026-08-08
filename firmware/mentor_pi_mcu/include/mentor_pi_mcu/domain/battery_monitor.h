@@ -8,6 +8,7 @@
 namespace mentor_pi::mcu {
 
 constexpr std::uint16_t kDefaultBatteryThresholdMv = 6300U;
+constexpr std::uint16_t kBatteryPresentMinimumMv = 4900U;
 constexpr std::uint32_t kBatteryLowAssertionMs = 10000U;
 constexpr std::uint32_t kBatteryClearMs = 2000U;
 constexpr std::uint16_t kBatteryClearHysteresisMv = 200U;
