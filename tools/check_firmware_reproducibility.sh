@@ -8,6 +8,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly PROJECT_ROOT
 readonly BUILD_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32"
 readonly FIRMWARE_IMAGE="mentor-pi/rrclite-firmware-builder:gcc-13.2.1"
+readonly NATIVE_TOOLCHAIN_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_native_arm_toolchain.sh"
 readonly REPORT_ROOT="${RRCLITE_REPRO_REPORT_DIR:-${PROJECT_ROOT}/build/firmware-reproducibility}"
 readonly TEMPORARY_PARENT="${TMPDIR:-/tmp}"
 SNAPSHOT_ROOT="$(mktemp -d \
@@ -26,6 +27,18 @@ Cleanup() {
   esac
 }
 trap Cleanup EXIT
+
+if [[ -r /etc/os-release ]] && \
+    grep -Eq '^ID=ubuntu$' /etc/os-release && \
+    grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release; then
+  [[ -x "${NATIVE_TOOLCHAIN_BOOTSTRAP}" ]] || {
+    echo "Native Arm toolchain bootstrap is missing." >&2
+    exit 1
+  }
+  NATIVE_TOOLCHAIN_BIN="$("${NATIVE_TOOLCHAIN_BOOTSTRAP}" --print-bin)"
+  readonly NATIVE_TOOLCHAIN_BIN
+  export PATH="${NATIVE_TOOLCHAIN_BIN}:${PATH}"
+fi
 
 Sha256() {
   if command -v sha256sum >/dev/null 2>&1; then

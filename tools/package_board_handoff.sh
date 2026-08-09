@@ -106,6 +106,13 @@ VerifyBuildMode() {
     echo "Build metadata targets a different ROS distribution." >&2
     return 1
   }
+  case "$(ReadMetadataValue "${metadata}" builder_mode)" in
+    docker-pinned | native-ubuntu-22.04) ;;
+    *)
+      echo "Build metadata has an unsupported builder mode." >&2
+      return 1
+      ;;
+  esac
   [[ "$(ReadMetadataValue "${metadata}" release_qualified)" == "0" ]] || {
     echo "Build metadata must leave release qualification pending HIL." >&2
     return 1

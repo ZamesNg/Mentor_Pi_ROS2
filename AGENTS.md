@@ -7,7 +7,7 @@ interface, hardware, or safety requirements.
 ## Current implementation handoff (2026-08-09)
 
 - The ROS workspace/schema migration, single-default-PID firmware migration,
-  eight-tutorial checkout sequence, and Python-only launch migration are
+  two complete eight-tutorial host tracks, and Python-only launch migration are
   implemented in the current worktree. Preserve them as the current contract.
 - `mentor_pi_bringup controller.launch.py` starts the compiled micro-ROS Agent
   and configuration supervisor as one fail-coupled launch. Direct native use
@@ -18,10 +18,15 @@ interface, hardware, or safety requirements.
   removed locked/direction-check enum, factories, constants, or control-step
   branches. Invalid configuration values still fail closed.
 - Focused documentation, tutorial/runtime, artifact, flash, handoff, domain,
-  and controller tests pass. A complete pinned quality-container rerun is the
-  first remaining software action: the approval service refused that final
-  rerun after the last firmware edits. See `docs/NEXT_STEPS.md` for exact
-  evidence and remaining native/HIL gates.
+  and controller tests pass. The pinned quality-container rerun now reaches
+  three pre-existing formatting failures in unchanged C++ sources; the new
+  native RDK X5 build/runtime path still requires arm64 Ubuntu 22.04 evidence.
+  See `docs/NEXT_STEPS.md` for exact evidence and remaining native/HIL gates.
+- The RDK X5 onboard-computer path is Ubuntu 22.04 arm64, Docker-free, and uses
+  native Humble, conventional colcon, direct ros2 commands, native micro-ROS
+  generation, and the pinned local Arm GNU 13.2.1 toolchain. The normal-computer
+  path is Ubuntu 24.04 and uses the pinned Humble containers. Fuzzing remains a
+  normal-computer release gate and is intentionally not an onboard gate.
 
 ## Next-version migration mandate
 
@@ -71,6 +76,10 @@ the current required layout and behavior and must remain enforced.
   inputs, source fingerprints, installers, packaging, CI filters, tests,
   launch/runtime tools, and documentation atomically to use
   `mentor_pi_ros2/src`.
+- Keep the two complete ordered tutorial trees under
+  `docs/tutorials/{onboard-computer,normal-computer}`. The onboard tree uses
+  native commands and the normal-computer tree uses Docker; preserve identical
+  safety ordering and hardware gates in both.
 
 ### Manifest validation
 

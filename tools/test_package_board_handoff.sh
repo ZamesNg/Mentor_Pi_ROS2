@@ -88,6 +88,7 @@ printf '%s\n' \
   'schema=rrclite-firmware-build-v2' \
   'target=STM32F407VET6' \
   'ros_distro=humble' \
+  "builder_mode=${FAKE_BUILDER_MODE:-docker-pinned}" \
   "motor_mode=${mode}" \
   'control_mode=CLOSED_LOOP' \
   'artifact_mode=NORMAL' \
@@ -175,5 +176,14 @@ if FAKE_MISSING_METADATA_KEY=microros_tree_sha256 \
   Fail "missing metadata key unexpectedly packaged"
 fi
 AssertNoPath "${missing_metadata_project}/handoff"
+
+unsupported_builder_project="${TEST_ROOT}/unsupported-builder"
+SetUpFakeProject "${unsupported_builder_project}"
+if FAKE_BUILDER_MODE=native-explicit \
+    "${unsupported_builder_project}/tools/package_board_handoff.sh" handoff \
+    >/dev/null 2>&1; then
+  Fail "unsupported native-explicit build unexpectedly packaged"
+fi
+AssertNoPath "${unsupported_builder_project}/handoff"
 
 echo "Board-handoff packaging tests passed."

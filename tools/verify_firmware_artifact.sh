@@ -87,6 +87,11 @@ readonly PINNED_MICROROS_TREE_HASH="${PROJECT_ROOT}/firmware/mentor_pi_mcu/confi
   Fail "build metadata targets a different MCU"
 [[ "$(ReadMetadata ros_distro)" == "humble" ]] || \
   Fail "build metadata targets a different ROS distribution"
+readonly RECORDED_BUILDER_MODE="$(ReadMetadata builder_mode)"
+case "${RECORDED_BUILDER_MODE}" in
+  docker-pinned | native-ubuntu-22.04) ;;
+  *) Fail "build metadata has an unsupported builder mode" ;;
+esac
 [[ "$(ReadMetadata release_qualified)" == "0" ]] || \
   Fail "build metadata must leave release qualification pending HIL evidence"
 

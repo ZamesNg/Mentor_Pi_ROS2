@@ -20,6 +20,7 @@ readonly ARTIFACT_TREE_HASH="${FIRMWARE_ROOT}/config/microros_artifact_tree.sha2
 readonly FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
 readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
 readonly DEPENDENCY_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
+readonly NATIVE_TOOLCHAIN_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_native_arm_toolchain.sh"
 readonly GEOMETRY2_COMMIT="65c620c308920f558c7b5d3fb852941bd6d8fced"
 readonly LIBYAML_REPOSITORY="https://github.com/yaml/libyaml"
 readonly LIBYAML_COMMIT="2c891fc7a770e8ba2fec34fc6b545c672beb37e6"
@@ -142,18 +143,13 @@ cp \
   "${FIRMWARE_ROOT}/config/microros_library_generation.sh" \
   "${BUILD_UTILS}/microros_static_library_ide/library_generation/library_generation.sh"
 
-selected_image="${IMAGE}"
-if [[ "${capture_source_lock}" == "1" ]]; then
-  selected_image="${CAPTURE_IMAGE}"
-  if ! docker image inspect "${selected_image}" >/dev/null 2>&1; then
-    docker pull "${selected_image}"
-  fi
-else
-  "${docker_build_command[@]}" \
-    --file "${DOCKERFILE}" --tag "${selected_image}" \
-    "${PROJECT_ROOT}/tools/docker"
+native_generation=0
+if [[ "${capture_source_lock}" == "0" && -r /etc/os-release ]] && \
+    grep -Eq '^ID=ubuntu$' /etc/os-release && \
+    grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release; then
+  native_generation=1
 fi
-readonly selected_image
+readonly native_generation
 
 # Select the sole MCU type-support backend at generation time so desktop
 # backends are not retained in the embedded archive.
@@ -164,20 +160,86 @@ if [[ "${capture_artifact_hashes}" == "1" ]]; then
   rm -f -- "${ARTIFACT_HASH_CANDIDATE}" \
     "${ARTIFACT_TREE_HASH_CANDIDATE}"
 fi
-"${docker_run_command[@]}" \
-  --volume "${FIRMWARE_ROOT}:/project" \
-  --volume "${PROJECT_ROOT}/tools:/rrclite_tools:ro" \
-  --env MICROROS_LIBRARY_FOLDER=build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide \
-  --env STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_microxrcedds_c \
-  --env MICROROS_GEOMETRY2_COMMIT="${GEOMETRY2_COMMIT}" \
-  --env MICROROS_LIBYAML_REPOSITORY="${LIBYAML_REPOSITORY}" \
-  --env MICROROS_LIBYAML_COMMIT="${LIBYAML_COMMIT}" \
-  --env MICROROS_CAPTURE_SOURCE_LOCK="${capture_source_lock}" \
-  --env MICROROS_SOURCE_LOCK_CANDIDATE=build/microros_sources.humble.candidate.lock \
-  --env MICROROS_CALLER_UID="$(id -u)" \
-  --env MICROROS_CALLER_GID="$(id -g)" \
-  --env PYTHONHASHSEED=0 \
-  "${selected_image}"
+
+if ((native_generation == 1)); then
+  [[ -x "${NATIVE_TOOLCHAIN_BOOTSTRAP}" ]] || {
+    echo "Native Arm toolchain bootstrap is missing." >&2
+    exit 1
+  }
+  [[ -r /opt/ros/humble/setup.bash ]] || {
+    echo "ROS 2 Humble is not installed; prepare the onboard host first." >&2
+    exit 1
+  }
+  set +u
+  source /opt/ros/humble/setup.bash
+  set -u
+  command -v ros2 >/dev/null 2>&1 || {
+    echo "ROS 2 Humble setup did not provide ros2." >&2
+    exit 1
+  }
+  command -v vcs >/dev/null 2>&1 || {
+    echo "python3-vcstool is not installed." >&2
+    exit 1
+  }
+  command -v rsync >/dev/null 2>&1 || {
+    echo "rsync is not installed." >&2
+    exit 1
+  }
+  ros2 pkg prefix micro_ros_setup >/dev/null 2>&1 || {
+    echo "ros-humble-micro-ros-setup is not installed." >&2
+    exit 1
+  }
+  readonly NATIVE_TOOLCHAIN_BIN="$("${NATIVE_TOOLCHAIN_BOOTSTRAP}" --print-bin)"
+  readonly NATIVE_GENERATOR_WORKSPACE="${BUILD_ROOT}/native-generator-workspace"
+  env \
+    PATH="${NATIVE_TOOLCHAIN_BIN}:${PATH}" \
+    ROS_DISTRO=humble \
+    MICROROS_LIBRARY_FOLDER=build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide \
+    STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_microxrcedds_c \
+    MICROROS_GEOMETRY2_COMMIT="${GEOMETRY2_COMMIT}" \
+    MICROROS_LIBYAML_REPOSITORY="${LIBYAML_REPOSITORY}" \
+    MICROROS_LIBYAML_COMMIT="${LIBYAML_COMMIT}" \
+    MICROROS_CAPTURE_SOURCE_LOCK=0 \
+    MICROROS_SOURCE_LOCK_CANDIDATE=build/microros_sources.humble.candidate.lock \
+    MICROROS_CALLER_UID="$(id -u)" \
+    MICROROS_CALLER_GID="$(id -g)" \
+    MICROROS_PROJECT_ROOT="${FIRMWARE_ROOT}" \
+    MICROROS_GENERATOR_WORKSPACE="${NATIVE_GENERATOR_WORKSPACE}" \
+    MICROROS_TOOLCHAIN_ROOT="${NATIVE_TOOLCHAIN_BIN}" \
+    MICROROS_TOOLS_ROOT="${PROJECT_ROOT}/tools" \
+    MICROROS_RESTORE_OWNERSHIP=0 \
+    MICROROS_SETUP_OVERLAY= \
+    PYTHONHASHSEED=0 \
+    SOURCE_DATE_EPOCH=0 \
+    bash "${FIRMWARE_ROOT}/config/microros_library_generation.sh"
+else
+  selected_image="${IMAGE}"
+  if [[ "${capture_source_lock}" == "1" ]]; then
+    selected_image="${CAPTURE_IMAGE}"
+    if ! docker image inspect "${selected_image}" >/dev/null 2>&1; then
+      docker pull "${selected_image}"
+    fi
+  else
+    "${docker_build_command[@]}" \
+      --file "${DOCKERFILE}" --tag "${selected_image}" \
+      "${PROJECT_ROOT}/tools/docker"
+  fi
+  readonly selected_image
+  "${docker_run_command[@]}" \
+    --volume "${FIRMWARE_ROOT}:/project" \
+    --volume "${PROJECT_ROOT}/tools:/rrclite_tools:ro" \
+    --env MICROROS_LIBRARY_FOLDER=build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide \
+    --env STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_microxrcedds_c \
+    --env MICROROS_GEOMETRY2_COMMIT="${GEOMETRY2_COMMIT}" \
+    --env MICROROS_LIBYAML_REPOSITORY="${LIBYAML_REPOSITORY}" \
+    --env MICROROS_LIBYAML_COMMIT="${LIBYAML_COMMIT}" \
+    --env MICROROS_CAPTURE_SOURCE_LOCK="${capture_source_lock}" \
+    --env MICROROS_SOURCE_LOCK_CANDIDATE=build/microros_sources.humble.candidate.lock \
+    --env MICROROS_CALLER_UID="$(id -u)" \
+    --env MICROROS_CALLER_GID="$(id -g)" \
+    --env PYTHONHASHSEED=0 \
+    "${selected_image}"
+fi
 
 if [[ "${capture_source_lock}" == "1" ]]; then
   test -s "${SOURCE_LOCK_CANDIDATE}"

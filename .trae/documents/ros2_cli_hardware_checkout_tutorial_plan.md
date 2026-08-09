@@ -2,21 +2,21 @@
 
 Status: implemented
 
-The original plan has been completed as the eight-tutorial sequence documented
-in the repository [README](../../README.md). The implementation uses the active
+The original plan is now delivered as two complete eight-tutorial host tracks
+documented in the repository [README](../../README.md). The implementation uses the active
 default PID firmware contract and corrects obsolete assumptions from the draft
 about locked and commissioning firmware modes, firmware-owned indicators, PID
 defaults, and topic rejection codes.
 
 ## Delivered documentation
 
-- [Tutorial 06: ROS 2 CLI Hardware Checkout](../../docs/tutorials/06-ros2-cli-hardware-checkout.md)
+- [Onboard Tutorial 06: ROS 2 CLI Hardware Checkout](../../docs/tutorials/onboard-computer/06-ros2-cli-hardware-checkout.md)
   provides direct Humble commands for endpoint inventory, LEDs, RGB1, buzzer,
   optional OLED, bounded single-motor checkout, PID updates, PWM servos, bus
   servos, telemetry, battery configuration, and explicit teardown.
-- [Tutorial 07: Stress, Soak, and Release Gates](../../docs/tutorials/07-run-stress-soak-and-release-gates.md)
+- [Normal-computer Tutorial 07: Stress, Soak, and Release Gates](../../docs/tutorials/normal-computer/07-run-stress-soak-and-release-gates.md)
   retains the zero-command campaign and HIL evidence boundary.
-- [Tutorial 08: `mentor_pi_hardwares`](../../docs/tutorials/08-run-mentor-pi-hardwares.md)
+- [Onboard Tutorial 08: `mentor_pi_hardwares`](../../docs/tutorials/onboard-computer/08-run-mentor-pi-hardwares.md)
   covers the coordinated ros2_control launches.
 - Tutorials 01--05, repository maps, package READMEs, and framework cross-links
   are stitched to the new sequence.

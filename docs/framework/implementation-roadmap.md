@@ -303,7 +303,7 @@ Run the complete [Verification](verification.md) matrix on the release candidate
 with the final interface, middleware configuration, firmware optimization,
 Agent build, system service, udev rule, YAML, and representative hardware load.
 Run the machine-generated campaign sequence in
-[Tutorial 07](../tutorials/07-run-stress-soak-and-release-gates.md). Keep the
+[normal-computer Tutorial 07](../tutorials/normal-computer/07-run-stress-soak-and-release-gates.md). Keep the
 software-observed outputs and independent instrument files immutable and
 separately identifiable under the exact candidate identity.
 

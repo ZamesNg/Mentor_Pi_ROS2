@@ -226,7 +226,7 @@ On Ubuntu 22.04 ${ARCHITECTURE}, with mentor-pi-controller.target inactive:
     --staged-prefix "\${PWD}/host" --release-id ${release_id}
 
 Connect exactly one CH9102F, identify its tty/serial or ID_PATH, then follow
-docs/tutorials/03-build-and-run-humble-host.md before installing
+docs/tutorials/onboard-computer/03-build-and-run-humble-host.md before installing
 udev/systemd site assets. Do not enable the target before review.
 EOF
 

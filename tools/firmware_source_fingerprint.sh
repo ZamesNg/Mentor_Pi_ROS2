@@ -101,6 +101,7 @@ if [[ "${MODE}" == "firmware" ]]; then
   AppendDirectory "${FIRMWARE_ROOT}/target/stm32"
   AppendFile "${PROJECT_ROOT}/tools/apply_microros_source_lock.sh"
   AppendFile "${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
+  AppendFile "${PROJECT_ROOT}/tools/bootstrap_native_arm_toolchain.sh"
   AppendFile "${PROJECT_ROOT}/tools/build_firmware.sh"
   AppendFile "${PROJECT_ROOT}/tools/check_firmware_memory.sh"
   AppendFile "${PROJECT_ROOT}/tools/build_microros_library.sh"

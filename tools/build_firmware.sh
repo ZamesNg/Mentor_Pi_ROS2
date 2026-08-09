@@ -19,6 +19,7 @@ readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fing
 readonly ARTIFACT_VERIFIER="${PROJECT_ROOT}/tools/verify_firmware_artifact.sh"
 readonly MEMORY_CHECKER="${PROJECT_ROOT}/tools/check_firmware_memory.sh"
 readonly DEPENDENCY_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
+readonly NATIVE_TOOLCHAIN_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_native_arm_toolchain.sh"
 readonly IMAGE="mentor-pi/rrclite-firmware-builder:gcc-13.2.1"
 readonly CUBE_REPOSITORY="https://github.com/STMicroelectronics/STM32CubeF4.git"
 readonly MICROROS_REPOSITORY="https://github.com/micro-ROS/micro_ros_stm32cubemx_utils.git"
@@ -147,7 +148,23 @@ readonly SOURCE_FINGERPRINT_BEFORE="$(
   "${FINGERPRINT_TOOL}" firmware "${PROJECT_ROOT}"
 )"
 
-if [[ "${RRCLITE_BUILD_LOCAL:-0}" == "1" ]]; then
+native_build=0
+builder_mode="docker-pinned"
+if [[ -r /etc/os-release ]] && \
+    grep -Eq '^ID=ubuntu$' /etc/os-release && \
+    grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release; then
+  native_build=1
+  builder_mode="native-ubuntu-22.04"
+fi
+readonly builder_mode
+
+if ((native_build == 1)); then
+  if [[ -x "${NATIVE_TOOLCHAIN_BOOTSTRAP}" ]] && \
+      grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release 2>/dev/null; then
+    readonly NATIVE_TOOLCHAIN_BIN="$("${NATIVE_TOOLCHAIN_BOOTSTRAP}" --print-bin)"
+    export PATH="${NATIVE_TOOLCHAIN_BIN}:${PATH}"
+  fi
+  export SOURCE_DATE_EPOCH=0
   command -v cmake >/dev/null || Fail "cmake is not installed"
   command -v ninja >/dev/null || Fail "ninja is not installed"
   command -v arm-none-eabi-gcc >/dev/null || \
@@ -227,6 +244,7 @@ printf '%s\n' \
   'schema=rrclite-firmware-build-v2' \
   'target=STM32F407VET6' \
   'ros_distro=humble' \
+  "builder_mode=${builder_mode}" \
   "motor_mode=${MOTOR_MODE}" \
   "control_mode=${CONTROL_MODE}" \
   "artifact_mode=${ARTIFACT_MODE}" \

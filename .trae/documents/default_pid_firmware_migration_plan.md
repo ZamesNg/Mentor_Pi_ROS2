@@ -342,7 +342,7 @@ The migration must be done atomically (or in tightly coupled groups) to avoid mi
 
 ## 5. Potential Dependencies or Considerations
 
-- **Docker environment**: Firmware builds require Docker (or `RRCLITE_BUILD_LOCAL=1` with the exact Arm GCC 13.2.1 + cmake + ninja). Use the default Docker adaptive path.
+- **Adaptive environment**: Firmware builds use the pinned native Arm GNU 13.2.1 toolchain on Ubuntu 22.04 and the pinned Docker builder on every other supported Ubuntu release.
 - **micro-ROS library**: must be up-to-date (`make setup` / `./tools/build_microros_library.sh`) before any firmware build; fingerprint hash pins in config are verified; if they change during source editing, rebuild micro-ROS first.
 - **STM32CubeProgrammer**: Required only for flash/guided_flash tests; software-only artifact tests don't need hardware.
 - **Ubuntu 22.04 native**: preferred for host regression; otherwise it uses pinned Docker Humble (matches the AGENTS rule).

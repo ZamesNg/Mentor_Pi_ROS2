@@ -50,7 +50,14 @@ fi
 grep -Eq '^ID=ubuntu$' /etc/os-release || Fail "the host must be Ubuntu"
 grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release || \
   Fail "start make start in another terminal before opening a Docker ROS shell"
-readonly host_prefix="$(${HOST_BUILDER} --print-output)"
+if [[ -n "${MENTOR_PI_NATIVE_INSTALL_PREFIX:-}" ]]; then
+  host_prefix="${MENTOR_PI_NATIVE_INSTALL_PREFIX}"
+elif [[ -r "${PROJECT_ROOT}/mentor_pi_ros2/install/setup.bash" ]]; then
+  host_prefix="${PROJECT_ROOT}/mentor_pi_ros2/install"
+else
+  host_prefix="$(${HOST_BUILDER} --print-output)"
+fi
+readonly host_prefix
 readonly agent_prefix="$(${AGENT_BUILDER} --print-output)"
 readonly agent_executable="${agent_prefix}/lib/micro_ros_agent/micro_ros_agent"
 [[ -r "${host_prefix}/setup.bash" && -x "${agent_executable}" ]] || \

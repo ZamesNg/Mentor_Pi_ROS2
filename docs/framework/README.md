@@ -6,9 +6,10 @@ Humble micro-ROS stack, with an Ubuntu 22.04 Humble host on `amd64` or `arm64`.
 Ubuntu 22.04 development runs Humble natively; every other Ubuntu release uses
 the pinned Humble Docker runtime and no native ROS installation.
 
-For hands-on work, start with
-[Tutorial 01](../tutorials/01-prepare-ubuntu-development-host.md) and follow the
-numbered `Next` links. For changing project status, use
+For hands-on work, start with the matching
+[onboard-computer](../tutorials/onboard-computer/01-prepare-ubuntu-development-host.md)
+or [normal-computer](../tutorials/normal-computer/01-prepare-ubuntu-development-host.md)
+Tutorial 01 and follow its numbered `Next` links. For changing project status, use
 [Next steps](../NEXT_STEPS.md). This README indexes the normative contracts;
 tutorials do not override them.
 
@@ -35,8 +36,9 @@ physical wiring or safe output is a stop-work condition until resolved.
 
 ## Operator and qualification path
 
-The ordered [tutorial series](../tutorials/01-prepare-ubuntu-development-host.md)
-contains environment setup, default PID flashing, host deployment, passive
+The ordered [onboard](../tutorials/onboard-computer/01-prepare-ubuntu-development-host.md)
+and [normal-computer](../tutorials/normal-computer/01-prepare-ubuntu-development-host.md)
+tutorial series contain environment setup, default PID flashing, host deployment, passive
 bring-up, SWD characterization, guarded CLI checkout, functional HIL, and long
 qualification campaigns. Exact ROS commands appear at the stage where they are
 safe to run.

@@ -35,10 +35,20 @@ grep -Fqx 'ROS_DOMAIN_ID ?= 0' "${PROJECT_ROOT}/Makefile" || \
 
 for target in serial-setup flash start start-hardware start-mecanum start-ackermann \
     passive-check peripheral-smoke characterize-board \
-    release-software-gates; do
+    release-software-gates release-onboard-gates; do
   grep -Eq "^[^:#]*\\b${target}([ :]|$)" "${PROJECT_ROOT}/Makefile" || \
     Fail "Makefile target is missing: ${target}"
 done
+grep -Fq 'RUN_ONBOARD_NATIVE_GATES' "${SCRIPT_DIR}/tutorial_action.sh" || \
+  Fail "onboard native gates do not require their distinct acknowledgement"
+grep -Fq 'run_fuzz_smoke.sh' "${SCRIPT_DIR}/tutorial_action.sh" || \
+  Fail "normal-computer software gates lost fuzzing"
+onboard_gate_block="$(sed -n '/release-onboard-gates)/,/;;/p' \
+  "${SCRIPT_DIR}/tutorial_action.sh")"
+[[ "${onboard_gate_block}" != *'run_fuzz_smoke.sh'* ]] || \
+  Fail "onboard native gates must not invoke fuzzing"
+[[ "${onboard_gate_block}" != *'run_coverage_tests.sh'* ]] || \
+  Fail "onboard native gates must not require the normal-computer coverage toolchain"
 
 grep -Fq './tools/verify_firmware_artifact.sh PID' \
   "${SCRIPT_DIR}/tutorial_action.sh" || \
@@ -66,6 +76,9 @@ grep -Fq '/mentor_pi/motors/set_pid' \
 grep -Fq 'all 21 MCU endpoints and heartbeat' \
   "${SCRIPT_DIR}/run_runtime_action.sh" || \
   Fail "controller readiness reports a stale endpoint count"
+grep -Fq 'onboard_colcon_state.sh" verify' \
+  "${SCRIPT_DIR}/setup_onboard_ros_environment.sh" || \
+  Fail "onboard environment does not reject a stale conventional colcon build"
 
 readonly CONTROLLER_LAUNCH="${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.py"
 [[ -f "${CONTROLLER_LAUNCH}" ]] || Fail "Python controller launch is missing"

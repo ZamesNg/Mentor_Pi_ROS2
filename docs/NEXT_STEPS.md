@@ -25,10 +25,19 @@ The planned source migrations are implemented:
   plus `BUILD-METADATA.txt` and `BUILD-MODE.txt`;
 - build and handoff metadata keep `release_qualified=0` until the required HIL
   evidence exists;
-- all project launch files are Python; and
-- the tutorial sequence is eight documents: setup, PID build/flash, Humble host,
-  passive bringup, hardware characterization, guarded ROS 2 CLI checkout,
-  stress/soak gates, and `mentor_pi_hardwares`.
+- all project launch files are Python;
+- the tutorial sequence has two complete eight-document tracks under
+  `docs/tutorials/onboard-computer` and `docs/tutorials/normal-computer`;
+- the RDK X5 track supports Docker-free Ubuntu 22.04 arm64 firmware generation
+  with the checked local Arm GNU 13.2.1 toolchain, conventional colcon builds,
+  source-bound direct ros2 launches, and an onboard gate that excludes fuzzing
+  and the normal-computer coverage toolchain; the Ubuntu 24.04 normal-computer
+  track retains the complete pinned Docker suite, including coverage and Clang
+  18 fuzzing; and
+- onboard dependency preparation treats ROS 2 Humble as an externally supplied
+  prerequisite, installs the remaining native dependencies, and verifies and
+  installs the checked STM32CubeProgrammer 2.23.0 arm64 package after explicit
+  license acceptance.
 
 The new controller launch starts the compiled micro-ROS Agent and configuration
 supervisor together and shuts down the launch if either process exits. The
@@ -41,8 +50,10 @@ RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED make start
 After entering the project Humble environment, conventional direct use is:
 
 ```sh
+source tools/setup_onboard_ros_environment.sh
 RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
-  ros2 launch mentor_pi_bringup controller.launch.py
+  ros2 launch mentor_pi_bringup controller.launch.py \
+    agent_executable:="${MENTOR_PI_AGENT_EXECUTABLE}"
 ```
 
 Do not set that acknowledgement until the passive checks and guarded-fixture
@@ -63,9 +74,24 @@ The following checks pass against the current source:
 - firmware artifact verification;
 - single-artifact board-handoff packaging;
 - direct and guided flash fixtures;
-- framework documentation/link/sequence validation: 33 Markdown files,
-  158 relative links, and eight ordered tutorials; and
+- framework documentation/link/sequence validation: 41 Markdown files,
+  189 relative links, and 16 ordered tutorials; and
 - `git diff --check`.
+
+After the dual-host change, focused tutorial, active-build, host-handoff,
+firmware-artifact, dependency-provenance, and board-handoff tests pass. The
+pinned Ubuntu 24.04 quality container completed its portable/native Debug test
+suite, then stopped at three existing formatting violations in unchanged C++
+files: `controller_tests.cc:19`, `controller_tests.cc:20`, and
+`configuration_supervisor_launch_test.cc:303`.
+
+The normal-computer `make firmware` path regenerated the locked Humble
+micro-ROS archive and built/verified the Docker-pinned PID artifact with ELF
+SHA-256 `d3edebc367c6bd731d3cbf8bd0ca4cb210880308e7e57389dfccbbc503eba207`.
+Its bound source SHA-256 is
+`4c6882ce2296711e007017e760243e6f9efd3e1b96caa66b4fc2f1ef43c429c9`.
+It reports `builder_mode=docker-pinned`, `release_qualified=0`, flash usage
+156,764/524,288 bytes, SRAM 102,072/131,072 bytes, and CCM 51,200/65,536 bytes.
 
 Before the final motor-domain cleanup, the pinned Humble host stage built all
 three ROS packages and reported 1,652 tests, zero errors, and zero failures.
@@ -75,27 +101,26 @@ legacy motor-mode implementation exposed by the review was removed. The
 focused local domain/controller builds and executions above cover those final
 edits.
 
-The complete pinned quality-container rerun remains outstanding because the
-environment's escalation approval service rejected
-`./tools/run_quality_tests_container.sh` with a usage-limit error. This is an
-environment limitation, not a passing result. No native Humble rerun, STM32
-artifact build, flash, or HIL action was performed after the final edits.
+The Docker-pinned firmware build is current, but the new native RDK X5 path has
+not yet run on Ubuntu 22.04 arm64. No flash or HIL action was performed for the
+new artifact. The complete quality-container result is failing, not passing,
+until the unrelated formatting violations above are resolved and the suite is
+rerun.
 
 ## Next agent: do these in order
 
-1. Run `make test` on a host where the pinned Ubuntu 22.04/Humble Docker path
-   is permitted. If the host stage is already current, at minimum run
-   `./tools/run_quality_tests_container.sh`. Address real failures, then record
-   the exact totals here.
-2. On native Ubuntu 22.04 with ROS 2 Humble, verify conventional workspace use
-   from `mentor_pi_ros2` with `rosdep`, `colcon build`, and `colcon test`, then
-   smoke-test `ros2 launch mentor_pi_bringup controller.launch.py` with a safe
-   serial fixture or disconnected actuator power. On one supported Docker
-   runtime host, also confirm the read-only `/run/udev` mapping resolves the
-   mapped CH9102F identity and that an occupied serial device is rejected.
-3. Build the default PID firmware with the pinned ARM toolchain, run artifact
-   and memory verification, package the one-artifact handoff, and record the
-   actual ELF SHA-256. Do not reuse a historical hash.
+1. Resolve the three recorded formatting failures without changing behavior,
+   rerun `./tools/run_quality_tests_container.sh`, then run the remaining
+   normal-computer release gates including fuzzing.
+2. On the RDK X5 Ubuntu 22.04 arm64 host, follow onboard Tutorials 01--03 to
+   verify the SHA-256-checked native toolchain download, native micro-ROS
+   generation, `make firmware`, conventional `rosdep`/`colcon build`/`colcon
+   test`, build-state recording, and direct `ros2 launch`. Confirm the native
+   artifact matches the reviewed micro-ROS hashes and two clean builds are
+   reproducible. This is not established by the amd64 Docker result.
+3. Package the current one-artifact PID handoff and retain the actual ELF hash.
+   On a supported Docker runtime host, also confirm read-only `/run/udev`
+   mapping and occupied-device rejection.
 4. With actuator power disconnected, flash that exact artifact and complete
    Tutorials 01--05. Verify the graph, supervisor `READY`, heartbeat,
    diagnostics, passive encoder signs, IMU samples, and Agent restart recovery.

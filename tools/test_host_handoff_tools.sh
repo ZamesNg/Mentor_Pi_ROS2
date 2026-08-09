@@ -215,20 +215,28 @@ readonly HANDOFF="${TEST_ROOT}/host-handoff"
 [[ -x "${HANDOFF}/agent-installer/tools/build_microros_agent_from_lock.sh" ]] ||
   Fail "shared Agent source-build helper is missing from handoff"
 readonly PACKAGED_TUTORIALS=(
-  01-prepare-ubuntu-development-host.md
-  02-build-and-flash-default-pid-firmware.md
-  03-build-and-run-humble-host.md
-  04-run-passive-board-bringup.md
-  05-characterize-board-hardware.md
-  06-ros2-cli-hardware-checkout.md
-  07-run-stress-soak-and-release-gates.md
-  08-run-mentor-pi-hardwares.md
+  onboard-computer/01-prepare-ubuntu-development-host.md
+  onboard-computer/02-build-and-flash-default-pid-firmware.md
+  onboard-computer/03-build-and-run-humble-host.md
+  onboard-computer/04-run-passive-board-bringup.md
+  onboard-computer/05-characterize-board-hardware.md
+  onboard-computer/06-ros2-cli-hardware-checkout.md
+  onboard-computer/07-run-stress-soak-and-release-gates.md
+  onboard-computer/08-run-mentor-pi-hardwares.md
+  normal-computer/01-prepare-ubuntu-development-host.md
+  normal-computer/02-build-and-flash-default-pid-firmware.md
+  normal-computer/03-build-and-run-humble-host.md
+  normal-computer/04-run-passive-board-bringup.md
+  normal-computer/05-characterize-board-hardware.md
+  normal-computer/06-ros2-cli-hardware-checkout.md
+  normal-computer/07-run-stress-soak-and-release-gates.md
+  normal-computer/08-run-mentor-pi-hardwares.md
 )
 for tutorial in "${PACKAGED_TUTORIALS[@]}"; do
   [[ -f "${HANDOFF}/docs/tutorials/${tutorial}" ]] ||
     Fail "numbered tutorial is missing from handoff: ${tutorial}"
 done
-grep -Fq 'docs/tutorials/03-build-and-run-humble-host.md' \
+grep -Fq 'docs/tutorials/onboard-computer/03-build-and-run-humble-host.md' \
   "${HANDOFF}/INSTALL.txt" ||
   Fail "handoff installation text does not point to Tutorial 03"
 VerifyManifest "${HANDOFF}"
@@ -308,6 +316,7 @@ cp -R "${PROJECT_ROOT}/docs/tutorials/." \
   "${FINGERPRINT_PROJECT}/docs/tutorials/"
 readonly FINGERPRINT_STANDALONE_INPUTS=(
   Makefile
+  tools/bootstrap_native_arm_toolchain.sh
   tools/build_agent.sh
   tools/build_host_handoff_container.sh
   tools/build_microros_agent_from_lock.sh
@@ -319,14 +328,17 @@ readonly FINGERPRINT_STANDALONE_INPUTS=(
   tools/host_source_fingerprint.sh
   tools/docker/host-runtime.Dockerfile
   tools/install_microros_agent.sh
+  tools/install_onboard_stm32cubeprogrammer.sh
   tools/microros_agent_source.lock
   tools/open_runtime_shell.sh
+  tools/onboard_colcon_state.sh
   tools/package_host_handoff.sh
   tools/patches/micro_xrce_agent_rrclite_modem_lines.patch
   tools/prepare_host_build_dependencies.sh
   tools/require_microros_agent_install_idle.sh
   tools/run_runtime.sh
   tools/select_pinned_build_image.sh
+  tools/setup_onboard_ros_environment.sh
   tools/verify_host_build_environment.sh
   tools/verify_host_release_relocation.sh
   tools/verify_microros_agent_build_container.sh
@@ -344,14 +356,22 @@ readonly FINGERPRINT_SHARED_INPUTS=(
   mentor_pi_ros2/src/mentor_pi_interfaces/package.xml
   mentor_pi_ros2/src/mentor_pi_bringup/package.xml
   mentor_pi_ros2/src/mentor_pi_hardwares/package.xml
-  docs/tutorials/01-prepare-ubuntu-development-host.md
-  docs/tutorials/02-build-and-flash-default-pid-firmware.md
-  docs/tutorials/03-build-and-run-humble-host.md
-  docs/tutorials/04-run-passive-board-bringup.md
-  docs/tutorials/05-characterize-board-hardware.md
-  docs/tutorials/06-ros2-cli-hardware-checkout.md
-  docs/tutorials/07-run-stress-soak-and-release-gates.md
-  docs/tutorials/08-run-mentor-pi-hardwares.md
+  docs/tutorials/onboard-computer/01-prepare-ubuntu-development-host.md
+  docs/tutorials/onboard-computer/02-build-and-flash-default-pid-firmware.md
+  docs/tutorials/onboard-computer/03-build-and-run-humble-host.md
+  docs/tutorials/onboard-computer/04-run-passive-board-bringup.md
+  docs/tutorials/onboard-computer/05-characterize-board-hardware.md
+  docs/tutorials/onboard-computer/06-ros2-cli-hardware-checkout.md
+  docs/tutorials/onboard-computer/07-run-stress-soak-and-release-gates.md
+  docs/tutorials/onboard-computer/08-run-mentor-pi-hardwares.md
+  docs/tutorials/normal-computer/01-prepare-ubuntu-development-host.md
+  docs/tutorials/normal-computer/02-build-and-flash-default-pid-firmware.md
+  docs/tutorials/normal-computer/03-build-and-run-humble-host.md
+  docs/tutorials/normal-computer/04-run-passive-board-bringup.md
+  docs/tutorials/normal-computer/05-characterize-board-hardware.md
+  docs/tutorials/normal-computer/06-ros2-cli-hardware-checkout.md
+  docs/tutorials/normal-computer/07-run-stress-soak-and-release-gates.md
+  docs/tutorials/normal-computer/08-run-mentor-pi-hardwares.md
 )
 for relative in "${FINGERPRINT_SHARED_INPUTS[@]}"; do
   printf '\n<!-- host-fingerprint-mutation-fixture -->\n' \

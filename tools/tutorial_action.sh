@@ -188,6 +188,22 @@ case "${ACTION}" in
     ./tools/run_firmware_target_ci.sh
     ./tools/verify_firmware_artifact.sh PID
     ;;
+  release-onboard-gates)
+    RequireExact "${RELEASE_GATES_ACK:-}" RUN_ONBOARD_NATIVE_GATES \
+      "These Docker-free arm64 checks can take a long time and use substantial CPU and disk."
+    grep -Eq '^ID=ubuntu$' /etc/os-release
+    grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release
+    [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]] || \
+      Fail "onboard native gates require the arm64 Ubuntu 22.04 computer"
+    python3 tools/check_framework_docs.py
+    ./tools/build_host.sh
+    ./tools/run_native_ci_tests.sh --build-type Debug --sanitizers on
+    ./tools/run_native_ci_tests.sh --build-type Release --sanitizers off
+    ./tools/run_tsan_tests.sh
+    ./tools/check_firmware_reproducibility.sh
+    ./tools/verify_firmware_artifact.sh PID
+    echo "ONBOARD NATIVE GATES PASS: fuzz, coverage, Clang 18 target analysis, and pinned-container parity remain normal-computer gates."
+    ;;
   qualification-preflight)
     RequireExact "${PREFLIGHT_ACK:-}" ACTUATORS_DISCONNECTED \
       "Keep the robot guarded with motor and servo power disconnected."

@@ -13,10 +13,22 @@ set -euo pipefail
 : "${MICROROS_SOURCE_LOCK_CANDIDATE:=build/microros_sources.humble.candidate.lock}"
 : "${MICROROS_CALLER_UID:?MICROROS_CALLER_UID is required}"
 : "${MICROROS_CALLER_GID:?MICROROS_CALLER_GID is required}"
+: "${MICROROS_PROJECT_ROOT:=/project}"
+: "${MICROROS_GENERATOR_WORKSPACE:=/uros_ws}"
+: "${MICROROS_TOOLCHAIN_ROOT:=/opt/arm-gnu-toolchain/bin}"
+: "${MICROROS_TOOLS_ROOT:=/rrclite_tools}"
+: "${MICROROS_RESTORE_OWNERSHIP:=1}"
+: "${MICROROS_SETUP_OVERLAY:=/uros_ws/install/local_setup.bash}"
 [[ "${MICROROS_CALLER_UID}" =~ ^[0-9]+$ ]]
 [[ "${MICROROS_CALLER_GID}" =~ ^[0-9]+$ ]]
+[[ "${MICROROS_PROJECT_ROOT}" == /* ]]
+[[ "${MICROROS_GENERATOR_WORKSPACE}" == /* ]]
+[[ "${MICROROS_TOOLCHAIN_ROOT}" == /* ]]
+[[ "${MICROROS_TOOLS_ROOT}" == /* ]]
+[[ "${MICROROS_RESTORE_OWNERSHIP}" == "0" || \
+   "${MICROROS_RESTORE_OWNERSHIP}" == "1" ]]
 
-readonly BASE_PATH="/project/${MICROROS_LIBRARY_FOLDER}"
+readonly BASE_PATH="${MICROROS_PROJECT_ROOT}/${MICROROS_LIBRARY_FOLDER}"
 export BASE_PATH
 
 # The official builder runs as root because it owns /uros_ws.  Its /project
@@ -28,12 +40,16 @@ RestoreHostBuildTree() {
   local original_status=$?
   trap - EXIT
   local restoration_failed=0
-  if [[ -d /project/build/microros ]]; then
-    chown -R -- "${MICROROS_CALLER_UID}:${MICROROS_CALLER_GID}" \
-      /project/build/microros || restoration_failed=1
-    chmod -R u+rwX,go-w /project/build/microros || restoration_failed=1
+  if [[ "${MICROROS_RESTORE_OWNERSHIP}" == "0" ]]; then
+    exit "${original_status}"
   fi
-  local source_lock_candidate="/project/${MICROROS_SOURCE_LOCK_CANDIDATE}"
+  if [[ -d "${MICROROS_PROJECT_ROOT}/build/microros" ]]; then
+    chown -R -- "${MICROROS_CALLER_UID}:${MICROROS_CALLER_GID}" \
+      "${MICROROS_PROJECT_ROOT}/build/microros" || restoration_failed=1
+    chmod -R u+rwX,go-w "${MICROROS_PROJECT_ROOT}/build/microros" || \
+      restoration_failed=1
+  fi
+  local source_lock_candidate="${MICROROS_PROJECT_ROOT}/${MICROROS_SOURCE_LOCK_CANDIDATE}"
   if [[ -e "${source_lock_candidate}" ]]; then
     chown -- "${MICROROS_CALLER_UID}:${MICROROS_CALLER_GID}" \
       "${source_lock_candidate}" || restoration_failed=1
@@ -52,8 +68,8 @@ if [[ -f "${BASE_PATH}/libmicroros/libmicroros.a" ]]; then
   exit 0
 fi
 
-readonly REVIEWED_FLAGS_FILE="/project/config/firmware_flags.mk"
-readonly PINNED_TOOLCHAIN_ROOT="/opt/arm-gnu-toolchain/bin"
+readonly REVIEWED_FLAGS_FILE="${MICROROS_PROJECT_ROOT}/config/firmware_flags.mk"
+readonly PINNED_TOOLCHAIN_ROOT="${MICROROS_TOOLCHAIN_ROOT}"
 [[ -f "${REVIEWED_FLAGS_FILE}" ]]
 if [[ "${MICROROS_CAPTURE_SOURCE_LOCK}" == "0" ]]; then
   RET_CFLAGS="$(PYTHONHASHSEED=0 \
@@ -71,14 +87,21 @@ if [[ "${MICROROS_CAPTURE_SOURCE_LOCK}" == "0" ]]; then
   arm-none-eabi-g++ --version
 fi
 
-cd /uros_ws
+mkdir -p -- "${MICROROS_GENERATOR_WORKSPACE}"
+cd "${MICROROS_GENERATOR_WORKSPACE}"
 # ROS environment setup scripts are not nounset-safe: the generated
 # setup.bash probes optional variables such as AMENT_TRACE_SETUP_FILES. Keep
 # strict mode for this script, but suspend nounset only while sourcing the
 # upstream environment.
 set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
-source install/local_setup.bash
+if [[ -n "${MICROROS_SETUP_OVERLAY}" ]]; then
+  [[ -r "${MICROROS_SETUP_OVERLAY}" ]] || {
+    echo "micro-ROS setup overlay is missing: ${MICROROS_SETUP_OVERLAY}" >&2
+    exit 1
+  }
+  source "${MICROROS_SETUP_OVERLAY}"
+fi
 set -u
 [[ "${ROS_DISTRO}" == "humble" ]] || {
   echo "The static library generator must run in ROS 2 Humble." >&2
@@ -92,13 +115,14 @@ readonly CREATE_WORKSPACE_SCRIPT="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup/c
   echo "Pinned micro-ROS workspace scripts are missing under ${MICROROS_SETUP_PREFIX}." >&2
   exit 1
 }
-# The upstream creator launches create_ws.sh through ros2run. ros2run replaces
-# useful vcs-import diagnostics with only "Process exited with failure N" on
-# failure. This disposable container is the sole owner of the installed copy,
-# so call the exact same pinned script directly and retain its real error.
-sed -i \
-  "s#ros2 run micro_ros_setup create_ws.sh#${CREATE_WORKSPACE_SCRIPT}#g" \
-  "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
+# The container overlay is disposable, so improve its import diagnostics in
+# place. A native apt installation remains read-only and uses the upstream
+# ros2run call; the generated artifact hash is identical or generation fails.
+if [[ "${MICROROS_RESTORE_OWNERSHIP}" == "1" ]]; then
+  sed -i \
+    "s#ros2 run micro_ros_setup create_ws.sh#${CREATE_WORKSPACE_SCRIPT}#g" \
+    "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
+fi
 if ! "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}" generate_lib; then
   echo "Pinned micro-ROS workspace creation failed; see the repository import error above." >&2
   exit 1
@@ -125,7 +149,7 @@ popd >/dev/null
 popd >/dev/null
 
 CaptureSourceLock() {
-  local output="/project/${MICROROS_SOURCE_LOCK_CANDIDATE}"
+  local output="${MICROROS_PROJECT_ROOT}/${MICROROS_SOURCE_LOCK_CANDIDATE}"
   local rows
   rows="$(mktemp)"
   while IFS= read -r git_directory; do
@@ -136,7 +160,8 @@ CaptureSourceLock() {
     repository_url="${repository_url%.git}"
     printf '%s %s\n' "${repository_url}" \
       "$(git -C "${repository}" rev-parse HEAD)" >>"${rows}"
-  done < <(find /uros_ws/firmware -type d -name .git -print | sort)
+  done < <(find "${MICROROS_GENERATOR_WORKSPACE}/firmware" \
+    -type d -name .git -print | sort)
   printf '%s %s\n' "${MICROROS_LIBYAML_REPOSITORY}" \
     "${MICROROS_LIBYAML_COMMIT}" >>"${rows}"
   if [[ -n "$(sort "${rows}" | awk 'previous == $1 {print $1; exit} {previous=$1}')" ]]; then
@@ -197,18 +222,20 @@ while IFS= read -r -d '' colcon_ignore; do
   esac
   printf '%s\n' "${colcon_ignore}" >>"${GENERATED_COLCON_IGNORES}"
   rm -f -- "${colcon_ignore}"
-done < <(find /uros_ws/firmware -type f -name COLCON_IGNORE -print0)
+done < <(find "${MICROROS_GENERATOR_WORKSPACE}/firmware" \
+  -type f -name COLCON_IGNORE -print0)
 
-bash /rrclite_tools/apply_microros_source_lock.sh \
-  /uros_ws/firmware /project/config/microros_sources.lock \
+bash "${MICROROS_TOOLS_ROOT}/apply_microros_source_lock.sh" \
+  "${MICROROS_GENERATOR_WORKSPACE}/firmware" \
+  "${MICROROS_PROJECT_ROOT}/config/microros_sources.lock" \
   --deferred-repository "${MICROROS_LIBYAML_REPOSITORY}"
 
 # The pinned Humble RMW treats an empty static service-input queue as an error,
 # despite already setting taken=false. Apply the reviewed one-line semantic
 # correction after provenance locking and before compilation. Deserialization
 # failures and every other RMW error remain unchanged.
-readonly RMW_REPOSITORY="/uros_ws/firmware/mcu_ws/uros/rmw_microxrcedds"
-readonly RMW_IDLE_SERVICE_PATCH="/project/config/patches/rmw_microxrcedds_idle_service.patch"
+readonly RMW_REPOSITORY="${MICROROS_GENERATOR_WORKSPACE}/firmware/mcu_ws/uros/rmw_microxrcedds"
+readonly RMW_IDLE_SERVICE_PATCH="${MICROROS_PROJECT_ROOT}/config/patches/rmw_microxrcedds_idle_service.patch"
 [[ -f "${RMW_IDLE_SERVICE_PATCH}" && ! -L "${RMW_IDLE_SERVICE_PATCH}" ]]
 git -C "${RMW_REPOSITORY}" apply --check "${RMW_IDLE_SERVICE_PATCH}"
 git -C "${RMW_REPOSITORY}" apply "${RMW_IDLE_SERVICE_PATCH}"
@@ -231,7 +258,7 @@ if ! ros2 run micro_ros_setup build_firmware.sh \
     "${BASE_PATH}/library_generation/toolchain.cmake" \
     "${BASE_PATH}/library_generation/colcon.meta"; then
   echo "micro-ROS firmware build failed; non-empty package logs follow:" >&2
-  find /uros_ws/firmware/mcu_ws/log -type f \
+  find "${MICROROS_GENERATOR_WORKSPACE}/firmware/mcu_ws/log" -type f \
     \( -name stderr.log -o -name stdout_stderr.log \) -size +0c \
     -print -exec sed -n '1,240p' {} \; >&2 || true
   exit 1
@@ -272,6 +299,7 @@ while IFS= read -r git_directory; do
     "$(git -C "${repository}" config --get remote.origin.url)" \
     "$(git -C "${repository}" rev-parse HEAD)" \
     >>"${BASE_PATH}/libmicroros/built_packages"
-done < <(find /uros_ws/firmware -type d -name .git -print | sort)
+done < <(find "${MICROROS_GENERATOR_WORKSPACE}/firmware" \
+  -type d -name .git -print | sort)
 
 chmod -R a+rwX "${BASE_PATH}/libmicroros"

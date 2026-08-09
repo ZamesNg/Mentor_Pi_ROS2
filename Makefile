@@ -32,7 +32,8 @@ RECOVERY_MODE ?=
 	agent-check run start shell test serial-access serial-setup flash \
 	start-hardware start-mecanum start-ackermann \
 	passive-check peripheral-smoke characterize-board \
-	release-software-gates qualification-preflight campaign-load \
+	release-software-gates release-onboard-gates \
+	qualification-preflight campaign-load \
 	campaign-soak campaign-recovery
 
 help:
@@ -44,7 +45,7 @@ help:
 		'  make setup' \
 		'      Fetch pinned sources and images for the detected architecture.' \
 		'  make firmware' \
-		'      Generate micro-ROS and build the normal default closed-loop PID firmware (6 RPS, +/-1000 permille).' \
+		'      Generate micro-ROS and build PID natively on Ubuntu 22.04, otherwise in Docker.' \
 		'  make host' \
 		'      Build/test Humble natively on Ubuntu 22.04, otherwise in Docker.' \
 		'  make host-hardwares' \
@@ -91,10 +92,10 @@ setup: doctor
 		exit 1; \
 	fi
 	@./tools/bootstrap_firmware_dependencies.sh
-	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+	@if grep -Eq '^VERSION_ID="?22[.]04"?$$' /etc/os-release; then \
+		./tools/bootstrap_native_arm_toolchain.sh; \
+	elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		./tools/pull_pinned_build_images.sh --architecture "$(SYSTEM_ARCH)"; \
-	elif grep -Eq '^VERSION_ID="?22[.]04"?$$' /etc/os-release; then \
-		echo 'Native Ubuntu 22.04/Humble mode: Docker image pull skipped.'; \
 	else \
 		echo 'Docker is required outside native Ubuntu 22.04.' >&2; \
 		exit 1; \
@@ -191,6 +192,10 @@ characterize-board:
 release-software-gates:
 	@RELEASE_GATES_ACK="$(RELEASE_GATES_ACK)" \
 		./tools/tutorial_action.sh release-software-gates
+
+release-onboard-gates:
+	@RELEASE_GATES_ACK="$(RELEASE_GATES_ACK)" \
+		./tools/tutorial_action.sh release-onboard-gates
 
 qualification-preflight:
 	@ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" PREFLIGHT_ACK="$(PREFLIGHT_ACK)" \

@@ -193,7 +193,7 @@ instruments are attached. Consequently `CampaignSummary::release_qualified`
 is always false and `summary.json` always says
 `release_qualification: INCOMPLETE`; a zero exit status or green JUnit record
 never closes D5 by itself. Follow
-[Tutorial 07](../../../docs/tutorials/07-run-stress-soak-and-release-gates.md) and
+[normal-computer Tutorial 07](../../../docs/tutorials/normal-computer/07-run-stress-soak-and-release-gates.md) and
 retain generated campaign and independent instrument files; an absent or
 `NOT_OBSERVED` physical metric keeps the release gate open.
 
@@ -330,7 +330,7 @@ symlink. Never build into that live path. Build and test a new staging prefix as
 an unprivileged operator:
 
 For the normal connected development build and runtime, follow
-[Tutorial 03](../../../docs/tutorials/03-build-and-run-humble-host.md). It
+[onboard Tutorial 03](../../../docs/tutorials/onboard-computer/03-build-and-run-humble-host.md). It
 does not install or transfer a host release.
 The manual commands below remain the underlying native deployment sequence.
 

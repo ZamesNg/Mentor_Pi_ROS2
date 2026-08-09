@@ -14,6 +14,7 @@ RUN apt-get update \
        python3 \
        ripgrep \
        tar \
+       unzip \
     && clang-format-18 --version | grep -F "version 18." \
     && cmake --version \
     && python3 --version \

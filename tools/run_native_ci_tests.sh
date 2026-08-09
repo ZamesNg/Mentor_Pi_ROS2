@@ -63,6 +63,7 @@ bash -n "${PROJECT_ROOT}"/tools/*.sh
 "${PROJECT_ROOT}/tools/test_ch9102_boot_control.sh"
 "${PROJECT_ROOT}/tools/test_guided_flash.sh"
 "${PROJECT_ROOT}/tools/test_tutorial_actions.sh"
+"${PROJECT_ROOT}/tools/test_native_onboard_tools.sh"
 "${PROJECT_ROOT}/tools/test_firmware_dependency_provenance.sh"
 "${PROJECT_ROOT}/tools/test_firmware_artifact_verification.sh"
 "${PROJECT_ROOT}/tools/test_microros_agent_install_state.sh"

@@ -59,6 +59,8 @@ MakeBaseFixture() {
     >"${root}/tools/apply_microros_source_lock.sh"
   printf 'bootstrap script\n' \
     >"${root}/tools/bootstrap_firmware_dependencies.sh"
+  printf 'native toolchain bootstrap script\n' \
+    >"${root}/tools/bootstrap_native_arm_toolchain.sh"
   printf 'micro-ROS build script\n' \
     >"${root}/tools/build_microros_library.sh"
   printf 'dockerfile\n' >"${root}/tools/docker/firmware-builder.Dockerfile"
@@ -103,6 +105,7 @@ MakeBaseFixture() {
     'schema=rrclite-firmware-build-v2' \
     'target=STM32F407VET6' \
     'ros_distro=humble' \
+    'builder_mode=docker-pinned' \
     'artifact_mode=NORMAL' \
     'release_qualified=0' \
     "source_sha256=${source_sha256}" \
@@ -162,6 +165,13 @@ sed -i 's/^release_qualified=0$/release_qualified=1/' \
   "${FALSE_QUALIFICATION}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt"
 ExpectFailure 'release qualification pending HIL evidence' \
   "${SCRIPT_DIR}/verify_firmware_artifact.sh" PID "${FALSE_QUALIFICATION}"
+
+readonly INVALID_BUILDER_MODE="${TEST_ROOT}/invalid-builder-mode"
+cp -R "${PID_VALID}" "${INVALID_BUILDER_MODE}"
+sed -i 's/^builder_mode=docker-pinned$/builder_mode=native-explicit/' \
+  "${INVALID_BUILDER_MODE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt"
+ExpectFailure 'unsupported builder mode' \
+  "${SCRIPT_DIR}/verify_firmware_artifact.sh" PID "${INVALID_BUILDER_MODE}"
 
 readonly STALE_ELF="${TEST_ROOT}/stale-elf"
 cp -R "${PID_VALID}" "${STALE_ELF}"

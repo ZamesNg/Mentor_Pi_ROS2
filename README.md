@@ -16,19 +16,40 @@ transport.
 
 ## Start here
 
-Follow the tutorials in numerical order. Do not jump directly to powered motor
-motion.
+Choose one computer track and follow its tutorials in numerical order. Do not
+mix environments or jump directly to powered motor motion.
+
+### Onboard computer: RDK X5, Ubuntu 22.04 arm64, native Humble
+
+This path uses no Docker. It builds firmware with a checked local Arm GNU
+toolchain and uses conventional `rosdep`, `colcon`, and direct `ros2` commands.
 
 | Step | Tutorial | Main command |
 | ---: | --- | --- |
-| 01 | [Prepare the Ubuntu development host](docs/tutorials/01-prepare-ubuntu-development-host.md) | `make setup` |
-| 02 | [Build and flash the default PID firmware](docs/tutorials/02-build-and-flash-default-pid-firmware.md) | `make flash` |
-| 03 | [Build and run the Humble host](docs/tutorials/03-build-and-run-humble-host.md) | `make start` |
-| 04 | [Run passive board bring-up](docs/tutorials/04-run-passive-board-bringup.md) | `make passive-check` |
-| 05 | [Characterize board hardware](docs/tutorials/05-characterize-board-hardware.md) | `make characterize-board` |
-| 06 | [Run ROS 2 CLI hardware checkout](docs/tutorials/06-ros2-cli-hardware-checkout.md) | `make shell` |
-| 07 | [Run stress, soak, and release gates](docs/tutorials/07-run-stress-soak-and-release-gates.md) | `make release-software-gates` |
-| 08 | [Run ros2_control hardwares extension](docs/tutorials/08-run-mentor-pi-hardwares.md) | `make host-hardwares` |
+| 01 | [Prepare the RDK X5](docs/tutorials/onboard-computer/01-prepare-ubuntu-development-host.md) | `make setup` |
+| 02 | [Build and flash PID natively](docs/tutorials/onboard-computer/02-build-and-flash-default-pid-firmware.md) | `make firmware` |
+| 03 | [Build and run native Humble](docs/tutorials/onboard-computer/03-build-and-run-humble-host.md) | `colcon build`, `ros2 launch` |
+| 04 | [Run passive board bring-up](docs/tutorials/onboard-computer/04-run-passive-board-bringup.md) | `make passive-check` |
+| 05 | [Characterize board hardware](docs/tutorials/onboard-computer/05-characterize-board-hardware.md) | `make characterize-board` |
+| 06 | [Run native ROS 2 CLI checkout](docs/tutorials/onboard-computer/06-ros2-cli-hardware-checkout.md) | `ros2` CLI |
+| 07 | [Run native and physical gates](docs/tutorials/onboard-computer/07-run-stress-soak-and-release-gates.md) | `make release-onboard-gates` |
+| 08 | [Run ros2_control natively](docs/tutorials/onboard-computer/08-run-mentor-pi-hardwares.md) | `ros2 launch` |
+
+### Normal computer: Ubuntu 24.04, pinned Humble Docker
+
+This path keeps ROS off the native OS and performs the complete software suite,
+including Clang 18 fuzzing, in the reviewed containers.
+
+| Step | Tutorial | Main command |
+| ---: | --- | --- |
+| 01 | [Prepare Ubuntu 24.04](docs/tutorials/normal-computer/01-prepare-ubuntu-development-host.md) | `make setup` |
+| 02 | [Build and flash PID in Docker](docs/tutorials/normal-computer/02-build-and-flash-default-pid-firmware.md) | `make firmware` |
+| 03 | [Build and run Docker Humble](docs/tutorials/normal-computer/03-build-and-run-humble-host.md) | `make start` |
+| 04 | [Run passive board bring-up](docs/tutorials/normal-computer/04-run-passive-board-bringup.md) | `make passive-check` |
+| 05 | [Characterize board hardware](docs/tutorials/normal-computer/05-characterize-board-hardware.md) | `make characterize-board` |
+| 06 | [Run Docker ROS 2 CLI checkout](docs/tutorials/normal-computer/06-ros2-cli-hardware-checkout.md) | `make shell` |
+| 07 | [Run full software and physical gates](docs/tutorials/normal-computer/07-run-stress-soak-and-release-gates.md) | `make release-software-gates` |
+| 08 | [Run ros2_control in Docker](docs/tutorials/normal-computer/08-run-mentor-pi-hardwares.md) | `make host-hardwares` |
 
 Every complex operation is a one-line Make action. The helper prompts for
 hardware-specific values and exact safety acknowledgements, so operators do
@@ -37,7 +58,8 @@ not copy long ROS command blocks or edit placeholder text.
 The current board has a hardware-verified timing baseline, while the newest
 complete default PID candidate is prepared but not yet flashed. Its practical
 resume point is Tutorial 02 for that PID default flash, followed by Tutorial
-04's passive checks. A new computer or operator starts at Tutorial 01.
+04's passive checks. A new computer or operator starts at Tutorial 01 of the
+track matching that computer.
 
 ## Safety and current status
 
@@ -62,12 +84,14 @@ hardware-sensitive step.
 
 ## Supported environments
 
-- Production/onboard computer: Ubuntu 22.04 with ROS 2 Humble.
+- Production/onboard computer: RDK X5 arm64, Ubuntu 22.04 with native ROS 2
+  Humble and Docker-free host, Agent, micro-ROS library, and firmware builds.
 - Development computer: any Ubuntu release; Ubuntu 22.04 uses native Humble,
   while every other release uses pinned Ubuntu 22.04/Humble Docker.
 - No native ROS installation is supported outside Ubuntu 22.04.
 - Host architectures: `arm64` and `amd64`, matched to the deployment computer.
-- Firmware build: CMake/Ninja through the root Makefile.
+- Firmware build: CMake/Ninja through the root Makefile; native pinned Arm GNU
+  13.2.1 on Ubuntu 22.04 and pinned Docker elsewhere.
 - Host build: native Humble `colcon` on Ubuntu 22.04, otherwise Docker Humble.
 - UART flashing: STM32CubeProgrammer CLI through CH9102F/USART1.
 - Project-owned data-plane runtime: C++17; Python is limited to ROS launch and
@@ -98,7 +122,11 @@ does not substitute for an unobserved physical metric.
   mecanum/Ackermann `mentor_pi_hardwares` ros2_control adapters.
 - [`tools/`](tools/) — pinned setup, build, verification, packaging, flash, and
   developer serial-access helpers.
-- [`docs/tutorials/`](docs/tutorials/) — the ordered 01--08 operator workflow.
+- [`thirdpart/`](thirdpart/) — the checked repository copy of the licensed
+  STM32CubeProgrammer 2.23.0 arm64 Debian-package archive used by the onboard
+  dependency helper.
+- [`docs/tutorials/`](docs/tutorials/) — separate complete 01--08 onboard and
+  normal-computer operator workflows.
 - [`docs/framework/`](docs/framework/) — normative design and verification
   contracts.
 
