@@ -178,6 +178,12 @@ if ((native_generation == 1)); then
     echo "ROS 2 Humble setup did not provide ros2." >&2
     exit 1
   }
+  readonly NATIVE_COLCON_EXECUTABLE="$(command -v colcon || true)"
+  [[ "${NATIVE_COLCON_EXECUTABLE}" =~ ^/[A-Za-z0-9._/+:-]+$ &&
+    -x "${NATIVE_COLCON_EXECUTABLE}" ]] || {
+    echo "colcon is not available as a safe absolute executable path." >&2
+    exit 1
+  }
   command -v vcs >/dev/null 2>&1 || {
     echo "python3-vcstool is not installed." >&2
     exit 1
@@ -225,6 +231,7 @@ if ((native_generation == 1)); then
     MICROROS_TOOLS_ROOT="${PROJECT_ROOT}/tools" \
     MICROROS_RESTORE_OWNERSHIP=0 \
     MICROROS_SETUP_OVERLAY="${NATIVE_MICROROS_SETUP_OVERLAY}" \
+    MICROROS_NATIVE_COLCON_EXECUTABLE="${NATIVE_COLCON_EXECUTABLE}" \
     PYTHONHASHSEED=0 \
     SOURCE_DATE_EPOCH=0 \
     bash "${FIRMWARE_ROOT}/config/microros_library_generation.sh"

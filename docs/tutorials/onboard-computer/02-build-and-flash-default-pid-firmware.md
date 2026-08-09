@@ -37,7 +37,10 @@ The helper requires exactly one `1a86:55d4` CH9102F and asks for
 `/dev/mentor_pi_mcu` and the `mentor-pi-serial` group. Log out and back in after
 the first successful run so every normal host tool sees the membership. The
 guided one-line flash commands automatically activate an already-granted but
-not-yet-active membership for their own process. Stop if the identity is
+not-yet-active membership for their own process. If the RDK's udev reload does
+not update the existing device node, the helper revalidates the same CH9102F
+identity before applying group `mentor-pi-serial` and mode `0660` directly;
+the installed rule applies them on later reconnects. Stop if the identity is
 ambiguous or the alias is not readable and writable afterward.
 
 ## 3. Flash the default PID image without touching BOOT or RST

@@ -32,6 +32,12 @@ grep -Fq -- 'trigger --action=add --subsystem-match=tty' "${HELPER}" || \
 if grep -Fq -- 'trigger --action=change --subsystem-match=tty' "${HELPER}"; then
   Fail "serial-access setup still uses a change event that can leave stale permissions"
 fi
+grep -Fq 'serial identity changed before permission update' "${HELPER}" || \
+  Fail "serial-access permission fallback does not revalidate the device identity"
+grep -Fq 'chgrp -- "${SERIAL_GROUP}" "${resolved_device}"' "${HELPER}" || \
+  Fail "serial-access setup does not repair the current device group"
+grep -Fq 'chmod 0660 "${resolved_device}"' "${HELPER}" || \
+  Fail "serial-access setup does not repair the current device mode"
 
 ExpectFailure() {
   local expected_text="$1"

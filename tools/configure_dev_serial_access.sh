@@ -228,8 +228,28 @@ resolved_device="$(readlink -f "${selected_device}")"
 [[ -L "${DEVICE_ALIAS}" && "$(readlink -f "${DEVICE_ALIAS}")" == \
   "${resolved_device}" ]] || \
   Fail "udev rule was installed, but ${DEVICE_ALIAS} does not resolve to ${resolved_device}; reconnect the USB cable and rerun"
+
+# Some RDK udev builds replay the alias on a synthetic add event without
+# updating the already-existing devtmpfs node's group and mode. Revalidate the
+# exact physical identity immediately before applying the same policy to the
+# current node; the installed rule handles all future real add events.
+if [[ "$(stat -c %G "${resolved_device}")" != "${SERIAL_GROUP}" ||
+      "$(stat -c %a "${resolved_device}")" != "660" ]]; then
+  [[ -c "${resolved_device}" ]] || \
+    Fail "resolved serial device disappeared before permission update"
+  current_properties="$(${UDEVADM} info --query=property \
+    --name="${resolved_device}" 2>/dev/null)" || \
+    Fail "udevadm could not revalidate ${resolved_device}"
+  IdentityMatches "${current_properties}" "${identity_kind}" \
+    "${identity_value}" || \
+    Fail "serial identity changed before permission update"
+  chgrp -- "${SERIAL_GROUP}" "${resolved_device}"
+  chmod 0660 "${resolved_device}"
+fi
 [[ "$(stat -c %G "${resolved_device}")" == "${SERIAL_GROUP}" ]] || \
   Fail "${resolved_device} is not owned by ${SERIAL_GROUP} after udev reload"
+[[ "$(stat -c %a "${resolved_device}")" == "660" ]] || \
+  Fail "${resolved_device} does not have mode 0660 after udev reload"
 
 echo "Installed stable alias ${DEVICE_ALIAS} for ${resolved_device}."
 echo "Added ${target_user} to ${SERIAL_GROUP}; broad dialout access was not granted."
