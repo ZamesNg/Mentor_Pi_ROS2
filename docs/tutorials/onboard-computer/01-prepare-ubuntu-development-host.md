@@ -63,11 +63,19 @@ then installs its sole Debian package. The package displays ST's license and
 requires an explicit acceptance; declining stops installation. The helper
 never installs or invokes Docker.
 
+If the helper stops on any dependency error, rerun the same command after
+updating to the corrected repository state. The operation reuses its pinned
+source checkout. Do not continue to `make firmware` while dependency
+preparation is incomplete.
+
 ARM/aarch64 Linux support is CLI-only, as documented in ST's
 [STM32CubeProgrammer FAQ](https://dev.st.com/stm32cube-docs/prog/2.23.0/en/docs/markup/CubeProg_FAQ.html).
-After the helper finishes, verify the repository package and CLI:
+After the helper finishes, verify the source-built ROS package, repository
+Debian package, and CLI:
 
 ```sh
+cd /home/zames/Mentor_Pi
+./tools/install_onboard_microros_setup.sh --verify
 test "$(dpkg-query -W -f='${Version} ${Architecture}' stm32cubeprogrammer)" = \
   "2.23.0 arm64"
 test -x /usr/bin/STM32_Programmer_CLI
@@ -76,6 +84,10 @@ source /opt/mentor_pi/micro_ros_setup-3.1.3/install/local_setup.zsh
 test "$(ros2 pkg prefix micro_ros_setup)" = \
   /opt/mentor_pi/micro_ros_setup-3.1.3/install/micro_ros_setup
 ```
+
+The installer must report `Verified source-built micro_ros_setup 3.1.3`.
+Only after every command above succeeds should you prepare the pinned inputs
+below and continue to Tutorial 02, where the first command is `make firmware`.
 
 ## 4. Prepare pinned native inputs
 
