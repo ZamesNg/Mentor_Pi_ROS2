@@ -30,6 +30,8 @@ interface, hardware, or safety requirements.
 - The onboard Humble arm64 repository does not supply
   `ros-humble-micro-ros-setup`; preserve the source-locked 3.1.3 installer and
   its verified `/opt/mentor_pi` overlay instead of restoring that apt package.
+  Its unused `clang-tidy` rosdep is deliberately skipped because RDK's Jammy
+  package set cannot resolve it and analysis is not an onboard gate.
 - User-facing ROS shells use zsh. Preserve the RDK X5 user's existing zsh
   configuration unchanged; only the host-runtime image supplies pinned Oh My
   Zsh, completion, autosuggestions, and syntax highlighting. Keep Make recipes,

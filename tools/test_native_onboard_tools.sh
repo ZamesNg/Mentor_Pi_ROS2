@@ -41,6 +41,12 @@ fi
 grep -Fqx 'commit=58dc7f84851c8c274b253db9779899eb551b1458' \
   "${SCRIPT_DIR}/microros_setup_source.lock" || \
   Fail "the onboard micro_ros_setup source commit is not pinned"
+grep -Fq -- '--skip-keys=clang-tidy' \
+  "${SCRIPT_DIR}/install_onboard_microros_setup.sh" || \
+  Fail "the onboard micro_ros_setup installer does not exclude its unused clang-tidy dependency"
+grep -Fq -- '-DBUILD_TESTING=OFF' \
+  "${SCRIPT_DIR}/install_onboard_microros_setup.sh" || \
+  Fail "the onboard micro_ros_setup installer does not disable upstream tests"
 [[ "$("${SCRIPT_DIR}/install_onboard_microros_setup.sh" --print-overlay)" == \
    '/opt/mentor_pi/micro_ros_setup-3.1.3/install/local_setup.bash' ]] || \
   Fail "the onboard micro_ros_setup overlay path changed"

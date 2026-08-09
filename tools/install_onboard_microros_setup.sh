@@ -121,8 +121,13 @@ git -C "${SOURCE_ROOT}" checkout --detach FETCH_HEAD
 grep -Fq "<version>${VERSION}</version>" "${SOURCE_ROOT}/package.xml" || \
   Fail "source checkout has the wrong package version"
 
+# micro_ros_setup 3.1.3 declares clang-tidy as a general dependency even
+# though neither its install rules nor this repository's generate_lib workflow
+# invokes it.  The RDK X5 image cannot resolve Jammy's clang-tidy dependency
+# chain, and onboard analysis intentionally stays outside this production
+# package build.  Skip only that rosdep key; resolve every other dependency.
 rosdep install --from-paths "${WORKSPACE_ROOT}/src" --ignore-src \
-  --rosdistro humble --as-root pip:false -y
+  --rosdistro humble --as-root pip:false --skip-keys=clang-tidy -y
 set +u
 source "${ROS_SETUP}"
 set -u
@@ -130,7 +135,7 @@ colcon --log-base "${WORKSPACE_ROOT}/log" build \
   --base-paths "${WORKSPACE_ROOT}/src" \
   --build-base "${WORKSPACE_ROOT}/build" \
   --install-base "${INSTALL_ROOT}" \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release
+  --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 
 readonly TEMPORARY_STATE="${STATE_FILE}.tmp.$$"
 [[ ! -e "${TEMPORARY_STATE}" && ! -L "${TEMPORARY_STATE}" ]] || \

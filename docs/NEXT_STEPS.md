@@ -37,9 +37,10 @@ The planned source migrations are implemented:
 - onboard dependency preparation treats ROS 2 Humble as an externally supplied
   prerequisite, builds upstream `micro_ros_setup` 3.1.3 at a locked commit
   because its Humble Debian package is unavailable on arm64, installs the
-  remaining native dependencies, and verifies and installs the checked
-  STM32CubeProgrammer 2.23.0 arm64 package after explicit license acceptance;
-  and
+  remaining native dependencies while excluding that package's unused
+  `clang-tidy` dependency from the onboard production build, and verifies and
+  installs the checked STM32CubeProgrammer 2.23.0 arm64 package after explicit
+  license acceptance; and
 - user-facing native ROS commands use the RDK X5 user's existing zsh setup,
   while `make shell` in the pinned host-runtime image provides the pinned
   Oh My Zsh theme, completion, autosuggestions, and syntax highlighting without
@@ -100,7 +101,7 @@ The normal-computer `make firmware` path regenerated the locked Humble
 micro-ROS archive and built/verified the Docker-pinned PID artifact with ELF
 SHA-256 `d3edebc367c6bd731d3cbf8bd0ca4cb210880308e7e57389dfccbbc503eba207`.
 Its bound source SHA-256 is
-`3e1ebecddeb2319fbb01cac9d55e8b79a786770897a98ced9f110d70dc59367e`.
+`c18c1145f850cd3d9369ae5f1ee8eccfd04f8b00fa90ba37859a7aaa9f2bf395`.
 It reports `builder_mode=docker-pinned`, `release_qualified=0`, flash usage
 156,764/524,288 bytes, SRAM 102,072/131,072 bytes, and CCM 51,200/65,536 bytes.
 
