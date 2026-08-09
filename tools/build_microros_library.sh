@@ -21,6 +21,7 @@ readonly FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
 readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
 readonly DEPENDENCY_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
 readonly NATIVE_TOOLCHAIN_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_native_arm_toolchain.sh"
+readonly MICROROS_SETUP_INSTALLER="${PROJECT_ROOT}/tools/install_onboard_microros_setup.sh"
 readonly GEOMETRY2_COMMIT="65c620c308920f558c7b5d3fb852941bd6d8fced"
 readonly LIBYAML_REPOSITORY="https://github.com/yaml/libyaml"
 readonly LIBYAML_COMMIT="2c891fc7a770e8ba2fec34fc6b545c672beb37e6"
@@ -185,8 +186,19 @@ if ((native_generation == 1)); then
     echo "rsync is not installed." >&2
     exit 1
   }
+  [[ -x "${MICROROS_SETUP_INSTALLER}" ]] || {
+    echo "Pinned micro_ros_setup verifier is missing." >&2
+    exit 1
+  }
+  "${MICROROS_SETUP_INSTALLER}" --verify >/dev/null
+  readonly NATIVE_MICROROS_SETUP_OVERLAY="$(
+    "${MICROROS_SETUP_INSTALLER}" --print-overlay
+  )"
+  set +u
+  source "${NATIVE_MICROROS_SETUP_OVERLAY}"
+  set -u
   ros2 pkg prefix micro_ros_setup >/dev/null 2>&1 || {
-    echo "ros-humble-micro-ros-setup is not installed." >&2
+    echo "the pinned source-built micro_ros_setup is unavailable." >&2
     exit 1
   }
   readonly NATIVE_TOOLCHAIN_BIN="$("${NATIVE_TOOLCHAIN_BOOTSTRAP}" --print-bin)"
@@ -208,7 +220,7 @@ if ((native_generation == 1)); then
     MICROROS_TOOLCHAIN_ROOT="${NATIVE_TOOLCHAIN_BIN}" \
     MICROROS_TOOLS_ROOT="${PROJECT_ROOT}/tools" \
     MICROROS_RESTORE_OWNERSHIP=0 \
-    MICROROS_SETUP_OVERLAY= \
+    MICROROS_SETUP_OVERLAY="${NATIVE_MICROROS_SETUP_OVERLAY}" \
     PYTHONHASHSEED=0 \
     SOURCE_DATE_EPOCH=0 \
     bash "${FIRMWARE_ROOT}/config/microros_library_generation.sh"

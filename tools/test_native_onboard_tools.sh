@@ -31,6 +31,19 @@ esac
 grep -Fq 'install_onboard_stm32cubeprogrammer.sh' \
   "${SCRIPT_DIR}/prepare_host_build_dependencies.sh" || \
   Fail "the onboard dependency helper does not install STM32CubeProgrammer"
+grep -Fq 'install_onboard_microros_setup.sh' \
+  "${SCRIPT_DIR}/prepare_host_build_dependencies.sh" || \
+  Fail "the onboard dependency helper does not build pinned micro_ros_setup"
+if grep -Fq 'ros-humble-micro-ros-setup' \
+    "${SCRIPT_DIR}/prepare_host_build_dependencies.sh"; then
+  Fail "the onboard dependency helper still requires the unavailable arm64 Debian package"
+fi
+grep -Fqx 'commit=58dc7f84851c8c274b253db9779899eb551b1458' \
+  "${SCRIPT_DIR}/microros_setup_source.lock" || \
+  Fail "the onboard micro_ros_setup source commit is not pinned"
+[[ "$("${SCRIPT_DIR}/install_onboard_microros_setup.sh" --print-overlay)" == \
+   '/opt/mentor_pi/micro_ros_setup-3.1.3/install/local_setup.bash' ]] || \
+  Fail "the onboard micro_ros_setup overlay path changed"
 
 grep -Fq 'bootstrap_native_arm_toolchain.sh' "${PROJECT_ROOT}/Makefile" || \
   Fail "make setup does not prepare the native toolchain"
@@ -128,7 +141,8 @@ grep -Fq -- '--entrypoint /bin/bash' "${SCRIPT_DIR}/run_runtime.sh" || \
 
 bash -n "${SCRIPT_DIR}/open_runtime_shell.sh" \
   "${SCRIPT_DIR}/setup_onboard_ros_environment.sh" \
-  "${SCRIPT_DIR}/build_host_runtime_image.sh"
+  "${SCRIPT_DIR}/build_host_runtime_image.sh" \
+  "${SCRIPT_DIR}/install_onboard_microros_setup.sh"
 zsh -n "${SCRIPT_DIR}/setup_onboard_ros_environment.zsh" \
   "${SCRIPT_DIR}/docker/host-runtime.zshrc" \
   "${SCRIPT_DIR}/zsh/native/.zshrc"

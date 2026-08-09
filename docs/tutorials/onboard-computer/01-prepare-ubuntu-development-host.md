@@ -47,8 +47,12 @@ sudo ./tools/prepare_host_build_dependencies.sh
 ```
 
 The helper installs conventional `rosdep`/`colcon`, native compiler and build
-tools, the micro-ROS setup package, archive utilities, and the remaining
-Ubuntu dependencies. It also verifies the checked-in
+tools, archive utilities, and the remaining Ubuntu dependencies. Because the
+Humble repository does not publish `ros-humble-micro-ros-setup` for this arm64
+host, the helper fetches the upstream `micro_ros_setup` 3.1.3 source at the
+repository-locked commit, resolves its dependencies with `rosdep`, builds it
+under `/opt/mentor_pi`, and verifies its ROS package prefix. It also verifies
+the checked-in
 [`stm32cubeprogrammer_2.23.0_arm64.deb.zip`](../../../thirdpart/stm32cubeprogrammer_2.23.0_arm64.deb.zip)
 at SHA-256
 `99d2a1bfd8948f713ccae814b3038528d6a4e76e9d9d101857692a4d8da5de6f`,
@@ -64,6 +68,10 @@ After the helper finishes, verify the repository package and CLI:
 test "$(dpkg-query -W -f='${Version} ${Architecture}' stm32cubeprogrammer)" = \
   "2.23.0 arm64"
 test -x /usr/bin/STM32_Programmer_CLI
+source /opt/ros/humble/setup.zsh
+source /opt/mentor_pi/micro_ros_setup-3.1.3/install/local_setup.zsh
+test "$(ros2 pkg prefix micro_ros_setup)" = \
+  /opt/mentor_pi/micro_ros_setup-3.1.3/install/micro_ros_setup
 ```
 
 ## 4. Prepare pinned native inputs

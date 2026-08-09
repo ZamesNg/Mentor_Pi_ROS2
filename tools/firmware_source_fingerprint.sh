@@ -105,6 +105,8 @@ if [[ "${MODE}" == "firmware" ]]; then
   AppendFile "${PROJECT_ROOT}/tools/build_firmware.sh"
   AppendFile "${PROJECT_ROOT}/tools/check_firmware_memory.sh"
   AppendFile "${PROJECT_ROOT}/tools/build_microros_library.sh"
+  AppendFile "${PROJECT_ROOT}/tools/install_onboard_microros_setup.sh"
+  AppendFile "${PROJECT_ROOT}/tools/microros_setup_source.lock"
   AppendFile "${PROJECT_ROOT}/tools/docker/firmware-builder.Dockerfile"
   AppendFile "${PROJECT_ROOT}/tools/docker/microros-builder.Dockerfile"
   AppendFile "${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"

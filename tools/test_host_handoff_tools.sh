@@ -330,8 +330,10 @@ readonly FINGERPRINT_STANDALONE_INPUTS=(
   tools/docker/host-runtime.Dockerfile
   tools/docker/host-runtime.zshrc
   tools/install_microros_agent.sh
+  tools/install_onboard_microros_setup.sh
   tools/install_onboard_stm32cubeprogrammer.sh
   tools/microros_agent_source.lock
+  tools/microros_setup_source.lock
   tools/open_runtime_shell.sh
   tools/onboard_colcon_state.sh
   tools/package_host_handoff.sh

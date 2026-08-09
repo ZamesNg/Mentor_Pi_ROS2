@@ -7,6 +7,7 @@ readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly ENVIRONMENT_CHECK="${SCRIPT_DIR}/verify_host_build_environment.sh"
 readonly IDLE_GUARD="${SCRIPT_DIR}/require_microros_agent_install_idle.sh"
 readonly CUBEPROGRAMMER_INSTALLER="${SCRIPT_DIR}/install_onboard_stm32cubeprogrammer.sh"
+readonly MICROROS_SETUP_INSTALLER="${SCRIPT_DIR}/install_onboard_microros_setup.sh"
 readonly ROS_SETUP="/opt/ros/humble/setup.bash"
 
 Fail() {
@@ -20,6 +21,8 @@ Fail() {
 [[ -x "${IDLE_GUARD}" ]] || Fail "controller idle guard is missing"
 [[ -x "${CUBEPROGRAMMER_INSTALLER}" ]] || \
   Fail "STM32CubeProgrammer installer is missing"
+[[ -x "${MICROROS_SETUP_INSTALLER}" ]] || \
+  Fail "micro_ros_setup source installer is missing"
 
 "${ENVIRONMENT_CHECK}" --check-tools no
 "${IDLE_GUARD}"
@@ -37,7 +40,6 @@ apt-get install -y --no-install-recommends \
   python3-rosdep \
   python3-vcstool \
   rsync \
-  ros-humble-micro-ros-setup \
   unzip \
   xz-utils
 
@@ -52,8 +54,14 @@ if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then
 fi
 rosdep update --rosdistro humble
 
+"${MICROROS_SETUP_INSTALLER}" --install
+readonly MICROROS_SETUP_OVERLAY="$(
+  "${MICROROS_SETUP_INSTALLER}" --print-overlay
+)"
+
 set +u
 source "${ROS_SETUP}"
+source "${MICROROS_SETUP_OVERLAY}"
 set -u
 rosdep install --from-paths \
   "${PROJECT_ROOT}/mentor_pi_ros2/src" \
@@ -63,8 +71,9 @@ for native_firmware_tool in ninja vcs rsync; do
   command -v "${native_firmware_tool}" >/dev/null 2>&1 || \
     Fail "native firmware tool is unavailable: ${native_firmware_tool}"
 done
+"${MICROROS_SETUP_INSTALLER}" --verify >/dev/null
 ros2 pkg prefix micro_ros_setup >/dev/null 2>&1 || \
-  Fail "ROS 2 package micro_ros_setup is unavailable"
+  Fail "source-built ROS 2 package micro_ros_setup is unavailable"
 if [[ "$(dpkg --print-architecture)" == "arm64" ]]; then
   [[ -x /usr/bin/STM32_Programmer_CLI ]] || \
     Fail "STM32CubeProgrammer CLI is unavailable"
