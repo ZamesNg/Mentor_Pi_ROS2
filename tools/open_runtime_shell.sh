@@ -38,8 +38,8 @@ if [[ "$(docker container inspect "${CONTAINER_NAME}" \
      source /opt/mentor_pi/micro_ros_agent/local_setup.bash
      source /opt/mentor_pi/host/setup.bash
      ros2 daemon stop >/dev/null 2>&1 || true
-     export PS1="(mentor-pi-humble) \u@\h:\w\\$ "
-     exec /bin/bash --noprofile --norc -i'
+     export ZDOTDIR=/opt/mentor_pi/zsh
+     exec /usr/bin/zsh -d -i'
 fi
 
 if command -v docker >/dev/null 2>&1 && \
@@ -62,6 +62,8 @@ readonly agent_prefix="$(${AGENT_BUILDER} --print-output)"
 readonly agent_executable="${agent_prefix}/lib/micro_ros_agent/micro_ros_agent"
 [[ -r "${host_prefix}/setup.bash" && -x "${agent_executable}" ]] || \
   Fail "run make host and make agent first"
+command -v zsh >/dev/null 2>&1 || \
+  Fail "zsh is required by the native interactive shell"
 
 set +u
 source /opt/ros/humble/setup.bash
@@ -76,5 +78,6 @@ export MENTOR_PI_FIRMWARE_VERIFIER="${PROJECT_ROOT}/tools/verify_firmware_artifa
 export MENTOR_PI_HOST_PREFIX="${host_prefix}"
 export MENTOR_PI_AGENT_PREFIX="${agent_prefix}"
 export MENTOR_PI_AGENT_EXECUTABLE="${agent_executable}"
-export PS1="(mentor-pi-humble) ${PS1:-\\u@\\h:\\w\\$ }"
-exec /bin/bash --noprofile --norc -i
+export MENTOR_PI_USER_ZDOTDIR="${ZDOTDIR:-${HOME}}"
+export ZDOTDIR="${PROJECT_ROOT}/tools/zsh/native"
+exec /usr/bin/zsh -d -i

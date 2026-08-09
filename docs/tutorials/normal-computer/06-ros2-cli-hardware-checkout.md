@@ -36,6 +36,10 @@ Open a second terminal for the commands below:
 cd /home/zames/Mentor_Pi && make shell
 ```
 
+The command opens the runtime container's enhanced zsh environment. ROS 2 Tab
+completion, Oh My Zsh, autosuggestions, and syntax highlighting are enabled;
+the container does not read or modify host dotfiles.
+
 Require the configuration supervisor's transient-local motion gate to be true
 before any powered section:
 

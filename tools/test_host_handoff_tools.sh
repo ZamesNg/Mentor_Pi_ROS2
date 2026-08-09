@@ -307,6 +307,7 @@ readonly FINGERPRINT_PROJECT="${TEST_ROOT}/fingerprint-project"
 mkdir -p "${FINGERPRINT_PROJECT}/mentor_pi_ros2/src" \
   "${FINGERPRINT_PROJECT}/tools/patches" \
   "${FINGERPRINT_PROJECT}/tools/docker" \
+  "${FINGERPRINT_PROJECT}/tools/zsh/native" \
   "${FINGERPRINT_PROJECT}/docs/tutorials"
 cp -R "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces" \
   "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup" \
@@ -327,6 +328,7 @@ readonly FINGERPRINT_STANDALONE_INPUTS=(
   tools/host_handoff_container_entrypoint.sh
   tools/host_source_fingerprint.sh
   tools/docker/host-runtime.Dockerfile
+  tools/docker/host-runtime.zshrc
   tools/install_microros_agent.sh
   tools/install_onboard_stm32cubeprogrammer.sh
   tools/microros_agent_source.lock
@@ -339,6 +341,7 @@ readonly FINGERPRINT_STANDALONE_INPUTS=(
   tools/run_runtime.sh
   tools/select_pinned_build_image.sh
   tools/setup_onboard_ros_environment.sh
+  tools/setup_onboard_ros_environment.zsh
   tools/verify_host_build_environment.sh
   tools/verify_host_release_relocation.sh
   tools/verify_microros_agent_build_container.sh
@@ -346,6 +349,7 @@ readonly FINGERPRINT_STANDALONE_INPUTS=(
   tools/test_active_build_policy.sh
   tools/test_ros_workspace_layout.sh
   tools/verify_microros_agent_install_state.sh
+  tools/zsh/native/.zshrc
 )
 for relative in "${FINGERPRINT_STANDALONE_INPUTS[@]}"; do
   cp "${PROJECT_ROOT}/${relative}" "${FINGERPRINT_PROJECT}/${relative}"
@@ -439,7 +443,13 @@ grep -Fq '"${IMAGE_ARCH}" == "${architecture}"' \
 grep -Fq 'org.mentor-pi.host-runtime.base' \
   "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
   Fail "the host wrapper does not verify the runtime image base"
+grep -Fq 'org.mentor-pi.host-runtime.zshrc-sha256' \
+  "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
+  Fail "the host wrapper does not verify the runtime zsh configuration"
 
 bash -n "${ENVIRONMENT_CHECK}" "${RELOCATION_CHECK}" "${PACKAGE_TOOL}" \
   "${SCRIPT_DIR}/build_host_handoff_container.sh"
+zsh -n "${SCRIPT_DIR}/docker/host-runtime.zshrc" \
+  "${SCRIPT_DIR}/setup_onboard_ros_environment.zsh" \
+  "${SCRIPT_DIR}/zsh/native/.zshrc"
 echo "Host build, relocation, and handoff tool tests passed."

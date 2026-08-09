@@ -27,6 +27,10 @@ interface, hardware, or safety requirements.
   generation, and the pinned local Arm GNU 13.2.1 toolchain. The normal-computer
   path is Ubuntu 24.04 and uses the pinned Humble containers. Fuzzing remains a
   normal-computer release gate and is intentionally not an onboard gate.
+- User-facing ROS shells use zsh. Preserve the RDK X5 user's existing zsh
+  configuration unchanged; only the host-runtime image supplies pinned Oh My
+  Zsh, completion, autosuggestions, and syntax highlighting. Keep Make recipes,
+  scripts, CI, builders, and the non-interactive runtime launch on Bash.
 
 ## Next-version migration mandate
 

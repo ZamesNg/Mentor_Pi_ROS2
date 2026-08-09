@@ -13,7 +13,7 @@ Next: [Onboard Computer Tutorial 04: Run Passive Board Bring-Up](04-run-passive-
 
 ```sh
 cd /home/zames/Mentor_Pi/mentor_pi_ros2
-source /opt/ros/humble/setup.bash
+source /opt/ros/humble/setup.zsh
 rosdep check --from-paths src --ignore-src --rosdistro humble
 ```
 
@@ -25,7 +25,7 @@ dependencies.
 
 ```sh
 cd /home/zames/Mentor_Pi/mentor_pi_ros2
-source /opt/ros/humble/setup.bash
+source /opt/ros/humble/setup.zsh
 colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 colcon test
 colcon test-result --verbose
@@ -55,7 +55,7 @@ Contain every wheel; the PID firmware accepts guarded nonzero commands.
 
 ```sh
 cd /home/zames/Mentor_Pi
-source tools/setup_onboard_ros_environment.sh
+source tools/setup_onboard_ros_environment.zsh
 export ROS_DOMAIN_ID=0
 RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
   ros2 launch mentor_pi_bringup controller.launch.py \
@@ -72,7 +72,7 @@ the supervisor together, and shuts down if either exits.
 
 ```sh
 cd /home/zames/Mentor_Pi
-source tools/setup_onboard_ros_environment.sh
+source tools/setup_onboard_ros_environment.zsh
 export ROS_DOMAIN_ID=0
 ros2 node list
 ```

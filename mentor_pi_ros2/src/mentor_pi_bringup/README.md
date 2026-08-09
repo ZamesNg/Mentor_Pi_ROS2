@@ -335,7 +335,7 @@ does not install or transfer a host release.
 The manual commands below remain the underlying native deployment sequence.
 
 ```sh
-source /opt/ros/humble/setup.bash
+source /opt/ros/humble/setup.zsh
 readonly RELEASE_ID="2026-08-06.1"
 readonly STAGED_PREFIX="${PWD}/artifacts/mentor-pi-host-${RELEASE_ID}"
 test ! -e "${STAGED_PREFIX}"

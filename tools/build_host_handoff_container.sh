@@ -7,6 +7,7 @@ readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
 readonly HOST_RUNTIME_BUILDER="${SCRIPT_DIR}/build_host_runtime_image.sh"
 readonly HOST_RUNTIME_DOCKERFILE="${SCRIPT_DIR}/docker/host-runtime.Dockerfile"
+readonly HOST_RUNTIME_ZSHRC="${SCRIPT_DIR}/docker/host-runtime.zshrc"
 
 architecture=""
 output_directory=""
@@ -50,7 +51,8 @@ done
 
 [[ "${architecture}" == "amd64" || "${architecture}" == "arm64" ]] || Usage
 [[ -x "${IMAGE_SELECTOR}" ]] || Fail "pinned image selector is unavailable"
-[[ -x "${HOST_RUNTIME_BUILDER}" && -f "${HOST_RUNTIME_DOCKERFILE}" ]] || \
+[[ -x "${HOST_RUNTIME_BUILDER}" && -f "${HOST_RUNTIME_DOCKERFILE}" && \
+   -f "${HOST_RUNTIME_ZSHRC}" ]] || \
   Fail "Humble host runtime image tooling is unavailable"
 readonly DEFAULT_RUNTIME_IMAGE="$(
   "${HOST_RUNTIME_BUILDER}" --architecture "${architecture}" --print-output
@@ -73,6 +75,8 @@ builder_identity=""
 if [[ "${image}" == "${DEFAULT_RUNTIME_IMAGE}" ]]; then
   readonly RUNTIME_DOCKERFILE_SHA="$(sha256sum \
     "${HOST_RUNTIME_DOCKERFILE}" | awk '{print $1}')"
+  readonly RUNTIME_ZSHRC_SHA="$(sha256sum \
+    "${HOST_RUNTIME_ZSHRC}" | awk '{print $1}')"
   [[ "$(docker image inspect "${image}" \
       --format '{{index .Config.Labels "org.mentor-pi.host-runtime.base"}}')" == \
       "${PINNED_BASE_IMAGE}" ]] || \
@@ -81,6 +85,10 @@ if [[ "${image}" == "${DEFAULT_RUNTIME_IMAGE}" ]]; then
       --format '{{index .Config.Labels "org.mentor-pi.host-runtime.dockerfile-sha256"}}')" == \
       "${RUNTIME_DOCKERFILE_SHA}" ]] || \
     Fail "prepared runtime image has the wrong Dockerfile fingerprint"
+  [[ "$(docker image inspect "${image}" \
+      --format '{{index .Config.Labels "org.mentor-pi.host-runtime.zshrc-sha256"}}')" == \
+      "${RUNTIME_ZSHRC_SHA}" ]] || \
+    Fail "prepared runtime image has the wrong zsh configuration fingerprint"
   builder_identity="${PINNED_BASE_IMAGE}"
 elif [[ "${image}" =~ @sha256:[0-9a-f]{64}$ ]]; then
   builder_identity="${image}"

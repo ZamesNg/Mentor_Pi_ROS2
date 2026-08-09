@@ -22,7 +22,8 @@ mix environments or jump directly to powered motor motion.
 ### Onboard computer: RDK X5, Ubuntu 22.04 arm64, native Humble
 
 This path uses no Docker. It builds firmware with a checked local Arm GNU
-toolchain and uses conventional `rosdep`, `colcon`, and direct `ros2` commands.
+toolchain and uses conventional `rosdep`, `colcon`, and direct `ros2` commands
+from the RDK X5 user's existing zsh configuration.
 
 | Step | Tutorial | Main command |
 | ---: | --- | --- |
@@ -38,7 +39,9 @@ toolchain and uses conventional `rosdep`, `colcon`, and direct `ros2` commands.
 ### Normal computer: Ubuntu 24.04, pinned Humble Docker
 
 This path keeps ROS off the native OS and performs the complete software suite,
-including Clang 18 fuzzing, in the reviewed containers.
+including Clang 18 fuzzing, in the reviewed containers. `make shell` opens a
+zsh runtime with pinned Oh My Zsh, completion, autosuggestions, and syntax
+highlighting.
 
 | Step | Tutorial | Main command |
 | ---: | --- | --- |

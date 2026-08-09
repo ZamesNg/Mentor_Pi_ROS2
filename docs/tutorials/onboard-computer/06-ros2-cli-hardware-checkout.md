@@ -20,7 +20,7 @@ Start a fresh validated native launch in terminal A:
 
 ```sh
 cd /home/zames/Mentor_Pi
-source tools/setup_onboard_ros_environment.sh
+source tools/setup_onboard_ros_environment.zsh
 export ROS_DOMAIN_ID=0
 RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
   ros2 launch mentor_pi_bringup controller.launch.py \
@@ -37,7 +37,7 @@ Open a second terminal for the commands below:
 
 ```sh
 cd /home/zames/Mentor_Pi
-source tools/setup_onboard_ros_environment.sh
+source tools/setup_onboard_ros_environment.zsh
 export ROS_DOMAIN_ID=0
 ```
 

@@ -48,8 +48,9 @@ transport failure, or an absent controller.
 cd /home/zames/Mentor_Pi && make shell
 ```
 
-Expected result: a sourced Humble shell using domain 0. `ros2 node list` must
-contain `/mentor_pi/controller` and `/mentor_pi/configuration_supervisor`.
+Expected result: an enhanced zsh Humble shell using domain 0, with Oh My Zsh,
+Tab completion, autosuggestions, and syntax highlighting. `ros2 node list`
+must contain `/mentor_pi/controller` and `/mentor_pi/configuration_supervisor`.
 Keep the `make start` terminal open until the connected checks are finished.
 
 The launch inside `make start` validates the development artifact and serial

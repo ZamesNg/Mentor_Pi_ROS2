@@ -24,16 +24,20 @@ Install ROS 2 Humble on Ubuntu 22.04 arm64 by following the official
 [ROS 2 Humble Ubuntu deb-package guide](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html).
 Complete the guide's repository setup and ROS installation before continuing;
 do not install ROS 2 Jazzy or use an unofficial mixed-distribution setup.
+Run every interactive command in this onboard tutorial track from the RDK X5
+user's existing zsh session; the repository does not change the login shell or
+install or edit any zsh configuration.
 
 Verify the prerequisite:
 
 ```sh
-source /opt/ros/humble/setup.bash
+source /opt/ros/humble/setup.zsh
+test -n "${ZSH_VERSION}"
 test "${ROS_DISTRO}" = humble
 test "$(dpkg --print-architecture)" = arm64
 ```
 
-Stop if either check fails. Do not use this track on another Ubuntu release.
+Stop if any check fails. Do not use this track on another Ubuntu release.
 
 ## 3. Install native build dependencies
 

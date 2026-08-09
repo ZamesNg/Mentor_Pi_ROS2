@@ -66,6 +66,7 @@ for file in \
     tools/host_handoff_container_entrypoint.sh \
     tools/host_source_fingerprint.sh \
     tools/docker/host-runtime.Dockerfile \
+    tools/docker/host-runtime.zshrc \
     tools/install_microros_agent.sh \
     tools/install_onboard_stm32cubeprogrammer.sh \
     tools/microros_agent_source.lock \
@@ -78,13 +79,15 @@ for file in \
     tools/run_runtime.sh \
     tools/select_pinned_build_image.sh \
     tools/setup_onboard_ros_environment.sh \
+    tools/setup_onboard_ros_environment.zsh \
     tools/verify_host_build_environment.sh \
     tools/verify_host_release_relocation.sh \
     tools/verify_microros_agent_build_container.sh \
     tools/verify_microros_agent_build_in_container.sh \
     tools/test_active_build_policy.sh \
     tools/test_ros_workspace_layout.sh \
-    tools/verify_microros_agent_install_state.sh; do
+    tools/verify_microros_agent_install_state.sh \
+    tools/zsh/native/.zshrc; do
   AppendFile "${PROJECT_ROOT}/${file}"
 done
 

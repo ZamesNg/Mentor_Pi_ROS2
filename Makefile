@@ -62,7 +62,7 @@ help:
 		'  make start-mecanum | make start-ackermann' \
 		'      Convenience wrappers using the checked-in YAML profiles.' \
 		'  make shell ROS_DOMAIN_ID=0' \
-		'      Open a sourced ROS shell for the running runtime.' \
+		'      Open a sourced interactive zsh for the running runtime.' \
 		'  make agent-check' \
 		'      Capture separate pinned-Agent build compatibility evidence.' \
 		'  make test' \

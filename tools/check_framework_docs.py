@@ -489,13 +489,13 @@ def validate_tutorial_sequence(paths: list[Path]) -> list[str]:
         TUTORIAL_FILENAMES[1]: ("make firmware", "make serial-setup", "make flash"),
         TUTORIAL_FILENAMES[2]: (
             "rosdep check", "colcon build", "colcon test", "make agent",
-            "onboard_colcon_state.sh record", "setup_onboard_ros_environment.sh",
+            "onboard_colcon_state.sh record", "setup_onboard_ros_environment.zsh",
             "controller.launch.py",
         ),
         TUTORIAL_FILENAMES[3]: ("make passive-check", "make peripheral-smoke"),
         TUTORIAL_FILENAMES[4]: ("make characterize-board",),
         TUTORIAL_FILENAMES[5]: (
-            "setup_onboard_ros_environment.sh", "controller.launch.py",
+            "setup_onboard_ros_environment.zsh", "controller.launch.py",
             "/mentor_pi/motors/command", "/mentor_pi/motors/set_pid",
         ),
         TUTORIAL_FILENAMES[6]: (
@@ -505,7 +505,7 @@ def validate_tutorial_sequence(paths: list[Path]) -> list[str]:
         TUTORIAL_FILENAMES[7]: (
             "colcon build", "colcon test", "mecanum.launch.py",
             "ackermann.launch.py", "vehicle.launch.py",
-            "onboard_colcon_state.sh record", "setup_onboard_ros_environment.sh",
+            "onboard_colcon_state.sh record", "setup_onboard_ros_environment.zsh",
         ),
     }
     for track, required_actions in (

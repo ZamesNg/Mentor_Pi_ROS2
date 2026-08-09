@@ -78,7 +78,14 @@ grep -Fq 'all 21 MCU endpoints and heartbeat' \
   Fail "controller readiness reports a stale endpoint count"
 grep -Fq 'onboard_colcon_state.sh" verify' \
   "${SCRIPT_DIR}/setup_onboard_ros_environment.sh" || \
-  Fail "onboard environment does not reject a stale conventional colcon build"
+  Fail "Bash onboard environment does not reject a stale conventional colcon build"
+grep -Fq 'onboard_colcon_state.sh" verify' \
+  "${SCRIPT_DIR}/setup_onboard_ros_environment.zsh" || \
+  Fail "zsh onboard environment does not reject a stale conventional colcon build"
+if grep -ERq 'source [^`]*setup[.]bash|setup_onboard_ros_environment[.]sh' \
+    "${PROJECT_ROOT}/docs/tutorials/onboard-computer"; then
+  Fail "onboard tutorials expose a Bash environment command"
+fi
 
 readonly CONTROLLER_LAUNCH="${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.py"
 [[ -f "${CONTROLLER_LAUNCH}" ]] || Fail "Python controller launch is missing"

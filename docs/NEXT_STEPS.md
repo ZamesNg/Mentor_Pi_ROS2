@@ -33,11 +33,15 @@ The planned source migrations are implemented:
   source-bound direct ros2 launches, and an onboard gate that excludes fuzzing
   and the normal-computer coverage toolchain; the Ubuntu 24.04 normal-computer
   track retains the complete pinned Docker suite, including coverage and Clang
-  18 fuzzing; and
+  18 fuzzing;
 - onboard dependency preparation treats ROS 2 Humble as an externally supplied
   prerequisite, installs the remaining native dependencies, and verifies and
   installs the checked STM32CubeProgrammer 2.23.0 arm64 package after explicit
-  license acceptance.
+  license acceptance; and
+- user-facing native ROS commands use the RDK X5 user's existing zsh setup,
+  while `make shell` in the pinned host-runtime image provides the pinned
+  Oh My Zsh theme, completion, autosuggestions, and syntax highlighting without
+  changing Bash-based automation or the controller entrypoint.
 
 The new controller launch starts the compiled micro-ROS Agent and configuration
 supervisor together and shuts down the launch if either process exits. The
@@ -50,7 +54,7 @@ RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED make start
 After entering the project Humble environment, conventional direct use is:
 
 ```sh
-source tools/setup_onboard_ros_environment.sh
+source tools/setup_onboard_ros_environment.zsh
 RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
   ros2 launch mentor_pi_bringup controller.launch.py \
     agent_executable:="${MENTOR_PI_AGENT_EXECUTABLE}"
@@ -78,9 +82,14 @@ The following checks pass against the current source:
   189 relative links, and 16 ordered tutorials; and
 - `git diff --check`.
 
-After the dual-host change, focused tutorial, active-build, host-handoff,
-firmware-artifact, dependency-provenance, and board-handoff tests pass. The
-pinned Ubuntu 24.04 quality container completed its portable/native Debug test
+After the interactive-zsh change, focused tutorial, native-onboard,
+active-build, workspace-layout, host-fingerprint, host-handoff, and
+documentation tests pass. The native-architecture runtime image
+`mentor-pi/rrclite-host-runtime:humble-amd64-fece1a12445b880c` built with Oh My
+Zsh commit `97b27bb2ec0701330b18c2d3e340b22e742b3fa8`; a read-only smoke run with
+real Agent and host overlays verified Humble, autosuggestions, syntax
+highlighting, and ROS 2/Git/Make/filesystem completion. The rebuilt pinned
+Ubuntu 24.04 quality container completed its portable/native Debug sanitizer
 suite, then stopped at three existing formatting violations in unchanged C++
 files: `controller_tests.cc:19`, `controller_tests.cc:20`, and
 `configuration_supervisor_launch_test.cc:303`.

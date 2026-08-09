@@ -6,6 +6,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
 readonly DOCKERFILE="${SCRIPT_DIR}/docker/host-runtime.Dockerfile"
+readonly ZSHRC="${SCRIPT_DIR}/docker/host-runtime.zshrc"
 
 architecture=""
 print_output=0
@@ -27,7 +28,12 @@ done
 
 readonly base_image="$(${IMAGE_SELECTOR} host "${architecture}")"
 readonly dockerfile_sha="$(sha256sum "${DOCKERFILE}" | awk '{print $1}')"
-readonly image="mentor-pi/rrclite-host-runtime:humble-${architecture}-${dockerfile_sha:0:16}"
+readonly zshrc_sha="$(sha256sum "${ZSHRC}" | awk '{print $1}')"
+readonly runtime_source_sha="$(
+  printf '%s\n%s\n' "${dockerfile_sha}" "${zshrc_sha}" | \
+    sha256sum | awk '{print $1}'
+)"
+readonly image="mentor-pi/rrclite-host-runtime:humble-${architecture}-${runtime_source_sha:0:16}"
 if ((print_output == 1)); then
   printf '%s\n' "${image}"
   exit 0
@@ -40,7 +46,10 @@ if [[ "$(docker image inspect "${image}" \
     2>/dev/null || true)" == "${base_image}" && \
       "$(docker image inspect "${image}" \
     --format '{{index .Config.Labels "org.mentor-pi.host-runtime.dockerfile-sha256"}}' \
-    2>/dev/null || true)" == "${dockerfile_sha}" ]]; then
+    2>/dev/null || true)" == "${dockerfile_sha}" && \
+      "$(docker image inspect "${image}" \
+    --format '{{index .Config.Labels "org.mentor-pi.host-runtime.zshrc-sha256"}}' \
+    2>/dev/null || true)" == "${zshrc_sha}" ]]; then
   echo "Reusing verified Mentor Pi Humble host runtime image: ${image}"
   exit 0
 fi
@@ -50,6 +59,7 @@ declare -a build_command=(
   --build-arg "BASE_IMAGE=${base_image}"
   --label "org.mentor-pi.host-runtime.base=${base_image}"
   --label "org.mentor-pi.host-runtime.dockerfile-sha256=${dockerfile_sha}"
+  --label "org.mentor-pi.host-runtime.zshrc-sha256=${zshrc_sha}"
   --file "${DOCKERFILE}" --tag "${image}"
 )
 use_host_network=0
