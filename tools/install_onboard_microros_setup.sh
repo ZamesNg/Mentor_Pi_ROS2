@@ -27,6 +27,14 @@ ReadLockValue() {
   printf '%s' "${line#*=}"
 }
 
+# The managed checkout is intentionally installed by root under /opt, while
+# native firmware builds verify it as the unprivileged developer. Trust only
+# this fixed checkout for each Git invocation instead of modifying the user's
+# or system's safe.directory configuration.
+SourceGit() {
+  git -c "safe.directory=${SOURCE_ROOT}" -C "${SOURCE_ROOT}" "$@"
+}
+
 [[ "$#" == 1 ]] || \
   Fail "usage: ./tools/install_onboard_microros_setup.sh --install|--verify|--print-overlay"
 case "$1" in
@@ -54,11 +62,11 @@ fi
 
 VerifyInstall() {
   [[ -d "${SOURCE_ROOT}/.git" && ! -L "${SOURCE_ROOT}" ]] || return 1
-  [[ "$(git -C "${SOURCE_ROOT}" remote get-url origin 2>/dev/null)" == \
+  [[ "$(SourceGit remote get-url origin 2>/dev/null)" == \
       "${REPOSITORY}" ]] || return 1
-  [[ "$(git -C "${SOURCE_ROOT}" rev-parse HEAD 2>/dev/null)" == \
+  [[ "$(SourceGit rev-parse HEAD 2>/dev/null)" == \
       "${COMMIT}" ]] || return 1
-  [[ -z "$(git -C "${SOURCE_ROOT}" status --porcelain --untracked-files=all)" ]] || \
+  [[ -z "$(SourceGit status --porcelain --untracked-files=all)" ]] || \
     return 1
   grep -Fq "<version>${VERSION}</version>" \
     "${SOURCE_ROOT}/package.xml" || return 1
@@ -104,19 +112,21 @@ if VerifyInstall; then
 fi
 
 install -d -m 0755 "${WORKSPACE_ROOT}/src"
+[[ ! -L "${SOURCE_ROOT}" ]] || \
+  Fail "refusing symbolic source path ${SOURCE_ROOT}"
 if [[ ! -d "${SOURCE_ROOT}/.git" ]]; then
   [[ ! -e "${SOURCE_ROOT}" && ! -L "${SOURCE_ROOT}" ]] || \
     Fail "refusing to replace non-Git source path ${SOURCE_ROOT}"
   git init "${SOURCE_ROOT}"
-  git -C "${SOURCE_ROOT}" remote add origin "${REPOSITORY}"
+  SourceGit remote add origin "${REPOSITORY}"
 fi
-[[ "$(git -C "${SOURCE_ROOT}" remote get-url origin)" == "${REPOSITORY}" ]] || \
+[[ "$(SourceGit remote get-url origin)" == "${REPOSITORY}" ]] || \
   Fail "existing source checkout has the wrong origin"
-git -C "${SOURCE_ROOT}" fetch --depth 1 origin "${COMMIT}"
-git -C "${SOURCE_ROOT}" checkout --detach FETCH_HEAD
-[[ "$(git -C "${SOURCE_ROOT}" rev-parse HEAD)" == "${COMMIT}" ]] || \
+SourceGit fetch --depth 1 origin "${COMMIT}"
+SourceGit checkout --detach FETCH_HEAD
+[[ "$(SourceGit rev-parse HEAD)" == "${COMMIT}" ]] || \
   Fail "source checkout did not resolve to the locked commit"
-[[ -z "$(git -C "${SOURCE_ROOT}" status --porcelain --untracked-files=all)" ]] || \
+[[ -z "$(SourceGit status --porcelain --untracked-files=all)" ]] || \
   Fail "source checkout is modified"
 grep -Fq "<version>${VERSION}</version>" "${SOURCE_ROOT}/package.xml" || \
   Fail "source checkout has the wrong package version"
