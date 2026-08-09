@@ -39,33 +39,25 @@ first session generation; clearing the inhibit neither changes that generation
 nor requires reconnect. This makes the bounded startup grace a continuous safe
 state rather than a motor stop sampled only every 20 ms.
 
-The normal firmware image is motor-locked. In `ACTIVE` it accepts a valid
-selected zero target as a stop command, but a command containing any selected
-nonzero target is rejected atomically as `UNSUPPORTED`, changes no target, and
-refreshes no motion lease. No ROS service, host parameter, Agent state, or true
-`/mentor_pi/configuration/motion_enabled` value can remove this build-time lock.
+The normal and only supported firmware image is the PID release artifact,
+classified `NORMAL_CLOSED_LOOP_DEFAULT` with `control_mode=CLOSED_LOOP`. In
+`ACTIVE`, a fresh valid command may arm only its selected channels. The active
+model limit and the 6 RPS implementation ceiling are enforced before any state
+changes, output is limited to +/-1000 permille, and invalid commands neither
+change targets nor refresh leases. Entity creation, an Agent ping, a command
+retained from an old session, or a ROS-side configuration value is not authority
+to arm. Project-owned host motion additionally remains inhibited until the
+configuration supervisor authorizes the current Agent session.
 
-A nonzero target may arm only in an explicitly built commissioning image, in
-the `ACTIVE` session state, after a fresh valid command for that motor. The
-supported public command is
-`make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED`; it supplies the
-two exact internal CMake gates and fails closed otherwise. The initial image is
-a direction check, not a speed controller: it rejects magnitudes above 0.25
-RPS, uses only the accepted command sign, applies fixed 250-permille output,
-bypasses PID, and disarms above 0.50 measured RPS.
-Entity creation, an Agent ping, or a command retained from an old session is not
-authority to arm. The commissioning image shall be used only with every wheel
-raised or equivalently guarded and a current-limited supply.
-
-The project-owned host commissioning utility adds a fail-closed operational
-guard around that firmware authority. It accepts targets only from 0.01 through
-0.25 RPS, requires the sole publisher of the session-bound host authorization
+The project-owned guarded motor utility adds a fail-closed operational guard
+around that firmware authority. It accepts only its documented bounded target
+range, requires the sole publisher of the session-bound host authorization
 token to be `/mentor_pi/configuration_supervisor`, and locks that token before
 the first zero burst. It publishes all four fields every 50 ms and aborts if a
 drive interval exceeds 100 ms, so a command cannot arrive after the 198 ms MCU
 expiry boundary and re-arm as though the run were continuous. It also aborts
 on MCU uptime/sequence regression, changed watchdog/lease counters, a nonzero
-watchdog mask, selected speed at or above the firmware's 0.50 RPS cutoff, wrong selected response direction,
+watchdog mask, an out-of-contract selected response, wrong selected response direction,
 or unselected response above 0.02 RPS or two encoder ticks. A pass requires a
 correctly directed selected response of at least the greater of 0.002 RPS or
 10% of the target and at least two correctly directed encoder ticks.
@@ -80,16 +72,15 @@ abnormal ROS shutdown requests an immediate best-effort all-motor zero. If the
 host can no longer publish, the independent MCU lease remains the stop
 authority and must still satisfy the 200 ms bound.
 After the software checks pass, the one-line helper requires the operator to
-confirm the observed physical direction. These checks reduce commissioning
-risk but neither unlock a normal image nor replace MCU safety or HIL
-qualification.
+confirm the observed physical direction. These checks reduce checkout risk but
+do not replace MCU safety or HIL qualification.
 
-Before any powered command, the normal locked image shall be used for a passive
-manual encoder-direction check while all bridge outputs remain disabled. JGA27
+Before any powered command, the PID image shall be used for a passive manual
+encoder-direction check while all bridge outputs remain disabled. JGA27
 currently applies a provisional model polarity factor of `-1` derived from
 legacy negative-gain evidence. That factor and every PID profile remain
-unqualified until motor HIL measures and records the physical result; the
-commissioning build and its caps are not release qualification.
+unqualified until motor HIL measures and records the physical result. Software
+verification of the release artifact is not powered-motion qualification.
 
 Other reset defaults are deterministic: PWM-servo GPIO is low until the frame
 generator is ready and then each channel outputs 1500 microseconds with zero
@@ -106,7 +97,7 @@ armed state.
 
 - The lease duration is 200 ms.
 - A 1 kHz safety release in `MotorControlTask` evaluates the lease; encoder and
-  output updates remain 100 Hz. The initial direction-check image bypasses PID.
+  PID/output updates remain 100 Hz.
 - TIM7 releases the check every 1 ms. Qualification shall prove that the
   maximum interval between completed lease evaluations, including scheduling
   jitter, is no greater than 2 ms. The expiry threshold is 198 ms, allowing one
@@ -117,9 +108,9 @@ armed state.
   ticks.
 - A zero mask, invalid ID/mask, NaN, infinity, invalid model, malformed message,
   or rejected value refreshes no lease.
-- A finite speed outside the active motor model's documented range, or outside
-  the commissioning image's stricter 0.25 RPS cap, rejects the complete message
-  atomically and refreshes no lease. It is never clamped.
+- A finite speed outside the active motor model's documented range or the 6 RPS
+  implementation ceiling rejects the complete message atomically and refreshes
+  no lease. It is never clamped.
 - When age reaches 198 ms, that motor's target and PWM become zero, its PID
   integrator and accumulated output are cleared, and it becomes disarmed.
 - Session failure, transport failure, RX overrun, or safety-supervisor action
@@ -424,7 +415,7 @@ an in-flight service buffer, or allocating per incoming message.
 | Fault | Immediate response | Recovery |
 | --- | --- | --- |
 | One motor command expires | Zero/disarm that motor; clear its PID state. | Fresh valid command for that motor while session is active and only within the active build's authority. |
-| All command traffic stops but Agent still answers | Per-motor leases expire independently. | Fresh valid commands subject to the normal lock or commissioning cap; no session recreation required. |
+| All command traffic stops but Agent still answers | Per-motor leases expire independently. | Fresh valid commands subject to the model limit, implementation ceiling, and current-session gate; no session recreation required. |
 | Agent process or cable disappears | Motor lease remains primary; detected ping/transport failure disarms all and tears down. | Automatic Agent/session retry; fresh motor commands remain subject to the active build's authority. |
 | Invalid command | Reject atomically and count; refresh no affected lease. | Publisher corrects the message. |
 | Mailbox overwrite | Apply newest value and count overwrite. | No special recovery. |

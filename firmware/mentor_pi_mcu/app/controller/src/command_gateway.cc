@@ -51,8 +51,8 @@ CommandAdmission ControllerRuntime::PublishMotorCommand(
     motor_controller_.RecordRejectedCommand(command.update_mask);
     return InactiveAdmission();
   }
-  // The build-time lock applies only to an otherwise valid command. Preserve
-  // precise mask, finite-value, and model-range validation results.
+  // An invalid build-time configuration applies only after the public command
+  // has received precise mask, finite-value, and model-range validation.
   const Result validation =
       mentor_pi::mcu::ValidateMotorCommand(command, MotorMaximumRps());
   if (!validation.ok()) {
@@ -60,7 +60,7 @@ CommandAdmission ControllerRuntime::PublishMotorCommand(
     return {validation, false, 0U};
   }
   if (RequestsMotorMotion(command) &&
-      !motor_controller_.nonzero_motion_enabled()) {
+      !motor_controller_.configuration_valid()) {
     motor_controller_.RecordRejectedCommand(command.update_mask);
     return {{ResultCode::kUnsupported, 0U}, false, 0U};
   }

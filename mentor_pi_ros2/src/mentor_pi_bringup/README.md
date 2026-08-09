@@ -25,13 +25,12 @@ after 100 ms and `BUSY`, returned `TIMEOUT`, and client timeout alone receive up
 to four attempts with 100/200/400 ms backoff.
 
 A true value means only that deployment configuration was applied successfully;
-it is not motor authority. It cannot unlock the normal MCU image, change the
-commissioning limits, or qualify motor PID/polarity data. The normal image
-accepts zero/stop commands but rejects selected nonzero targets as
-`UNSUPPORTED`. Nonzero bench motion additionally requires the exact guarded
-commissioning build and physical precautions in
-[Tutorial 06](../../../docs/tutorials/06-commission-one-motor-safely.md).
-The commissioning utility accepts authorization only when exactly one publisher
+it does not establish physical safety or qualify motor PID/polarity data. The
+normal PID image accepts bounded, validated nonzero commands after its
+configuration/session gates are satisfied. Nonzero bench motion therefore
+requires passive completion of Tutorials 01--05, raised or equivalently
+guarded wheels, a current-limited supply, and the guarded precautions in
+Tutorial 06. The commissioning utility accepts authorization only when exactly one publisher
 owns the authorization topic and that endpoint is the node
 `/mentor_pi/configuration_supervisor`. It locks the generation/session pair
 before motion and aborts if the publisher disappears, the token changes, MCU
@@ -123,8 +122,8 @@ PID/polarity qualification, or 24-hour soak.
 `/mentor_pi/qualification_campaign` generates the documented mixed command and
 service load while observing telemetry, diagnostics, sessions, and ROS endpoint
 recovery. Its modes are `load500`, `soak`, `reconnect_usb`,
-`reconnect_agent`, and `reset_mcu`. The first two use the locked 60-minute and
-24-hour profiles. The recovery modes finish after 100 observed session cycles
+`reconnect_agent`, and `reset_mcu`. The first two use fixed 60-minute and
+24-hour zero-motor-command profiles. The recovery modes finish after 100 observed session cycles
 or fail at `campaign_timeout_sec`.
 
 This executable is deliberately incapable of nonzero motor motion. Motor
@@ -132,7 +131,7 @@ publications repeat the observable update-mask sequence `1, 2, 4, 8, 15` while
 all four targets remain literal zero; at the 500 Hz profile the full-stop mask
 therefore appears every 10 ms. The one-channel masks exercise subset merging,
 but never select a nonzero value. There is no target,
-commissioning-authority, or firmware-unlock parameter. It can still move PWM
+motor-authority or firmware-mode parameter. It can still move PWM
 and bus servos and operate LEDs, the buzzer, RGB pixels, and OLED. Put the robot
 on the reviewed guarded fixture, isolate hazardous mechanisms and motor power,
 and stop on any unexpected output. The required
@@ -194,7 +193,7 @@ instruments are attached. Consequently `CampaignSummary::release_qualified`
 is always false and `summary.json` always says
 `release_qualification: INCOMPLETE`; a zero exit status or green JUnit record
 never closes D5 by itself. Follow
-[Tutorial 08](../../../docs/tutorials/08-run-stress-soak-and-release-gates.md) and
+[Tutorial 07](../../../docs/tutorials/07-run-stress-soak-and-release-gates.md) and
 retain generated campaign and independent instrument files; an absent or
 `NOT_OBSERVED` physical metric keeps the release gate open.
 
@@ -210,7 +209,7 @@ writes a per-command status table, an internal SHA-256 manifest, a compressed
 archive, and the archive digest even when a prerequisite or requested
 qualification fails.
 
-For the locked-image session, create the complete diagnostic bundle through
+For the passive default-PID session, create the complete diagnostic bundle through
 the guided passive action. It binds the current authoritative artifact directly
 and does not require a handoff path:
 
@@ -259,7 +258,7 @@ an injected `BUSY` response. A real-rcl/rmw fault test withholds service
 responses across the 100 ms client timeout and an Agent-session change. It
 proves retries can complete through a reentrant peer while each late reply is
 discarded without changing the generation-bound motion authorization. A
-separate process test starts the installed XML launch description, verifies the
+separate process test starts the installed Python launch description, verifies the
 exact Agent command line with a compiled fake Agent, and drives the externally
 launched supervisor through a C++ controller peer. These tests do not emulate
 XRCE traffic or replace the physical reconnect campaign. A separate
@@ -297,10 +296,10 @@ transitional, failed, malformed, or indeterminate state fails closed.
 Before building, it requires both source trees to have the exact origin, a
 detached pinned commit, and no modified or untracked files. It builds a release
 prefix under `/opt/mentor_pi` and installs a native-exec wrapper. Python is used
-only by upstream ROS build tooling; it is not present in the running transport
-path.
+only by upstream ROS build tooling and ROS launch orchestration; the Agent data
+path remains native C++.
 
-The XML launch description starts that Agent executable. Stop the production
+The Python launch description starts that Agent executable. Stop the production
 target first: the installed Agent wrapper takes a nonblocking serial-owner lock
 and refuses a second Agent. A production installation also grants the device
 only to the `mentor-pi-serial` group, so run an interactive launch under the
@@ -313,8 +312,9 @@ sudo -u mentor-pi -- env \
   ROS_DOMAIN_ID=37 \
   ROS_LOG_DIR=/var/log/mentor-pi \
   XDG_RUNTIME_DIR=/run/mentor-pi \
+  RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
   bash -c 'source /opt/mentor_pi/host/setup.bash && \
-    ros2 launch mentor_pi_bringup controller.launch.xml \
+    ros2 launch mentor_pi_bringup controller.launch.py \
       serial_device:=/dev/mentor_pi_mcu'
 ```
 

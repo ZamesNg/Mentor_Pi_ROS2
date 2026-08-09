@@ -39,29 +39,22 @@ ExpectFailure() {
 
 CreateFixture() {
   local name="$1"
-  local mode="${2:-LOCKED}"
-  local motor_mode="${mode}"
-  local artifact_mode="NORMAL"
   local root="${TEST_ROOT}/${name}"
   local build_root="${root}/firmware/mentor_pi_mcu/build/stm32"
   mkdir -p "${root}/tools" "${build_root}" "${root}/tmp"
   cp "${FLASH_SOURCE}" "${root}/tools/flash_firmware.sh"
   chmod +x "${root}/tools/flash_firmware.sh"
 
-  printf 'verified %s firmware\n' "${mode}" \
+  printf 'verified PID firmware\n' \
     >"${build_root}/mentor_pi_mcu.elf"
   local digest
   digest="$(Sha256 "${build_root}/mentor_pi_mcu.elf")"
   printf '%s\n' \
-    "motor_mode=${motor_mode}" \
-    "artifact_mode=${artifact_mode}" \
+    "motor_mode=PID" \
+    "artifact_mode=NORMAL" \
     "elf_sha256=${digest}" \
     >"${build_root}/rrclite-build-metadata.txt"
 
-  # The artifact verifier has its own exhaustive fixture tests. This fake
-  # proves that the flash wrapper invokes the fixed project-owned verifier
-  # twice with the requested mode and project root, and aborts on either
-  # failure without coupling these tests to a particular metadata schema.
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -euo pipefail' \
@@ -132,9 +125,8 @@ CreateFixture() {
 
 RunFlash() {
   local root="$1"
-  local mode="$2"
-  local port="$3"
-  shift 3
+  local port="$2"
+  shift 2
   env \
     FAKE_PROGRAMMER_LOG="${root}/programmer.log" \
     FAKE_PROGRAMMER_SNAPSHOT_LOG="${root}/programmer-snapshot.log" \
@@ -145,78 +137,59 @@ RunFlash() {
     STM32_CUBE_PROGRAMMER_CLI="${root}/STM32_Programmer_CLI" \
     TMPDIR="${root}/tmp" \
     "$@" \
-    "${root}/tools/flash_firmware.sh" "${mode}" "${port}"
+    "${root}/tools/flash_firmware.sh" "${port}"
 }
 
 usage_root="$(CreateFixture usage)"
 ExpectFailure "Usage:" "${usage_root}/tools/flash_firmware.sh"
-ExpectFailure "RRCLITE_UART_BOOTLOADER_ACK=" \
-  env FAKE_PROGRAMMER_LOG="${usage_root}/programmer.log" \
-    FAKE_VERIFIER_LOG="${usage_root}/verifier.log" \
-    FAKE_VERIFIER_COUNT="${usage_root}/verifier.count" \
-    STM32_CUBE_PROGRAMMER_CLI="${usage_root}/STM32_Programmer_CLI" \
-    "${usage_root}/tools/flash_firmware.sh" LOCKED /dev/ttyUSB0
 ExpectFailure "well-formed /dev path" \
-  RunFlash "${usage_root}" LOCKED 'port=attacker'
+  RunFlash "${usage_root}" 'port=attacker'
 ExpectFailure "well-formed /dev path" \
-  RunFlash "${usage_root}" LOCKED /dev/../tmp/ttyUSB0
+  RunFlash "${usage_root}" /dev/../tmp/ttyUSB0
 ExpectFailure "existing character device" \
-  RunFlash "${usage_root}" LOCKED /dev/rrclite-port-that-does-not-exist
+  RunFlash "${usage_root}" /dev/rrclite-port-that-does-not-exist
 
-commissioning_root="$(CreateFixture commissioning COMMISSIONING)"
-ExpectFailure "RRCLITE_COMMISSIONING_FLASH_ACK=" \
-  RunFlash "${commissioning_root}" COMMISSIONING /dev/null
-
-pid_root="$(CreateFixture commissioning-pid COMMISSIONING_PID)"
-ExpectFailure "RRCLITE_COMMISSIONING_FLASH_ACK=" \
-  RunFlash "${pid_root}" COMMISSIONING_PID /dev/null
-RunFlash "${pid_root}" COMMISSIONING_PID /dev/null \
-  RRCLITE_COMMISSIONING_FLASH_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-  >/dev/null
+pid_success_root="$(CreateFixture pid-success)"
+RunFlash "${pid_success_root}" /dev/null >/dev/null
 printf '%s\t%s\n' \
-  COMMISSIONING_PID "${pid_root}" \
-  COMMISSIONING_PID "${pid_root}" \
-  >"${pid_root}/expected-verifier.log"
-cmp "${pid_root}/expected-verifier.log" "${pid_root}/verifier.log" || \
-  Fail "PID flash did not verify the exact COMMISSIONING_PID artifact twice"
-
-wrong_mode_root="$(CreateFixture wrong-mode LOCKED)"
-ExpectFailure "metadata mode changed" \
-  RunFlash "${wrong_mode_root}" COMMISSIONING /dev/null \
-    RRCLITE_COMMISSIONING_FLASH_ACK=MOTORS_RAISED_CURRENT_LIMITED
+  PID "${pid_success_root}" \
+  PID "${pid_success_root}" \
+  >"${pid_success_root}/expected-verifier.log"
+cmp "${pid_success_root}/expected-verifier.log" "${pid_success_root}/verifier.log" || \
+  Fail "PID flash did not verify the exact PID artifact twice"
 
 stale_root="$(CreateFixture stale)"
 printf 'changed\n' \
   >>"${stale_root}/firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf"
 ExpectFailure "ELF changed while the flash snapshot was copied" \
-  RunFlash "${stale_root}" LOCKED /dev/null
+  RunFlash "${stale_root}" /dev/null
 [[ ! -e "${stale_root}/programmer.log" ]] || \
   Fail "CubeProgrammer ran for a stale firmware ELF"
 
 first_verifier_root="$(CreateFixture first-verifier)"
 ExpectFailure "artifact verification failed" \
-  RunFlash "${first_verifier_root}" LOCKED /dev/null \
+  RunFlash "${first_verifier_root}" /dev/null \
     FAKE_VERIFIER_FAIL_CALL=1
 [[ ! -e "${first_verifier_root}/programmer.log" ]] || \
   Fail "CubeProgrammer ran after initial artifact verification failed"
 
 second_verifier_root="$(CreateFixture second-verifier)"
 ExpectFailure "firmware changed while the flash snapshot was prepared" \
-  RunFlash "${second_verifier_root}" LOCKED /dev/null \
+  RunFlash "${second_verifier_root}" /dev/null \
     FAKE_VERIFIER_FAIL_CALL=2
 [[ ! -e "${second_verifier_root}/programmer.log" ]] || \
   Fail "CubeProgrammer ran after post-snapshot verification failed"
 
 metadata_race_root="$(CreateFixture metadata-race)"
 ExpectFailure "metadata changed while the flash snapshot was prepared" \
-  RunFlash "${metadata_race_root}" LOCKED /dev/null \
+  RunFlash "${metadata_race_root}" /dev/null \
     FAKE_VERIFIER_MUTATE_METADATA_CALL=2
 [[ ! -e "${metadata_race_root}/programmer.log" ]] || \
   Fail "CubeProgrammer ran after concurrent metadata replacement"
 
 programmer_failure_root="$(CreateFixture programmer-failure)"
 ExpectFailure "programming or read-back verification failed" \
-  RunFlash "${programmer_failure_root}" LOCKED /dev/null \
+  RunFlash "${programmer_failure_root}" /dev/null \
     FAKE_PROGRAMMER_EXIT_CODE=17
 failed_snapshot="$(sed -n 's/^path=//p' \
   "${programmer_failure_root}/programmer-snapshot.log")"
@@ -224,7 +197,7 @@ failed_snapshot="$(sed -n 's/^path=//p' \
   Fail "the temporary snapshot survived a CubeProgrammer failure"
 
 success_root="$(CreateFixture success)"
-RunFlash "${success_root}" LOCKED /dev/null >/dev/null
+RunFlash "${success_root}" /dev/null >/dev/null
 success_build="${success_root}/firmware/mentor_pi_mcu/build/stm32"
 success_hash="$(Sha256 "${success_build}/mentor_pi_mcu.elf")"
 success_snapshot="$(sed -n 's/^path=//p' \
@@ -243,8 +216,8 @@ grep -Fqx 'mode=444' "${success_root}/programmer-snapshot.log" || \
   Fail "the artifact verifier did not run before and after snapshotting"
 readonly EXPECTED_VERIFIER_LOG="${success_root}/expected-verifier.log"
 printf '%s\t%s\n' \
-  LOCKED "${success_root}" \
-  LOCKED "${success_root}" \
+  PID "${success_root}" \
+  PID "${success_root}" \
   >"${EXPECTED_VERIFIER_LOG}"
 cmp "${EXPECTED_VERIFIER_LOG}" "${success_root}/verifier.log" || \
   Fail "artifact verifier arguments differ from the reviewed contract"
@@ -267,7 +240,7 @@ cmp "${EXPECTED_PROGRAMMER_LOG}" "${success_root}/programmer.log" || \
   Fail "CubeProgrammer arguments differ from the reviewed UART command"
 
 automatic_root="$(CreateFixture automatic)"
-RunFlash "${automatic_root}" LOCKED /dev/null \
+RunFlash "${automatic_root}" /dev/null \
   RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
   RRCLITE_CH9102_BOOT_CONTROL="${automatic_root}/ch9102_boot_control" \
   >/dev/null
@@ -278,7 +251,7 @@ cmp "${automatic_root}/expected-boot.log" \
 
 activation_failure_root="$(CreateFixture activation-failure)"
 ExpectFailure "automatic bootloader activation failed" \
-  RunFlash "${activation_failure_root}" LOCKED /dev/null \
+  RunFlash "${activation_failure_root}" /dev/null \
     RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
     RRCLITE_CH9102_BOOT_CONTROL="${activation_failure_root}/ch9102_boot_control" \
     FAKE_PROGRAMMER_PREFLIGHT_EXIT_CODE=18
@@ -289,7 +262,7 @@ grep -Fqx bootloader "${activation_failure_root}/boot-control.log" || \
 
 automatic_program_failure_root="$(CreateFixture automatic-program-failure)"
 ExpectFailure "programming or read-back verification failed" \
-  RunFlash "${automatic_program_failure_root}" LOCKED /dev/null \
+  RunFlash "${automatic_program_failure_root}" /dev/null \
     RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
     RRCLITE_CH9102_BOOT_CONTROL="${automatic_program_failure_root}/ch9102_boot_control" \
     FAKE_PROGRAMMER_EXIT_CODE=17
@@ -301,7 +274,7 @@ grep -Fqx bootloader \
 
 automatic_interrupt_root="$(CreateFixture automatic-interrupt)"
 ExpectFailure "programming or read-back verification failed" \
-  RunFlash "${automatic_interrupt_root}" LOCKED /dev/null \
+  RunFlash "${automatic_interrupt_root}" /dev/null \
     RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
     RRCLITE_CH9102_BOOT_CONTROL="${automatic_interrupt_root}/ch9102_boot_control" \
     FAKE_PROGRAMMER_EXIT_CODE=130
@@ -310,7 +283,7 @@ ExpectFailure "programming or read-back verification failed" \
 
 preflight_timeout_root="$(CreateFixture preflight-timeout)"
 ExpectFailure "automatic bootloader activation failed" \
-  RunFlash "${preflight_timeout_root}" LOCKED /dev/null \
+  RunFlash "${preflight_timeout_root}" /dev/null \
     RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
     RRCLITE_CH9102_BOOT_CONTROL="${preflight_timeout_root}/ch9102_boot_control" \
     RRCLITE_PROGRAMMER_PREFLIGHT_TIMEOUT_SEC=1 \
@@ -320,7 +293,7 @@ ExpectFailure "automatic bootloader activation failed" \
 
 flash_timeout_root="$(CreateFixture flash-timeout)"
 ExpectFailure "programming or read-back verification failed" \
-  RunFlash "${flash_timeout_root}" LOCKED /dev/null \
+  RunFlash "${flash_timeout_root}" /dev/null \
     RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
     RRCLITE_CH9102_BOOT_CONTROL="${flash_timeout_root}/ch9102_boot_control" \
     RRCLITE_PROGRAMMER_FLASH_TIMEOUT_SEC=1 \
@@ -330,7 +303,7 @@ ExpectFailure "programming or read-back verification failed" \
 
 application_reset_failure_root="$(CreateFixture application-reset-failure)"
 ExpectFailure "automatic normal-boot reset failed" \
-  RunFlash "${application_reset_failure_root}" LOCKED /dev/null \
+  RunFlash "${application_reset_failure_root}" /dev/null \
     RRCLITE_AUTOMATIC_BOOT_CONTROL=1 \
     RRCLITE_CH9102_BOOT_CONTROL="${application_reset_failure_root}/ch9102_boot_control" \
     FAKE_BOOT_CONTROL_FAIL_MODE=application

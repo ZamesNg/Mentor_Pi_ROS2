@@ -120,9 +120,9 @@ if(open_clear EQUAL -1)
   message(FATAL_ERROR "OpenUsart1Transport no longer clears the fault latch")
 endif()
 
-# The target has exactly two pre-HIL motor authority profiles. The normal path
-# must be the explicit locked factory, and the commissioning path must remain
-# behind the compile-time define supplied only by the acknowledged CMake gate.
+# The target has exactly one motor authority profile: PID CLOSED_LOOP with
+# bounded authority (6 RPS, ±1000 permille). Legacy mode selection has
+# collapsed into this single default profile.
 string(FIND "${target_source}"
        "mentor_pi::mcu::MotorControlConfiguration BuildMotorConfiguration()"
        motor_profile_start)
@@ -137,14 +137,8 @@ math(EXPR motor_profile_length
 string(SUBSTRING "${target_source}" ${motor_profile_start}
        ${motor_profile_length} motor_profile_body)
 foreach(required_marker
-    "#if MENTOR_PI_MOTOR_COMMISSIONING"
-    "CommissioningMotorControlConfiguration()"
-    "#if MENTOR_PI_MOTOR_COMMISSIONING_CLOSED_LOOP"
-    "configuration.mode = mentor_pi::mcu::MotorControlMode::kClosedLoop"
-    "mentor_pi::mcu::kMotorCommissioningClosedLoopMaximumRps"
-    "#else"
-    "LockedMotorControlConfiguration()"
-    "#endif")
+    "DefaultPidMotorControlConfiguration()"
+    "channel_wiring_sign")
   string(FIND "${motor_profile_body}" "${required_marker}" marker_position)
   if(marker_position EQUAL -1)
     message(FATAL_ERROR
@@ -161,11 +155,9 @@ foreach(forbidden_assignment output_limit_permille)
 endforeach()
 
 foreach(required_profile_constant
-    "kMotorCommissioningMaximumRps = 0.25F"
-    "kMotorCommissioningClosedLoopMaximumRps = 6.0F"
-    "kMotorCommissioningOutputLimitPermille = 1000"
-    "constexpr MotorControlConfiguration LockedMotorControlConfiguration()"
-    "constexpr MotorControlConfiguration CommissioningMotorControlConfiguration()")
+    "kMotorImplementationMaximumRps = 6.0F"
+    "kMotorOutputLimitPermille = 1000"
+    "constexpr MotorControlConfiguration DefaultPidMotorControlConfiguration()")
   string(FIND "${motor_header}" "${required_profile_constant}"
          profile_constant_position)
   if(profile_constant_position EQUAL -1)
@@ -174,83 +166,47 @@ foreach(required_profile_constant
   endif()
 endforeach()
 
-function(run_profile_probe expected_result commissioning closed_loop acknowledgement
-         expected_mode expected_control_mode expected_speed expected_output)
+foreach(forbidden_legacy_profile
+    "MotorControlMode"
+    "LockedMotorControlConfiguration"
+    "CommissioningMotorControlConfiguration"
+    "kMotorCommissioning"
+    "kMotorDirectionCheck")
+  string(FIND "${motor_header}" "${forbidden_legacy_profile}"
+         legacy_profile_position)
+  if(NOT legacy_profile_position EQUAL -1)
+    message(FATAL_ERROR
+            "Motor profile contract retains '${forbidden_legacy_profile}'")
+  endif()
+endforeach()
+
+function(run_profile_probe expected_mode expected_control_mode
+         expected_speed expected_output)
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" -E env
-            "RRCLITE_MOTOR_COMMISSIONING=${commissioning}"
-            "RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP=${closed_loop}"
-            "RRCLITE_MOTOR_COMMISSIONING_ACK=${acknowledgement}"
-            "${BUILD_WRAPPER}" --print-motor-profile
+    COMMAND "${BUILD_WRAPPER}" --print-motor-profile
     RESULT_VARIABLE probe_result
     OUTPUT_VARIABLE probe_output
     ERROR_VARIABLE probe_error
   )
-  if(expected_result STREQUAL "PASS")
-    if(NOT probe_result EQUAL 0)
-      message(FATAL_ERROR
-              "Motor profile probe failed unexpectedly: ${probe_error}")
-    endif()
-    foreach(expected_line
-        "mode=${expected_mode}"
-        "control_mode=${expected_control_mode}"
-        "maximum_accepted_rps=${expected_speed}"
-        "output_limit_permille=${expected_output}"
-        "release_qualified=0")
-      string(FIND "${probe_output}" "${expected_line}" line_position)
-      if(line_position EQUAL -1)
-        message(FATAL_ERROR
-                "Motor profile probe lacks '${expected_line}'")
-      endif()
-    endforeach()
-  else()
-    if(probe_result EQUAL 0)
-      message(FATAL_ERROR
-              "Unsafe motor profile probe succeeded: ${probe_output}")
-    endif()
-    string(FIND "${probe_error}" "commissioning requires"
-           acknowledgement_error)
-    if(acknowledgement_error EQUAL -1)
-      message(FATAL_ERROR
-              "Motor profile rejection had wrong error: ${probe_error}")
-    endif()
+  if(NOT probe_result EQUAL 0)
+    message(FATAL_ERROR
+            "Motor profile probe failed unexpectedly: ${probe_error}")
   endif()
+  foreach(expected_line
+      "mode=${expected_mode}"
+      "control_mode=${expected_control_mode}"
+      "maximum_accepted_rps=${expected_speed}"
+      "output_limit_permille=${expected_output}"
+      "release_qualified=0")
+    string(FIND "${probe_output}" "${expected_line}" line_position)
+    if(line_position EQUAL -1)
+      message(FATAL_ERROR
+              "Motor profile probe lacks '${expected_line}'")
+    endif()
+  endforeach()
 endfunction()
 
-run_profile_probe(PASS 0 0 "" LOCKED LOCKED 0.0 0)
-run_profile_probe(FAIL 1 0 "" "" "" "" "")
-run_profile_probe(FAIL 1 0 WRONG "" "" "" "")
-run_profile_probe(PASS 1 0 MOTORS_RAISED COMMISSIONING DIRECTION_CHECK 0.25 1000)
-run_profile_probe(PASS 1 1 MOTORS_RAISED COMMISSIONING_PID CLOSED_LOOP 6.0 1000)
-
-function(run_direct_cmake_rejection acknowledgement label)
-  set(probe_build "${PROFILE_PROBE_ROOT}/${label}")
-  file(REMOVE_RECURSE "${probe_build}")
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" -S "${TARGET_CMAKE_SOURCE}" -B
-            "${probe_build}"
-            -DRRCLITE_MOTOR_COMMISSIONING=ON
-            "-DRRCLITE_MOTOR_COMMISSIONING_ACK=${acknowledgement}"
-    RESULT_VARIABLE configure_result
-    OUTPUT_VARIABLE configure_output
-    ERROR_VARIABLE configure_error
-  )
-  file(REMOVE_RECURSE "${probe_build}")
-  if(configure_result EQUAL 0)
-    message(FATAL_ERROR
-            "Direct CMake accepted unsafe acknowledgement '${acknowledgement}'")
-  endif()
-  set(configure_log "${configure_output}\n${configure_error}")
-  string(FIND "${configure_log}" "Motor commissioning requires"
-         direct_gate_error)
-  if(direct_gate_error EQUAL -1)
-    message(FATAL_ERROR
-            "Direct CMake rejection bypassed motor gate: ${configure_log}")
-  endif()
-endfunction()
-
-run_direct_cmake_rejection("" missing-ack)
-run_direct_cmake_rejection(WRONG wrong-ack)
+run_profile_probe(PID CLOSED_LOOP 6.0 1000)
 file(REMOVE_RECURSE "${PROFILE_PROBE_ROOT}")
 
 message(STATUS "STM32 motor transport/profile gate contract passed")

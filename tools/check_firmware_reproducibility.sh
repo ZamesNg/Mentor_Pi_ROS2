@@ -71,7 +71,7 @@ RequireWithinBudget() {
 
 CleanBuild() {
   local build_number="$1"
-  echo "Starting clean locked firmware build ${build_number}/2"
+  echo "Starting clean PID firmware build ${build_number}/2"
   [[ "${BUILD_ROOT}" == \
       "${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32" && \
       "${BUILD_ROOT}" != "/" ]] || {
@@ -79,9 +79,7 @@ CleanBuild() {
     return 1
   }
   rm -rf -- "${BUILD_ROOT}"
-  RRCLITE_MOTOR_COMMISSIONING=0 \
-    RRCLITE_MOTOR_COMMISSIONING_ACK= \
-    "${PROJECT_ROOT}/tools/build_firmware.sh"
+  "${PROJECT_ROOT}/tools/build_firmware.sh"
 }
 
 GenerateLoadableImage() {
@@ -111,11 +109,6 @@ GenerateLoadableImage() {
   fi
   cmp "${output_path}" "${BUILD_ROOT}/mentor_pi_mcu.bin"
 }
-
-if [[ "${RRCLITE_MOTOR_COMMISSIONING:-0}" != "0" ]]; then
-  echo "Reproducibility qualification is restricted to the motor-locked image." >&2
-  exit 2
-fi
 
 CleanBuild 1
 GenerateLoadableImage
@@ -147,7 +140,7 @@ for hash in "${LOADABLE_SHA256}" "${BINARY_SHA256}" "${HEX_SHA256}" \
   }
 done
 [[ "${LOADABLE_SHA256}" == "${BINARY_SHA256}" ]]
-grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING:BOOL=OFF' \
+grep -Fqx 'CMAKE_BUILD_TYPE:STRING=MinSizeRel' \
   "${BUILD_ROOT}/CMakeCache.txt"
 
 readonly FLASH_TOTAL_BYTES=524288
@@ -169,7 +162,7 @@ printf '%s\n' \
   'target=STM32F407VET6' \
   'ros_distro=humble' \
   'toolchain=arm-none-eabi-gcc-13.2.1' \
-  'mode=motor-locked' \
+  'mode=pid-default' \
   'builds=2' \
   'comparison=loadable-binary-and-ihex' \
   "elf_sha256=${ELF_SHA256}" \

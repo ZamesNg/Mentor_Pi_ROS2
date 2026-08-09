@@ -6,7 +6,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly ARTIFACT_VERIFIER="${SCRIPT_DIR}/verify_firmware_artifact.sh"
 readonly REQUIRED_UART_ACK="ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED"
-readonly REQUIRED_COMMISSIONING_ACK="MOTORS_RAISED_CURRENT_LIMITED"
+readonly MODE="PID"
 readonly TEMPORARY_PARENT="${TMPDIR:-/tmp}"
 readonly AUTOMATIC_BOOT_CONTROL="${RRCLITE_AUTOMATIC_BOOT_CONTROL:-0}"
 readonly PREFLIGHT_TIMEOUT_SEC="${RRCLITE_PROGRAMMER_PREFLIGHT_TIMEOUT_SEC:-15}"
@@ -56,7 +56,7 @@ ReadMetadata() {
 
 Usage() {
   cat <<'EOF'
-Usage: ./tools/flash_firmware.sh LOCKED|COMMISSIONING|COMMISSIONING_PID /dev/SERIAL_PORT
+Usage: ./tools/flash_firmware.sh /dev/SERIAL_PORT
 
 Before flashing:
   1. Disconnect motor and servo power.
@@ -65,10 +65,6 @@ Before flashing:
   4. Set the exact acknowledgement only after confirming actuator power is off:
 
        RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED
-
-Commissioning firmware also requires raised wheels and current limiting:
-
-       RRCLITE_COMMISSIONING_FLASH_ACK=MOTORS_RAISED_CURRENT_LIMITED
 
 The factory ROM bootloader uses 115200 baud, 8E1, and no flow control. The
 running RRCLite application returns to its separately configured 1000000-baud
@@ -79,21 +75,12 @@ reviewed helper executable to enter and leave the bootloader automatically.
 EOF
 }
 
-[[ "$#" -eq 2 ]] || {
+[[ "$#" -eq 1 ]] || {
   Usage >&2
   exit 2
 }
-readonly MODE="$1"
-readonly SERIAL_PORT="$2"
+readonly SERIAL_PORT="$1"
 
-case "${MODE}" in
-  LOCKED | COMMISSIONING | COMMISSIONING_PID)
-    ;;
-  *)
-    Usage >&2
-    Fail "mode must be LOCKED, COMMISSIONING, or COMMISSIONING_PID"
-    ;;
-esac
 [[ "${AUTOMATIC_BOOT_CONTROL}" == "0" || \
   "${AUTOMATIC_BOOT_CONTROL}" == "1" ]] || \
   Fail "RRCLITE_AUTOMATIC_BOOT_CONTROL must be 0 or 1"
@@ -105,11 +92,6 @@ esac
   Usage >&2
   Fail "set RRCLITE_UART_BOOTLOADER_ACK=${REQUIRED_UART_ACK} only after entering the ROM bootloader with all actuators disconnected"
 }
-if [[ "${MODE}" == "COMMISSIONING" || "${MODE}" == "COMMISSIONING_PID" ]]; then
-  [[ "${RRCLITE_COMMISSIONING_FLASH_ACK:-}" == \
-    "${REQUIRED_COMMISSIONING_ACK}" ]] || \
-    Fail "commissioning flash requires RRCLITE_COMMISSIONING_FLASH_ACK=${REQUIRED_COMMISSIONING_ACK} after raising all wheels and enabling the current limit"
-fi
 [[ "${SERIAL_PORT}" =~ ^/dev/[A-Za-z0-9._/+:-]+$ && \
   "${SERIAL_PORT}" != *"/../"* && "${SERIAL_PORT}" != */.. && \
   "${SERIAL_PORT}" != *"/./"* && "${SERIAL_PORT}" != */. ]] || \
@@ -157,9 +139,6 @@ readonly EXPECTED_ELF_SHA256="$(
 [[ "$(Sha256 "${SNAPSHOT_TEMP}")" == "${EXPECTED_ELF_SHA256}" ]] || \
   Fail "firmware ELF changed while the flash snapshot was copied"
 
-# Recheck the complete source/profile/artifact contract after copying. The
-# comparisons also reject a concurrent rebuild, even if it produced a second
-# internally valid artifact while this process was preparing the snapshot.
 if ! "${ARTIFACT_VERIFIER}" "${MODE}" "${PROJECT_ROOT}" >/dev/null; then
   Fail "firmware changed while the flash snapshot was prepared"
 fi

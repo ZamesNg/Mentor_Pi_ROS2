@@ -38,13 +38,11 @@ JGA27 remains the firmware reset default and the host supervisor still applies
 the configured JGA27 model at each ROS session. The existing JGA27 reference
 values for ticks per revolution, maximum speed, filter, and PID gains remain
 provisional until a later powered, current-limited control stage measures them.
-The locked image still cannot energize a motor bridge.
-
-The next commissioning image intentionally does not tune or execute PID. It
-uses the signed ROS target only as a direction selector, applies a fixed
-250-permille bridge command, and disarms when measured speed exceeds 0.50 RPS
-(30 RPM). Encoder sign and the operator-observed physical direction must agree
-before another channel is attempted. RPM regulation is deferred.
+The default image now uses the shared closed-loop PID implementation. That
+software state does not qualify the provisional gains, polarity, or regulated
+speed. Encoder sign and the operator-observed physical direction must agree
+before another channel is attempted, and powered characterization still needs
+the guarded, current-limited HIL record.
 
 ## IMU orientation
 

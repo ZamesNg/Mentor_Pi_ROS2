@@ -136,7 +136,7 @@ required_paths=(
   lib/mentor_pi_bringup/require_controller_target_inactive
   lib/mentor_pi_bringup/run_configuration_supervisor
   share/mentor_pi_bringup/config/controller.yaml
-  share/mentor_pi_bringup/launch/controller.launch.xml
+  share/mentor_pi_bringup/launch/controller.launch.py
   share/mentor_pi_bringup/systemd/mentor-pi-agent.service
   share/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in
   lib/libmentor_pi_hardwares.so

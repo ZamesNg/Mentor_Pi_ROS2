@@ -65,4 +65,4 @@ Expected result: `Setup complete`. Stop on any OS, architecture, Docker,
 programmer, checksum, network, or dependency error. Generated dependencies and
 build outputs remain ignored and must not be committed.
 
-Next: [Tutorial 02: Build and Flash the Locked Firmware](02-build-and-flash-locked-firmware.md).
+Next: [Tutorial 02: Build and Flash the Default PID Firmware](02-build-and-flash-default-pid-firmware.md).

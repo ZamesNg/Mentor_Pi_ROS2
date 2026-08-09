@@ -101,8 +101,8 @@ MakeFakePrefix() {
     "${prefix}/share/mentor_pi_interfaces/package.xml"
   cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/config/controller.yaml" \
     "${prefix}/share/mentor_pi_bringup/config/controller.yaml"
-  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.xml" \
-    "${prefix}/share/mentor_pi_bringup/launch/controller.launch.xml"
+  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.py" \
+    "${prefix}/share/mentor_pi_bringup/launch/controller.launch.py"
   for asset in mentor-pi-configuration-supervisor.default \
       mentor-pi-runtime.service mentor-pi-agent.service \
       mentor-pi-configuration-supervisor.service mentor-pi-controller.target; do
@@ -216,14 +216,13 @@ readonly HANDOFF="${TEST_ROOT}/host-handoff"
   Fail "shared Agent source-build helper is missing from handoff"
 readonly PACKAGED_TUTORIALS=(
   01-prepare-ubuntu-development-host.md
-  02-build-and-flash-locked-firmware.md
+  02-build-and-flash-default-pid-firmware.md
   03-build-and-run-humble-host.md
   04-run-passive-board-bringup.md
   05-characterize-board-hardware.md
-  06-commission-one-motor-safely.md
-  07-qualify-hardware-and-recovery.md
-  08-run-stress-soak-and-release-gates.md
-  09-run-mentor-pi-hardwares.md
+  06-ros2-cli-hardware-checkout.md
+  07-run-stress-soak-and-release-gates.md
+  08-run-mentor-pi-hardwares.md
 )
 for tutorial in "${PACKAGED_TUTORIALS[@]}"; do
   [[ -f "${HANDOFF}/docs/tutorials/${tutorial}" ]] ||
@@ -346,14 +345,13 @@ readonly FINGERPRINT_SHARED_INPUTS=(
   mentor_pi_ros2/src/mentor_pi_bringup/package.xml
   mentor_pi_ros2/src/mentor_pi_hardwares/package.xml
   docs/tutorials/01-prepare-ubuntu-development-host.md
-  docs/tutorials/02-build-and-flash-locked-firmware.md
+  docs/tutorials/02-build-and-flash-default-pid-firmware.md
   docs/tutorials/03-build-and-run-humble-host.md
   docs/tutorials/04-run-passive-board-bringup.md
   docs/tutorials/05-characterize-board-hardware.md
-  docs/tutorials/06-commission-one-motor-safely.md
-  docs/tutorials/07-qualify-hardware-and-recovery.md
-  docs/tutorials/08-run-stress-soak-and-release-gates.md
-  docs/tutorials/09-run-mentor-pi-hardwares.md
+  docs/tutorials/06-ros2-cli-hardware-checkout.md
+  docs/tutorials/07-run-stress-soak-and-release-gates.md
+  docs/tutorials/08-run-mentor-pi-hardwares.md
 )
 for relative in "${FINGERPRINT_SHARED_INPUTS[@]}"; do
   printf '\n<!-- host-fingerprint-mutation-fixture -->\n' \

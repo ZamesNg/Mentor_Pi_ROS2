@@ -16,13 +16,12 @@ using mentor_pi::mcu::BusServoCommand;
 using mentor_pi::mcu::BusServoFrame;
 using mentor_pi::mcu::BusServoOpcode;
 using mentor_pi::mcu::BuzzerCommand;
-using mentor_pi::mcu::CommissioningMotorControlConfiguration;
+using mentor_pi::mcu::DefaultPidMotorControlConfiguration;
 using mentor_pi::mcu::ConfigureBusServoCommand;
 using mentor_pi::mcu::GetBusServoStateCommand;
 using mentor_pi::mcu::LedCommand;
 using mentor_pi::mcu::MotorCommand;
 using mentor_pi::mcu::MotorControlConfiguration;
-using mentor_pi::mcu::MotorControlMode;
 using mentor_pi::mcu::MotorModel;
 using mentor_pi::mcu::OkResult;
 using mentor_pi::mcu::OledCommand;
@@ -70,13 +69,7 @@ using mentor_pi_mcu::app::microros::WorkerDiagnostics;
   } while (false)
 
 MotorControlConfiguration FullRangeTestMotorConfiguration() {
-  // Portable test authority only; this is not first-board HIL qualification.
-  MotorControlConfiguration configuration{};
-  configuration.mode = MotorControlMode::kClosedLoop;
-  configuration.maximum_accepted_rps = 6.0F;
-  configuration.output_limit_permille =
-      mentor_pi::mcu::kMotorOutputLimitPermille;
-  return configuration;
+  return DefaultPidMotorControlConfiguration();
 }
 
 struct FakePlatform {
@@ -2066,7 +2059,9 @@ bool TestFatalMotorOutputRevocation() {
 
 bool TestMotorCalibrationGate() {
   FakePlatform platform;
-  ControllerRuntime locked(MotorControlConfiguration{});
+  MotorControlConfiguration invalid_configuration{};
+  invalid_configuration.maximum_accepted_rps = 0.0F;
+  ControllerRuntime locked(invalid_configuration);
   CHECK(locked.Configure(platform.Hooks(), AxisTransform{}));
   CHECK(locked.InitializeSafeBoot());
   CHECK(EstablishStartupReadiness(&locked, &platform));
@@ -2148,24 +2143,25 @@ bool TestMotorCalibrationGate() {
   CHECK(locked_diagnostics.motor_command_rejections ==
         (std::array<std::uint32_t, 4>{5U, 4U, 3U, 3U}));
 
-  const MotorControlConfiguration commissioning =
-      CommissioningMotorControlConfiguration();
+  const MotorControlConfiguration default_pid =
+      DefaultPidMotorControlConfiguration();
   FakePlatform capped_platform;
-  ControllerRuntime capped(commissioning);
+  ControllerRuntime capped(default_pid);
   CHECK(capped.Configure(capped_platform.Hooks(), AxisTransform{}));
   CHECK(capped.InitializeSafeBoot());
   CHECK(EstablishStartupReadiness(&capped, &capped_platform));
   capped.SetSessionActive(true, 1U);
   MotorCommand capped_command{};
   capped_command.update_mask = 1U;
-  capped_command.target_rps[0] = 0.251F;
+  capped_command.target_rps[0] =
+      mentor_pi::mcu::kMotorImplementationMaximumRps + 0.01F;
   CHECK(capped.PublishMotorCommand(capped_command, 0U).result.code ==
         ResultCode::kOutOfRange);
   WorkerDiagnostics capped_diagnostics{};
   capped.ReadWorkerDiagnostics(&capped_diagnostics);
   CHECK(capped_diagnostics.motor_command_rejections ==
         (std::array<std::uint32_t, 4>{1U, 0U, 0U, 0U}));
-  capped_command.target_rps[0] = mentor_pi::mcu::kMotorCommissioningMaximumRps;
+  capped_command.target_rps[0] = 0.25F;
   CHECK(capped.PublishMotorCommand(capped_command, 0U).result.ok());
   capped.RunMotorControlOnce();
   capped.ReadWorkerDiagnostics(&capped_diagnostics);
@@ -2177,9 +2173,9 @@ bool TestMotorCalibrationGate() {
   }
   CHECK(capped_platform.motor_armed[0]);
   CHECK(capped_platform.motor_duty[0] >=
-        -mentor_pi::mcu::kMotorDirectionCheckDutyPermille);
+        -mentor_pi::mcu::kMotorOutputLimitPermille);
   CHECK(capped_platform.motor_duty[0] <=
-        mentor_pi::mcu::kMotorDirectionCheckDutyPermille);
+        mentor_pi::mcu::kMotorOutputLimitPermille);
   CHECK(capped_platform.critical_depth == 0U);
 
   FakePlatform pid_platform;

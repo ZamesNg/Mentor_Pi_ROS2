@@ -3,7 +3,7 @@
 set -euo pipefail
 
 readonly BUILD_ROOT="build/firmware-target-debug"
-readonly LOCKED_ELF="firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf"
+readonly PID_ELF="firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf"
 readonly TARGET_ROOT="firmware/mentor_pi_mcu/target/stm32"
 readonly TOOLCHAIN_FILE="${TARGET_ROOT}/arm-none-eabi-toolchain.cmake"
 readonly SOURCE_REGEX="^/workspace/firmware/mentor_pi_mcu/(src|drivers/src|platform/stm32/src|app/controller/src|app/microros/src|target/stm32)/[^/]+[.](c|cc)$"
@@ -148,27 +148,23 @@ clang-tidy-18 --version | grep -Fq "LLVM version 18." || \
 cmake -E remove_directory "${BUILD_ROOT}"
 cmake -S "${TARGET_ROOT}" -B "${BUILD_ROOT}" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="/workspace/${TOOLCHAIN_FILE}" \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DRRCLITE_MOTOR_COMMISSIONING=OFF \
-  -DRRCLITE_MOTOR_COMMISSIONING_ACK=
+  -DCMAKE_BUILD_TYPE=Debug
 cmake --build "${BUILD_ROOT}" --parallel
 
 grep -Fqx "CMAKE_BUILD_TYPE:STRING=Debug" "${BUILD_ROOT}/CMakeCache.txt"
-grep -Fqx "RRCLITE_MOTOR_COMMISSIONING:BOOL=OFF" \
-  "${BUILD_ROOT}/CMakeCache.txt"
 [[ -s "${BUILD_ROOT}/mentor_pi_mcu.elf" ]] || Fail "Debug ELF is missing"
 [[ -s "${BUILD_ROOT}/compile_commands.json" ]] || \
   Fail "Debug compile database is missing"
 
 CheckVectorStrength \
-  "${LOCKED_ELF}" \
-  "${BUILD_ROOT}/locked-required-strong-vector-symbols.txt"
+  "${PID_ELF}" \
+  "${BUILD_ROOT}/pid-required-strong-vector-symbols.txt"
 CheckVectorStrength \
   "${BUILD_ROOT}/mentor_pi_mcu.elf" \
   "${BUILD_ROOT}/debug-required-strong-vector-symbols.txt"
 CheckWatchdogRetention \
-  "${LOCKED_ELF}" \
-  "${BUILD_ROOT}/locked-watchdog-retention.txt"
+  "${PID_ELF}" \
+  "${BUILD_ROOT}/pid-watchdog-retention.txt"
 CheckWatchdogRetention \
   "${BUILD_ROOT}/mentor_pi_mcu.elf" \
   "${BUILD_ROOT}/debug-watchdog-retention.txt"
@@ -213,7 +209,6 @@ jq -e --arg pattern "${SOURCE_REGEX}" '
     | . as $entry
     | (.command // (.arguments | join(" "))) as $command
     | select(
-        ($command | contains("-DMENTOR_PI_MOTOR_COMMISSIONING=0") | not) or
         ($command | contains("-Werror") | not) or
         ($command | contains("-DNDEBUG")) or
         (($entry.file | endswith(".cc")) and (
@@ -223,7 +218,7 @@ jq -e --arg pattern "${SOURCE_REGEX}" '
   ]
   | length == 0
 ' "${BUILD_ROOT}/compile_commands.json" >/dev/null || \
-  Fail "Debug compile commands violate locked/warning/assertion invariants"
+  Fail "Debug compile commands violate PID/warning/assertion invariants"
 
 clang-tidy-18 --verify-config
 mapfile -t GCC_SYSTEM_INCLUDES < <(
@@ -282,12 +277,12 @@ printf "%s\n" \
   "target=STM32F407VET6" \
   "toolchain=arm-none-eabi-gcc-13.2.1" \
   "build_type=Debug" \
-  "motor_mode=LOCKED" \
+  "motor_mode=PID" \
   "gcc_warnings_as_errors=1" \
   "required_strong_vector_symbols=${#REQUIRED_STRONG_VECTOR_SYMBOLS[@]}" \
-  "locked_vector_symbol_strength=pass" \
+  "pid_vector_symbol_strength=pass" \
   "debug_vector_symbol_strength=pass" \
-  "locked_watchdog_retention=pass" \
+  "pid_watchdog_retention=pass" \
   "debug_watchdog_retention=pass" \
   "first_party_translation_units=${SOURCE_COUNT}" \
   "clang_tidy=${CLANG_TIDY_VERSION}" \

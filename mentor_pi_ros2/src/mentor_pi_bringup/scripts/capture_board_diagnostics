@@ -314,25 +314,26 @@ fi
 
 if [[ -n "${handoff_directory}" ]]; then
   CaptureManifest handoff-root-manifest "${handoff_directory}"
-  if [[ -d "${handoff_directory}/locked" ]]; then
-    CaptureManifest handoff-locked-manifest "${handoff_directory}/locked"
+  if [[ -d "${handoff_directory}/firmware-pid-release" ]]; then
+    CaptureManifest handoff-pid-release-manifest \
+      "${handoff_directory}/firmware-pid-release"
   else
-    printf '%s\n' 'The handoff has no locked/ directory.' \
-      >"${OUTPUT_DIRECTORY}/handoff-locked-manifest.txt"
-    RecordStatus handoff-locked-manifest 1
+    printf '%s\n' 'The handoff has no firmware-pid-release/ directory.' \
+      >"${OUTPUT_DIRECTORY}/handoff-pid-release-manifest.txt"
+    RecordStatus handoff-pid-release-manifest 1
   fi
   CaptureKnownFile handoff-metadata "${handoff_directory}/HANDOFF.txt"
   CaptureKnownFile handoff-build-mode \
-    "${handoff_directory}/locked/BUILD-MODE.txt"
+    "${handoff_directory}/firmware-pid-release/BUILD-MODE.txt"
   CaptureKnownFile firmware-build-metadata \
-    "${handoff_directory}/locked/BUILD-METADATA.txt"
+    "${handoff_directory}/firmware-pid-release/BUILD-METADATA.txt"
 fi
 
 if [[ -n "${repository_root}" ]]; then
   readonly FIRMWARE_VERIFIER="${repository_root}/tools/verify_firmware_artifact.sh"
   if [[ -x "${FIRMWARE_VERIFIER}" ]]; then
     CaptureTimedCommand authoritative-firmware-verification 120 \
-      "${FIRMWARE_VERIFIER}" LOCKED "${repository_root}"
+      "${FIRMWARE_VERIFIER}" PID "${repository_root}"
   else
     printf 'Firmware verifier is missing or not executable: %s\n' \
       "${FIRMWARE_VERIFIER}" \
@@ -342,10 +343,10 @@ if [[ -n "${repository_root}" ]]; then
   if [[ -n "${handoff_directory}" ]]; then
     CaptureCommand handoff-authoritative-elf-compare cmp \
       "${repository_root}/firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf" \
-      "${handoff_directory}/locked/mentor_pi_mcu-locked.elf"
+      "${handoff_directory}/firmware-pid-release/mentor_pi_mcu-firmware-pid-release.elf"
     CaptureCommand handoff-authoritative-metadata-compare cmp \
       "${repository_root}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt" \
-      "${handoff_directory}/locked/BUILD-METADATA.txt"
+      "${handoff_directory}/firmware-pid-release/BUILD-METADATA.txt"
   fi
 fi
 

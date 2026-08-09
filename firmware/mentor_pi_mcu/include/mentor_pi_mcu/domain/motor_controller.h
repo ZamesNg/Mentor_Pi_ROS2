@@ -15,11 +15,7 @@ constexpr std::uint32_t kMotorLeaseExpiryUs = 198000U;
 constexpr std::uint32_t kMotorControlPeriodUs = 10000U;
 constexpr std::int16_t kMotorOutputLimitPermille = 1000;
 constexpr std::int16_t kMotorOutputDeadbandPermille = 250;
-constexpr float kMotorCommissioningMaximumRps = 0.25F;
-constexpr float kMotorCommissioningClosedLoopMaximumRps = 6.0F;
-constexpr std::int16_t kMotorCommissioningOutputLimitPermille = 1000;
-constexpr std::int16_t kMotorDirectionCheckDutyPermille = 250;
-constexpr float kMotorDirectionCheckOverspeedRps = 0.5F;
+constexpr float kMotorImplementationMaximumRps = 6.0F;
 constexpr float kMotorPidUpdateMaximumMeasuredRps = 0.01F;
 constexpr float kMotorDefaultPidProportionalGain = 250.0F;
 constexpr float kMotorDefaultPidIntegralGain = 0.1F;
@@ -61,12 +57,6 @@ struct MotorPidUpdate {
   std::uint8_t applied_mask{0U};
 };
 
-enum class MotorControlMode : std::uint8_t {
-  kLocked = 0,
-  kDirectionCheck,
-  kClosedLoop,
-};
-
 struct MotorControlConfiguration {
   // RRCLite: M1/TIM5 and M2/TIM2 are 32-bit; M3/TIM4 and M4/TIM3
   // are 16-bit. A hardware adapter supplies channel wiring signs established
@@ -74,40 +64,21 @@ struct MotorControlConfiguration {
   // polarity derived from the legacy controller evidence.
   std::array<std::uint8_t, kMotorCount> counter_bits{32, 32, 16, 16};
   std::array<std::int8_t, kMotorCount> channel_wiring_sign{1, 1, 1, 1};
-  MotorControlMode mode{MotorControlMode::kLocked};
-  float maximum_accepted_rps{0.0F};
-  std::int16_t output_limit_permille{0};
+  float maximum_accepted_rps{kMotorImplementationMaximumRps};
+  std::int16_t output_limit_permille{kMotorOutputLimitPermille};
 };
 
-// These are the only target build profiles before motor HIL qualification.
-// Selecting between them remains a compile-time decision in target/stm32;
-// neither ROS nor another runtime input can construct new motor authority.
-constexpr MotorControlConfiguration LockedMotorControlConfiguration() {
+// The production target and native tests share this single PID configuration.
+// Per-model limits still constrain the accepted target below the implementation
+// ceiling where required.
+constexpr MotorControlConfiguration DefaultPidMotorControlConfiguration() {
   return {};
 }
 
-constexpr MotorControlConfiguration CommissioningMotorControlConfiguration() {
-  MotorControlConfiguration configuration{};
-  configuration.mode = MotorControlMode::kDirectionCheck;
-  configuration.maximum_accepted_rps = kMotorCommissioningMaximumRps;
-  configuration.output_limit_permille = kMotorCommissioningOutputLimitPermille;
-  return configuration;
-}
-
-static_assert(LockedMotorControlConfiguration().mode ==
-              MotorControlMode::kLocked);
-static_assert(LockedMotorControlConfiguration().maximum_accepted_rps == 0.0F);
-static_assert(LockedMotorControlConfiguration().output_limit_permille == 0);
-static_assert(CommissioningMotorControlConfiguration().mode ==
-              MotorControlMode::kDirectionCheck);
-static_assert(CommissioningMotorControlConfiguration().maximum_accepted_rps ==
-              0.25F);
-static_assert(CommissioningMotorControlConfiguration().output_limit_permille ==
-              kMotorCommissioningOutputLimitPermille);
-static_assert(kMotorCommissioningOutputLimitPermille <=
+static_assert(DefaultPidMotorControlConfiguration().maximum_accepted_rps ==
+              kMotorImplementationMaximumRps);
+static_assert(DefaultPidMotorControlConfiguration().output_limit_permille ==
               kMotorOutputLimitPermille);
-static_assert(kMotorDirectionCheckDutyPermille <=
-              kMotorCommissioningOutputLimitPermille);
 
 class MotorController {
  public:
@@ -140,9 +111,7 @@ class MotorController {
   const MotorControlConfiguration& configuration() const {
     return configuration_;
   }
-  bool nonzero_motion_enabled() const {
-    return configuration_.mode != MotorControlMode::kLocked;
-  }
+  bool configuration_valid() const { return configuration_valid_; }
   float maximum_accepted_rps() const;
   std::uint8_t watchdog_stop_mask() const;
   std::uint32_t lease_expiry_count(std::size_t motor_index) const;
@@ -186,6 +155,7 @@ class MotorController {
       command_rejection_count_{};
   bool session_active_{false};
   bool encoder_initialized_{false};
+  bool configuration_valid_{true};
 };
 
 }  // namespace mentor_pi::mcu

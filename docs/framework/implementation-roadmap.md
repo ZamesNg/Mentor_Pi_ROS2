@@ -149,8 +149,8 @@ TX-completion timeout.
 
 Add one owner-controlled subsystem at a time:
 
-1. encoder counter sampling, the default motor lock, guarded commissioning
-   output, provisional PID state/model polarity, model limits, and per-motor
+1. encoder counter sampling, default closed-loop PID output, provisional PID
+   state/model polarity, model limits, output ceiling, and per-motor
    command leases;
 2. PWM-servo pulse generation, offsets, and interpolation;
 3. UART5 half-duplex bus-servo transactions and timeout/correlation handling;
@@ -169,17 +169,14 @@ request.
 
 - Every retained row in [Legacy audit](legacy-audit.md) has a passing driver or
   HIL test and an owner-task assertion.
-- The normal image accepts zero/stop but rejects nonzero motor commands, and the
-  build fails if commissioning is requested without both
-  `RRCLITE_MOTOR_COMMISSIONING=1` and
-  `RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED`. Before any powered test,
-  each raised wheel passes a passive encoder-direction check with PWM disabled.
-  Initial powered characterization uses direction-check mode with a 0.25 RPS
-  command-admission bound, fixed 250-permille output, and a 0.50 RPS cutoff on
-  a current-limited guarded fixture. JGA27's measured factor and all
-  PID profiles remain provisional until the complete `VER-HIL-MOT-001` record
-  qualifies or replaces them; D3 cannot close for nonzero production motion on
-  commissioning evidence alone.
+- The single normal image is classified `NORMAL_CLOSED_LOOP_DEFAULT` with
+  `control_mode=CLOSED_LOOP`, a 6 RPS implementation ceiling, per-model limits,
+  and a 1000-permille output clamp. Before any powered test, each raised wheel
+  passes a passive encoder-direction check with PWM disabled. Initial powered
+  characterization uses deliberately bounded commands on a current-limited,
+  guarded fixture. JGA27's measured factor and all PID profiles remain
+  provisional until the complete `VER-HIL-MOT-001` record qualifies or replaces
+  them; D3 cannot close for nonzero production motion on software evidence alone.
 - Lease boundary tests prove no expiry before 198 ms, expiry no later than
   200 ms, 1 kHz TIM7 releases, and no more than 2 ms between completed lease
   evaluations including scheduling jitter.
@@ -306,7 +303,7 @@ Run the complete [Verification](verification.md) matrix on the release candidate
 with the final interface, middleware configuration, firmware optimization,
 Agent build, system service, udev rule, YAML, and representative hardware load.
 Run the machine-generated campaign sequence in
-[Tutorial 08](../tutorials/08-run-stress-soak-and-release-gates.md). Keep the
+[Tutorial 07](../tutorials/07-run-stress-soak-and-release-gates.md). Keep the
 software-observed outputs and independent instrument files immutable and
 separately identifiable under the exact candidate identity.
 
@@ -350,10 +347,10 @@ the affected qualification evidence.
   changing board hardware.
 - Release notes enumerate public API version, supported platforms, known limits,
   and upstream dependency revisions.
-- No release artifact accepts nonzero motor targets unless the exact binary has
-  completed the motor PID/polarity HIL requirements. Until that evidence and a
-  reviewed production-authority change exist, the released image remains
-  motor-locked and any commissioning image is archived separately as non-release.
+- The release artifact is the single default PID image. Software qualification
+  may establish its provenance, limits, and fail-safe behavior, but powered
+  motion, PID performance, and polarity claims require recorded HIL evidence
+  for the exact binary.
 
 ## 11. Change and issue discipline
 

@@ -13,7 +13,7 @@ from launch.actions import (
     TimerAction,
 )
 from launch.conditions import IfCondition
-from launch.launch_description_sources import AnyLaunchDescriptionSource
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -107,7 +107,7 @@ def _launch_vehicle(context):
     for name, value in hardware_settings.items():
         rendered = str(value).lower() if isinstance(value, bool) else str(value)
         xacro_settings.extend([f" {name}:=", rendered])
-    bringup_launch = os.path.join(bringup_share, "launch", "controller.launch.xml")
+    bringup_launch = os.path.join(bringup_share, "launch", "controller.launch.py")
     robot_description = {
         "robot_description": Command(
             [
@@ -127,7 +127,7 @@ def _launch_vehicle(context):
 
     return [
         IncludeLaunchDescription(
-            AnyLaunchDescriptionSource(bringup_launch),
+            PythonLaunchDescriptionSource(bringup_launch),
             condition=IfCondition(start_bringup),
             launch_arguments={
                 "serial_device": serial_device,

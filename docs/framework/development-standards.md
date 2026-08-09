@@ -21,7 +21,7 @@ embedded and ROS-specific choices where the upstream guide permits alternatives.
   Every project-owned production ROS node and every project-owned component in
   the control/data path must use `rclcpp`/C++; none may use `rclpy` or Python.
 - First-party packages shall contain no Python control node, data-processing
-  script, Python serial bridge, or Python launch logic. XML launch descriptions
+  script or Python serial bridge. Python launch descriptions
   and compiled C++ executables are used for project-owned deployment logic.
 - Pinned upstream ROS 2 tooling and dependencies may use or invoke Python. This
   includes `ros2` CLI/launch infrastructure, `colcon`, `ament`, `rosidl`,
@@ -171,19 +171,15 @@ as `geometry2/tf2_msgs`, reject missing or unexpected repositories, and verify
 the final archive SHA-256. Recording branch-head commits only after a build is
 not a reproducible dependency lock.
 
-Firmware configuration shall fail closed for unqualified motor motion. Normal,
-CI release, and reproducibility builds leave `RRCLITE_MOTOR_COMMISSIONING`
-unset or set it to `0`. A commissioning job may set it to `1` only together
-with the exact `RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED` value and shall
-be visibly classified as a non-release HIL artifact. Direction-check mode's
-0.25 RPS admission, 250-permille output, and 0.50 RPS overspeed cutoff are
-reviewed constants, not command-line tuning inputs. The separately classified
-closed-loop commissioning image uses a 6 RPS implementation ceiling and a
-1000-permille output clamp while retaining each motor model's lower profile
-limit. The job records the acknowledgement, fixture/current limit, binary hash,
-and passive encoder-direction result. No build flag, unit test, or
-legacy-derived constant may label PID or polarity release-qualified without the
-required physical HIL record.
+Firmware configuration shall fail closed to the single supported PID release
+artifact. Normal, CI release, and reproducibility builds shall report
+`NORMAL_CLOSED_LOOP_DEFAULT` and `control_mode=CLOSED_LOOP`; legacy mode flags,
+aliases, and alternate artifacts are rejected. The build uses a 6 RPS
+implementation ceiling and a 1000-permille output clamp while retaining each
+motor model's lower profile limit. Release records include the binary and
+source hashes. No build flag, unit test, or legacy-derived constant may label
+PID performance or polarity release-qualified without the required physical
+HIL record.
 
 Mandatory gates:
 
@@ -212,12 +208,12 @@ jobs. Long HIL, 60-minute load, reconnect/reset, and 24-hour soak jobs may run o
 dedicated hardware, but their signed results are required for release.
 
 The checked-in hosted workflows and their local entry points are run in
-[Tutorial 08](../tutorials/08-run-stress-soak-and-release-gates.md). Hosted jobs
+[Tutorial 07](../tutorials/07-run-stress-soak-and-release-gates.md). Hosted jobs
 use no project secret and cover documentation/traceability, format,
 `clang-tidy`, native Debug ASan/UBSan, native Release, TSan, deterministic fuzz
 smoke, generated CDR/introspection checks on ROS 2 Humble amd64 and arm64, and
 the pinned
-motor-locked firmware reproducibility/size build. The documentation gate is
+default PID firmware reproducibility/size build. The documentation gate is
 implemented by `tools/check_framework_docs.py`; it checks relative files and
 anchors, mandatory requirement mappings, every stable audit row, referenced
 verification definitions, and orphaned verification cases.
@@ -241,9 +237,9 @@ session-parser campaign, wire-level XRCE reply/ACK injection and
 withheld-XRCE-ACK campaign, and target transport TX-DMA/TC fault injection
 remain mandatory before D5 even though part of that work can be completed
 without the board. The checked-in firmware workflow now adds a separate
-motor-locked CMake `Debug` build and runs Clang 18 over every first-party
+default-PID CMake `Debug` build and runs Clang 18 over every first-party
 translation unit in its actual Arm GNU compile database. This is in addition
-to, and does not overwrite, the locked `MinSizeRel` reproducibility artifact.
+to, and does not overwrite, the `MinSizeRel` reproducibility artifact.
 
 The `.clang-tidy` profile deliberately excludes only checks that conflict with
 the fixed embedded ABI or make diagnostics less actionable in this codebase:

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <spawn.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -278,18 +279,52 @@ bool SetEnvironment(const char* name, const std::string& value) {
   return false;
 }
 
+bool WriteExecutable(const std::string& path, const std::string& content) {
+  std::ofstream output{path};
+  if (!output.is_open()) {
+    std::cerr << "could not create " << path << '\n';
+    return false;
+  }
+  output << content;
+  output.close();
+  if (!output || chmod(path.c_str(), 0700) != 0) {
+    std::cerr << "could not prepare " << path << ": " << std::strerror(errno)
+              << '\n';
+    return false;
+  }
+  return true;
+}
+
 void RunLaunchTest(const std::string& fake_agent_path,
                    const std::string& configuration_path) {
   const std::string process_suffix = std::to_string(getpid());
   const std::string marker_path =
       "/tmp/mentor_pi_fake_agent_" + process_suffix + ".marker";
-  const std::string serial_device =
-      "/tmp/mentor_pi_fake_serial_" + process_suffix;
+  const std::string tool_root =
+      "/tmp/mentor_pi_launch_tools_" + process_suffix;
+  const std::string fake_udevadm = tool_root + "/udevadm";
+  const std::string fake_fuser = tool_root + "/fuser";
+  const std::string serial_device = "/dev/null";
   const std::string domain_id =
       std::to_string(100 + static_cast<int>(getpid() % 100));
   static_cast<void>(std::remove(marker_path.c_str()));
 
+  if (mkdir(tool_root.c_str(), 0700) != 0 ||
+      !WriteExecutable(fake_udevadm,
+                       "#!/bin/sh\n"
+                       "printf 'ID_VENDOR_ID=1a86\\nID_MODEL_ID=55d4\\n'\n") ||
+      !WriteExecutable(fake_fuser, "#!/bin/sh\nexit 1\n")) {
+    ++g_failures;
+    return;
+  }
+  const char* current_path = std::getenv("PATH");
+  const std::string test_path =
+      tool_root + ":" + (current_path != nullptr ? current_path : "");
+
   if (!SetEnvironment("ROS_DOMAIN_ID", domain_id) ||
+      !SetEnvironment("RRCLITE_RUNTIME_ACK",
+                      "PID_FIRMWARE_ACTUATORS_PREPARED") ||
+      !SetEnvironment("PATH", test_path) ||
       !SetEnvironment("MENTOR_PI_FAKE_AGENT_MARKER", marker_path) ||
       !SetEnvironment("MENTOR_PI_FAKE_AGENT_EXPECTED_DEVICE", serial_device)) {
     ++g_failures;
@@ -303,11 +338,11 @@ void RunLaunchTest(const std::string& fake_agent_path,
 
   ScopedLaunchProcess launch;
   const bool started = launch.Start({"ros2", "launch", "mentor_pi_bringup",
-                                     "controller.launch.xml",
+                                     "controller.launch.py",
                                      "agent_executable:=" + fake_agent_path,
                                      "serial_device:=" + serial_device,
                                      "config_file:=" + configuration_path});
-  Expect(started, "the checked-in XML launch description starts");
+  Expect(started, "the checked-in Python launch description starts");
 
   bool configured = false;
   if (started) {
@@ -340,6 +375,9 @@ void RunLaunchTest(const std::string& fake_agent_path,
   executor.remove_node(controller.node());
   rclcpp::shutdown();
   static_cast<void>(std::remove(marker_path.c_str()));
+  static_cast<void>(std::remove(fake_udevadm.c_str()));
+  static_cast<void>(std::remove(fake_fuser.c_str()));
+  static_cast<void>(rmdir(tool_root.c_str()));
 }
 
 }  // namespace

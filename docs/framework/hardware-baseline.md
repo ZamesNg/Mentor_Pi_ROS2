@@ -138,7 +138,7 @@ programming, the normal-boot sequence again asserts reset, then deasserts RTS
 while DTR remains deasserted so BOOT0 is low when reset releases. The physical
 BOOT/RST sequence remains a fallback only when automatic activation fails
 before programming. Automatic ROM entry is source- and mock-verified but
-remains a physical verification item until `make flash-locked` succeeds
+remains a physical verification item until `make flash` succeeds
 without button input on the board. Runtime uses a tracked patch to the pinned
 Micro-XRCE-DDS-Agent for the same normal-boot reset on its own descriptor.
 DTR/RTS are not runtime data flow, and no second process may hold the serial
@@ -156,12 +156,13 @@ and a provisional per-model encoder factor. JGA27 alone currently uses factor
 `-1`, inferred from the legacy JGA27 profile's negative gains; this is legacy
 evidence, not a schematic fact or bench measurement. A guarded 2,000 ms M1 run
 has now confirmed its current command/encoder sign; M2--M4 remain provisional.
-The normal firmware therefore keeps nonzero motor output locked. Commissioning
-shall first rotate each raised wheel manually with bridge outputs disabled and
-record both raw counter direction and normalized `motors/state` direction.
-Powered tests may begin only afterward under the acknowledged direction-check
-limits: fixed 250-permille output, a 0.25 RPS command-admission bound, a 0.50
-RPS measured-speed cutoff, raised-wheel guarding, and a current-limited supply.
+The default PID firmware accepts bounded motor targets, but its physical
+polarity and controller performance remain unqualified. Checkout shall first
+rotate each raised wheel manually with bridge outputs disabled and record both
+raw counter direction and normalized `motors/state` direction. Powered tests
+may begin only afterward with raised-wheel or equivalent guarding, a
+current-limited supply, deliberately bounded commands, and continuous stop
+monitoring.
 
 ### IMU frame
 
@@ -186,7 +187,7 @@ check. This is a measured PCB-frame correction, not an open ROS frame decision.
 
 | Function | Quantity and confirmed mapping | V2 disposition |
 | --- | --- | --- |
-| Encoder motors | Four motor-driver stages in the schematic. TIM1 CH1-4, TIM9 CH1-2, TIM10 CH1, and TIM11 CH1 generate drive PWM; TIM2, TIM3, TIM4, and TIM5 are encoder interfaces in the Cube file. | Retain all four. Normal images expose encoder state and zero/stop control while nonzero closed-loop output remains locked; guarded commissioning precedes HIL qualification and any production-motion release. |
+| Encoder motors | Four motor-driver stages in the schematic. TIM1 CH1-4, TIM9 CH1-2, TIM10 CH1, and TIM11 CH1 generate drive PWM; TIM2, TIM3, TIM4, and TIM5 are encoder interfaces in the Cube file. | Retain all four. The default PID image exposes encoder state and bounded closed-loop control; passive checkout and guarded HIL precede any powered-motion or performance claim. |
 | PWM servos | Four connectors. Firmware/Cube GPIOs are PA11, PA12, PC8, and PC9; TIM13 supplies the legacy frame timing. | Retain four channels. Generate pulses from a short timer ISR using task-prepared shadow values. |
 | Bus servos | Half-duplex bus-servo circuit is driven by the `UART6_TX`/`SERVO_SIGNAL` schematic net. Current firmware maps the signal to UART5 on PC12 and initializes UART5 at 115,200 8N1, no flow control. | Retain on UART5 with one owning worker. Support at most 16 servo IDs in one ROS motion request. |
 | Indicator LEDs | Three GPIO LEDs are present in the schematic and `LED_NUM` is three. | Retain all three; expose LED1/LED2 to ROS and reserve LED3 for firmware heartbeat status. |
@@ -246,7 +247,7 @@ Before actuator code is enabled, bring-up shall verify:
 3. PA9/PA10 carry a 1,000,000 baud 8N1 exchange with no RTS/CTS activity;
 4. logical motor, PWM-servo, LED, button, and RGB IDs match the physical
    connectors documented above;
-5. with the normal motor-locked image and all PWM outputs still disabled,
+5. with the default PID image and all motor PWM outputs still disabled,
    manually rotate each raised motor output in the declared positive direction
    and record raw and normalized encoder count direction; explicitly test the
    provisional JGA27 `-1` factor rather than assuming it is correct;
@@ -256,5 +257,5 @@ Before actuator code is enabled, bring-up shall verify:
 
 Record any discrepancy as a hardware-baseline issue. Do not compensate for an
 unresolved wiring discrepancy in ROS callbacks. A failed or ambiguous passive
-encoder check blocks commissioning motion and PID/polarity release
+encoder check blocks powered motion and PID/polarity release
 qualification.

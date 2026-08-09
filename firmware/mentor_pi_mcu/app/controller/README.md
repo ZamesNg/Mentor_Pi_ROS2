@@ -87,28 +87,24 @@ allocated or deleted. Driver interfaces use protected nonvirtual destructors,
 so adapter vtables contain no deleting destructor and import no global
 `operator delete`.
 
-## Qualification locks
+## Qualification constraints
 
 - The STM32 composition root applies the six-face measured QMI8658 transform:
   PCB X = sensor Y, PCB Y = -sensor X, and PCB Z = sensor Z. The driver applies
   the same signed permutation to acceleration and angular velocity. Positive
   rotation and extended timing HIL remain release-qualification checks.
-- `MotorControlConfiguration{}` is production-safe and locked:
-  `mode=MotorControlMode::kLocked`, `maximum_accepted_rps=0`, and
-  `output_limit_permille=0`. Nonzero selected targets return `UNSUPPORTED` and
-  cannot arm or refresh a lease; selected zero targets still stop. Commissioning
-  requires an explicit raised-wheel build configuration. Its
-  `kDirectionCheck` mode bypasses PID, applies fixed 250-permille drive from the
-  command sign, admits no command above 0.25 RPS, and stops above 3.0 measured
-  RPS. Target code selects the constexpr
-  `LockedMotorControlConfiguration()` or
-  `CommissioningMotorControlConfiguration()` factory at compile time; native
-  tests and the STM32 composition root use those same profile constants.
+- `MotorControlConfiguration{}` and
+  `DefaultPidMotorControlConfiguration()` describe the same production PID
+  configuration: a 6 RPS implementation ceiling and a 1000-permille output
+  limit. The active model can impose a lower RPS limit. Invalid configuration
+  values fail closed: nonzero selected targets return `UNSUPPORTED`, cannot
+  arm, and cannot refresh a lease, while selected zero targets remain valid
+  stops. There is no alternate firmware motor mode.
 - Encoder direction and all PID/filter/deadband values are release-provisional.
   The legacy evidence supplies provisional model polarity -1 for JGA27 and +1
   for JGB520/JGB37/JGB528, multiplied by each channel's wiring sign. These are
-  Direction-check commissioning does not exercise the PID values. They remain
-  unqualified until a later raised-wheel control test records each profile.
+  They remain unqualified until guarded raised-wheel control tests record each
+  profile.
 - The controller uses the platform's pulse-shadow generator rather than the
   separate driver edge-plan abstraction; there must be only one PWM frame
   generator in the target.

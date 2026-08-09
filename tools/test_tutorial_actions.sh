@@ -33,20 +33,18 @@ grep -Fqx 'PORT ?= /dev/mentor_pi_mcu' "${PROJECT_ROOT}/Makefile" || \
 grep -Fqx 'ROS_DOMAIN_ID ?= 0' "${PROJECT_ROOT}/Makefile" || \
   Fail "Makefile does not default to ROS domain 0"
 
-for target in serial-setup flash-locked start start-commissioning \
-    start-commissioning-pid start-hardware start-mecanum start-ackermann \
-    passive-check peripheral-smoke recovery-check characterize-board \
-    build-commissioning build-commissioning-pid flash-commissioning-pid \
-    commission-motor restore-locked hil-start \
-    hil-peripheral-check hil-recovery-check release-software-gates \
-    qualification-preflight campaign-load campaign-soak campaign-recovery; do
+for target in serial-setup flash start start-hardware start-mecanum start-ackermann \
+    passive-check peripheral-smoke characterize-board \
+    release-software-gates; do
   grep -Eq "^[^:#]*\\b${target}([ :]|$)" "${PROJECT_ROOT}/Makefile" || \
     Fail "Makefile target is missing: ${target}"
 done
 
-grep -Fq -- '--firmware-mode COMMISSIONING_PID' \
+grep -Fq './tools/verify_firmware_artifact.sh PID' \
   "${SCRIPT_DIR}/tutorial_action.sh" || \
-  Fail "PID start action does not require the COMMISSIONING_PID artifact"
+  Fail "PID start action does not require the PID artifact"
+grep -E 'guided_flash\.sh.*"\$\(PORT\)"' "${PROJECT_ROOT}/Makefile" >/dev/null || \
+  Fail "Makefile flash target must route through interactive guided_flash.sh, not the low-level helper"
 grep -Fq 'start-hardware | start-mecanum | start-ackermann)' \
   "${SCRIPT_DIR}/tutorial_action.sh" || \
   Fail "hardware start actions are not handled together"
@@ -69,35 +67,44 @@ grep -Fq 'all 21 MCU endpoints and heartbeat' \
   "${SCRIPT_DIR}/run_runtime_action.sh" || \
   Fail "controller readiness reports a stale endpoint count"
 
+readonly CONTROLLER_LAUNCH="${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.py"
+[[ -f "${CONTROLLER_LAUNCH}" ]] || Fail "Python controller launch is missing"
+[[ ! -e "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.xml" ]] || \
+  Fail "legacy XML controller launch still exists"
+grep -Fq 'RRCLITE_RUNTIME_ACK' "${CONTROLLER_LAUNCH}" || \
+  Fail "direct launch does not require the runtime acknowledgement"
+grep -Fq '_validate_development_artifact' "${CONTROLLER_LAUNCH}" || \
+  Fail "direct development launch does not validate the PID artifact"
+grep -Fq 'OnProcessExit' "${CONTROLLER_LAUNCH}" || \
+  Fail "controller launch does not couple process lifecycles"
+if grep -Fq 'validate_runtime' "${CONTROLLER_LAUNCH}" \
+    "${SCRIPT_DIR}/run_runtime.sh"; then
+  Fail "operator-facing runtime still exposes a preflight bypass"
+fi
+if grep -Eq 'MENTOR_PI_LAUNCH_TESTING|/\.dockerenv' "${CONTROLLER_LAUNCH}"; then
+  Fail "controller launch conditionally bypasses serial identity checks"
+fi
+if find "${PROJECT_ROOT}/mentor_pi_ros2/src" -path '*/launch/*.xml' -print -quit | \
+    grep -q .; then
+  Fail "ROS package launch directories still contain an XML launch file"
+fi
+PYTHONPYCACHEPREFIX="${TEST_ROOT}/pycache" python3 -m py_compile \
+  "${CONTROLLER_LAUNCH}" \
+  "${PROJECT_ROOT}"/mentor_pi_ros2/src/*/launch/*.py
+
 ExpectFailure "unsupported tutorial action" \
-  "${SCRIPT_DIR}/tutorial_action.sh" unsupported-action
+  "${SCRIPT_DIR}/tutorial_action.sh" this-action-does-not-exist-xyz
 ExpectFailure "does not resolve to an existing character device" \
-  "${SCRIPT_DIR}/guided_flash.sh" LOCKED /dev/mentor_pi_mcu
+  "${SCRIPT_DIR}/guided_flash.sh" /dev/rrclite-nonexistent-port-abc123xyz
 ExpectFailure "interactive terminal" \
   "${SCRIPT_DIR}/tutorial_action.sh" start
 ExpectFailure "interactive terminal" \
-  "${SCRIPT_DIR}/tutorial_action.sh" recovery-check
-ExpectFailure "interactive terminal" \
   "${SCRIPT_DIR}/tutorial_action.sh" characterize-board
-ExpectFailure "motor ID must be in" \
-  env COMMISSIONING_RUN_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-    MOTOR_ID=5 TARGET_RPS=0.05 DURATION_MS=500 \
-    "${SCRIPT_DIR}/tutorial_action.sh" commission-motor
-ExpectFailure "fixture revision contains unsupported characters" \
-  env CAMPAIGN_FIXTURE_ACK=PERIPHERALS_DISCONNECTED_OR_GUARDED \
-    FIXTURE_REVISION='bad value' CAMPAIGN_BUS_ID=1 CAMPAIGN_BUS_HOLD=500 \
-    CAMPAIGN_BUS_TOLERANCE=10 CAMPAIGN_BUS_OFFSET=0 \
-    CAMPAIGN_BUS_TORQUE=false \
-    "${SCRIPT_DIR}/tutorial_action.sh" campaign-load
-ExpectFailure "firmware mode must be" \
-  env RRCLITE_RUNTIME_ACK=LOCKED_FIRMWARE_ACTUATORS_DISCONNECTED \
-    "${SCRIPT_DIR}/run_runtime.sh" --device /dev/mentor_pi_mcu \
-    --ros-domain-id 0 --firmware-mode INVALID
 ExpectFailure "explicit absolute path" \
   "${SCRIPT_DIR}/run_runtime.sh" --device /dev/mentor_pi_mcu \
   --ros-domain-id 0 --vehicle-config relative.yaml
 ExpectFailure "VEHICLE_CONFIG must select" env \
-  RRCLITE_RUNTIME_ACK=LOCKED_FIRMWARE_ACTUATORS_DISCONNECTED \
+  RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
   "${SCRIPT_DIR}/tutorial_action.sh" start-hardware
 
 mkdir -p "${TEST_ROOT}/tools"
@@ -118,12 +125,12 @@ printf '%s\n' \
 chmod +x "${TEST_ROOT}/tools/tutorial_action.sh" \
   "${TEST_ROOT}/tools/run_runtime.sh" \
   "${TEST_ROOT}/tools/run_runtime_action.sh"
-env RRCLITE_RUNTIME_ACK=LOCKED_FIRMWARE_ACTUATORS_DISCONNECTED \
+env RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
   VEHICLE_CONFIG=/opt/robots/robot_two.yaml \
   FAKE_START_LOG="${TEST_ROOT}/start.log" \
   "${TEST_ROOT}/tools/tutorial_action.sh" start-hardware
 grep -Fqx -- \
-  '--device /dev/mentor_pi_mcu --ros-domain-id 0 --firmware-mode LOCKED --vehicle-config /opt/robots/robot_two.yaml' \
+  '--device /dev/mentor_pi_mcu --ros-domain-id 0 --vehicle-config /opt/robots/robot_two.yaml' \
   "${TEST_ROOT}/start.log" || \
   Fail "hardware start did not forward only the selected YAML profile"
 env ROS_DOMAIN_ID=37 PERIPHERAL_SMOKE_ACK=PASSIVE_OUTPUTS_GUARDED \
@@ -132,26 +139,6 @@ env ROS_DOMAIN_ID=37 PERIPHERAL_SMOKE_ACK=PASSIVE_OUTPUTS_GUARDED \
   "${TEST_ROOT}/tools/tutorial_action.sh" peripheral-smoke
 grep -Fqx $'37\tperipheral-smoke\t1' "${TEST_ROOT}/runtime.log" || \
   Fail "readonly ROS domain was not passed to the runtime action"
-
-env ROS_DOMAIN_ID=37 \
-  COMMISSIONING_RUN_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-  MOTOR_ID=$' 1\r' TARGET_RPS=$' 0.1\r ' DURATION_MS=$'100\r' \
-  PHYSICAL_DIRECTION_CONFIRMED=y \
-  FAKE_RUNTIME_LOG="${TEST_ROOT}/runtime.log" \
-  "${TEST_ROOT}/tools/tutorial_action.sh" commission-motor
-grep -Fqx $'37\tcommission-motor\t1\t0.1\t100' \
-  "${TEST_ROOT}/runtime.log" || \
-  Fail "valid commissioning values were not normalized and forwarded exactly"
-ExpectFailure "target RPS is malformed" env \
-  COMMISSIONING_RUN_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-  MOTOR_ID=1 TARGET_RPS=0.1junk DURATION_MS=100 \
-  "${TEST_ROOT}/tools/tutorial_action.sh" commission-motor
-ExpectFailure "physical wheel direction was not confirmed" env \
-  COMMISSIONING_RUN_ACK=MOTORS_RAISED_CURRENT_LIMITED \
-  MOTOR_ID=1 TARGET_RPS=0.1 DURATION_MS=100 \
-  PHYSICAL_DIRECTION_CONFIRMED=n \
-  FAKE_RUNTIME_LOG="${TEST_ROOT}/runtime.log" \
-  "${TEST_ROOT}/tools/tutorial_action.sh" commission-motor
 
 docker_setup_block="$(grep -A5 -F "'set -euo pipefail" \
   "${SCRIPT_DIR}/run_runtime_action.sh")"

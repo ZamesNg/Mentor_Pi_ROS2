@@ -20,7 +20,8 @@ ExpectFailure() {
 
 readonly TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mentor-pi-capture.XXXXXX")"
 Cleanup() {
-  cmake -E remove_directory "${TEST_ROOT}"
+  [[ -d "${TEST_ROOT}" ]] || return
+  rm -rf -- "${TEST_ROOT}"
 }
 trap Cleanup EXIT
 
@@ -123,34 +124,42 @@ chmod +x "${FAKE_BIN}/"*
 
 readonly HANDOFF="${TEST_ROOT}/handoff"
 readonly REPOSITORY="${TEST_ROOT}/repository"
-mkdir -p "${HANDOFF}/locked" \
+mkdir -p "${HANDOFF}/firmware-pid-release" \
   "${REPOSITORY}/tools" \
   "${REPOSITORY}/firmware/mentor_pi_mcu/build/stm32"
 printf '%s\n' 'package_format=rrclite-board-handoff-v1' \
   >"${HANDOFF}/HANDOFF.txt"
-printf '%s\n' 'motor_mode=LOCKED' >"${HANDOFF}/locked/BUILD-MODE.txt"
+printf '%s\n' \
+  'classification=NORMAL_CLOSED_LOOP_DEFAULT' \
+  'motor_mode=PID' \
+  'control_mode=CLOSED_LOOP' \
+  >"${HANDOFF}/firmware-pid-release/BUILD-MODE.txt"
 printf '%s\n' 'elf_sha256=fixture' \
-  >"${HANDOFF}/locked/BUILD-METADATA.txt"
-printf '%s\n' 'fixture elf' >"${HANDOFF}/locked/mentor_pi_mcu-locked.elf"
+  >"${HANDOFF}/firmware-pid-release/BUILD-METADATA.txt"
+printf '%s\n' 'fixture elf' \
+  >"${HANDOFF}/firmware-pid-release/mentor_pi_mcu-firmware-pid-release.elf"
 (
-  cd "${HANDOFF}/locked"
-  sha256sum BUILD-MODE.txt BUILD-METADATA.txt mentor_pi_mcu-locked.elf \
+  cd "${HANDOFF}/firmware-pid-release"
+  sha256sum BUILD-MODE.txt BUILD-METADATA.txt \
+    mentor_pi_mcu-firmware-pid-release.elf \
     >SHA256SUMS
 )
 (
   cd "${HANDOFF}"
-  sha256sum HANDOFF.txt locked/BUILD-MODE.txt locked/BUILD-METADATA.txt \
-    locked/mentor_pi_mcu-locked.elf locked/SHA256SUMS >SHA256SUMS
+  sha256sum HANDOFF.txt firmware-pid-release/BUILD-MODE.txt \
+    firmware-pid-release/BUILD-METADATA.txt \
+    firmware-pid-release/mentor_pi_mcu-firmware-pid-release.elf \
+    firmware-pid-release/SHA256SUMS >SHA256SUMS
 )
-cp "${HANDOFF}/locked/mentor_pi_mcu-locked.elf" \
+cp "${HANDOFF}/firmware-pid-release/mentor_pi_mcu-firmware-pid-release.elf" \
   "${REPOSITORY}/firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf"
-cp "${HANDOFF}/locked/BUILD-METADATA.txt" \
+cp "${HANDOFF}/firmware-pid-release/BUILD-METADATA.txt" \
   "${REPOSITORY}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt"
 cat >"${REPOSITORY}/tools/verify_firmware_artifact.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$1" == 'LOCKED' ]]
-echo 'fixture authoritative locked artifact verified'
+[[ "$1" == 'PID' ]]
+echo 'fixture authoritative PID artifact verified'
 EOF
 chmod +x "${REPOSITORY}/tools/verify_firmware_artifact.sh"
 
@@ -177,7 +186,7 @@ grep -Fqx 'qualification_mode=none' "${OUTPUT_NONE}/SUMMARY.txt" ||
 grep -Fq 'ID_SERIAL_SHORT=RRCLITE-TEST' \
   "${OUTPUT_NONE}/usb-identity.txt" ||
   Fail "USB identity was not captured"
-grep -Fq 'fixture authoritative locked artifact verified' \
+grep -Fq 'fixture authoritative PID artifact verified' \
   "${OUTPUT_NONE}/authoritative-firmware-verification.txt" ||
   Fail "authoritative artifact verification was not captured"
 (

@@ -10,21 +10,13 @@ PORT ?= /dev/mentor_pi_mcu
 VEHICLE_CONFIG ?=
 SERIAL_USER ?=
 FLASH_ACK ?=
-COMMISSIONING_BUILD_ACK ?=
-COMMISSIONING_FLASH_ACK ?=
 ROS_DOMAIN_ID ?= 0
 RUNTIME_ACK ?=
 SERIAL_SETUP_ACK ?=
 PASSIVE_CHECK_ACK ?=
 OLED_PRESENT ?=
 PERIPHERAL_SMOKE_ACK ?=
-RECOVERY_CHECK_ACK ?=
 CHARACTERIZATION_ACK ?=
-COMMISSIONING_RUN_ACK ?=
-MOTOR_ID ?=
-TARGET_RPS ?=
-DURATION_MS ?=
-PHYSICAL_DIRECTION_CONFIRMED ?=
 PREFLIGHT_ACK ?=
 RELEASE_GATES_ACK ?=
 CAMPAIGN_FIXTURE_ACK ?=
@@ -36,13 +28,10 @@ CAMPAIGN_BUS_OFFSET ?=
 CAMPAIGN_BUS_TORQUE ?=
 RECOVERY_MODE ?=
 
-.PHONY: help doctor setup firmware firmware-commissioning host host-hardwares agent \
-	agent-check run start start-commissioning start-commissioning-pid shell test serial-access serial-setup flash \
+.PHONY: help doctor setup firmware host host-hardwares agent \
+	agent-check run start shell test serial-access serial-setup flash \
 	start-hardware start-mecanum start-ackermann \
-	flash-locked flash-commissioning flash-commissioning-pid firmware-commissioning-pid \
-	build-commissioning build-commissioning-pid commission-motor \
-	restore-locked passive-check peripheral-smoke recovery-check \
-	characterize-board hil-start hil-peripheral-check hil-recovery-check \
+	passive-check peripheral-smoke characterize-board \
 	release-software-gates qualification-preflight campaign-load \
 	campaign-soak campaign-recovery
 
@@ -55,9 +44,7 @@ help:
 		'  make setup' \
 		'      Fetch pinned sources and images for the detected architecture.' \
 		'  make firmware' \
-		'      Generate micro-ROS and build the default motor-locked firmware.' \
-		'  make firmware-commissioning-pid' \
-		'      Build the acknowledged commissioning firmware in closed-loop PID mode.' \
+		'      Generate micro-ROS and build the normal default closed-loop PID firmware (6 RPS, +/-1000 permille).' \
 		'  make host' \
 		'      Build/test Humble natively on Ubuntu 22.04, otherwise in Docker.' \
 		'  make host-hardwares' \
@@ -65,14 +52,10 @@ help:
 		'  make agent' \
 		'      Build the pinned Humble Agent natively on 22.04, otherwise in Docker.' \
 		'  make run PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0' \
-		'      RUNTIME_ACK=LOCKED_FIRMWARE_ACTUATORS_DISCONNECTED' \
+		'      RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED' \
 		'      Run against the MCU natively on 22.04, otherwise in Docker.' \
 		'  make start' \
-		'      Interactively verify passive safety and start the adaptive runtime.' \
-		'  make start-commissioning' \
-		'      Start the adaptive runtime only for a verified commissioning image.' \
-		'  make start-commissioning-pid' \
-		'      Start only for a verified closed-loop PID commissioning image.' \
+		'      Interactively verify passive safety and start the adaptive runtime with the default PID firmware.' \
 		'  make start-hardware VEHICLE_CONFIG=/absolute/robot.yaml' \
 		'      Start Agent, supervisor, and the YAML-selected ros2_control adapter.' \
 		'  make start-mecanum | make start-ackermann' \
@@ -90,20 +73,9 @@ help:
 		'      Interactively detect the CH9102F and configure the stable alias.' \
 		'  make flash PORT=/dev/mentor_pi_mcu' \
 		'      FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED' \
-		'      Low-level manual-boot flash interface for automation.' \
-		'  make flash-locked' \
-		'      Automatically enter the ROM bootloader, flash, verify, and reset.' \
-		'  make passive-check | peripheral-smoke | recovery-check' \
+		'      Low-level manual-boot flash of the default PID firmware.' \
+		'  make passive-check | peripheral-smoke' \
 		'      Run the guided passive board operations from the tutorials.' \
-		'' \
-		'Commissioning (wheels raised and current limiting enabled):' \
-		'  make build-commissioning' \
-		'  make flash-commissioning' \
-		'  make build-commissioning-pid' \
-		'  make flash-commissioning-pid' \
-		'  make commission-motor' \
-		'  make restore-locked' \
-		'      Each command prompts for its exact fail-closed acknowledgement.' \
 		'' \
 		'Qualification:' \
 		'  make qualification-preflight' \
@@ -135,35 +107,6 @@ firmware:
 	@./tools/build_microros_library.sh
 	@./tools/build_firmware.sh
 
-firmware-commissioning:
-	@if [[ "$(COMMISSIONING_BUILD_ACK)" != 'MOTORS_RAISED' ]]; then \
-		printf '%s\n' \
-			'Refusing commissioning build.' \
-			'Raise all wheels, enable the current limit, then set:' \
-			'  COMMISSIONING_BUILD_ACK=MOTORS_RAISED' >&2; \
-		exit 1; \
-	fi
-	@./tools/bootstrap_firmware_dependencies.sh
-	@./tools/build_microros_library.sh
-	@RRCLITE_MOTOR_COMMISSIONING=1 \
-		RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-		./tools/build_firmware.sh
-
-firmware-commissioning-pid:
-	@if [[ "$(COMMISSIONING_BUILD_ACK)" != 'MOTORS_RAISED' ]]; then \
-		printf '%s\n' \
-			'Refusing commissioning PID build.' \
-			'Raise all wheels, enable the current limit, then set:' \
-			'  COMMISSIONING_BUILD_ACK=MOTORS_RAISED' >&2; \
-		exit 1; \
-	fi
-	@./tools/bootstrap_firmware_dependencies.sh
-	@./tools/build_microros_library.sh
-	@RRCLITE_MOTOR_COMMISSIONING=1 \
-		RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP=1 \
-		RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-		./tools/build_firmware.sh
-
 host:
 	@./tools/build_host.sh
 
@@ -193,16 +136,6 @@ start:
 	@PORT="$(PORT)" ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
 		RRCLITE_RUNTIME_ACK="$(RUNTIME_ACK)" \
 		./tools/tutorial_action.sh start
-
-start-commissioning:
-	@PORT="$(PORT)" ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
-		RRCLITE_RUNTIME_ACK="$(RUNTIME_ACK)" \
-		./tools/tutorial_action.sh start-commissioning
-
-start-commissioning-pid:
-	@PORT="$(PORT)" ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
-		RRCLITE_RUNTIME_ACK="$(RUNTIME_ACK)" \
-		./tools/tutorial_action.sh start-commissioning-pid
 
 start-hardware:
 	@PORT="$(PORT)" ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
@@ -237,41 +170,7 @@ serial-setup:
 
 flash:
 	@RRCLITE_UART_BOOTLOADER_ACK="$(FLASH_ACK)" \
-		./tools/flash_firmware.sh LOCKED "$(PORT)"
-
-flash-locked:
-	@RRCLITE_UART_BOOTLOADER_ACK="$(FLASH_ACK)" \
-		./tools/guided_flash.sh LOCKED "$(PORT)"
-
-flash-commissioning:
-	@RRCLITE_UART_BOOTLOADER_ACK="$(FLASH_ACK)" \
-		RRCLITE_COMMISSIONING_FLASH_ACK="$(COMMISSIONING_FLASH_ACK)" \
-		./tools/guided_flash.sh COMMISSIONING "$(PORT)"
-
-flash-commissioning-pid:
-	@RRCLITE_UART_BOOTLOADER_ACK="$(FLASH_ACK)" \
-		RRCLITE_COMMISSIONING_FLASH_ACK="$(COMMISSIONING_FLASH_ACK)" \
-		./tools/guided_flash.sh COMMISSIONING_PID "$(PORT)"
-
-build-commissioning:
-	@COMMISSIONING_BUILD_ACK="$(COMMISSIONING_BUILD_ACK)" \
-		./tools/tutorial_action.sh build-commissioning
-
-build-commissioning-pid:
-	@COMMISSIONING_BUILD_ACK="$(COMMISSIONING_BUILD_ACK)" \
-		./tools/tutorial_action.sh build-commissioning-pid
-
-commission-motor:
-	@ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
-		COMMISSIONING_RUN_ACK="$(COMMISSIONING_RUN_ACK)" \
-		MOTOR_ID="$(MOTOR_ID)" TARGET_RPS="$(TARGET_RPS)" \
-		DURATION_MS="$(DURATION_MS)" \
-		PHYSICAL_DIRECTION_CONFIRMED="$(PHYSICAL_DIRECTION_CONFIRMED)" \
-		./tools/tutorial_action.sh commission-motor
-
-restore-locked: firmware
-	@RRCLITE_UART_BOOTLOADER_ACK="$(FLASH_ACK)" \
-		./tools/guided_flash.sh LOCKED "$(PORT)"
+		./tools/guided_flash.sh "$(PORT)"
 
 passive-check:
 	@ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" PASSIVE_CHECK_ACK="$(PASSIVE_CHECK_ACK)" \
@@ -284,23 +183,10 @@ peripheral-smoke:
 		OLED_PRESENT="$(OLED_PRESENT)" \
 		./tools/tutorial_action.sh peripheral-smoke
 
-recovery-check:
-	@ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" RECOVERY_CHECK_ACK="$(RECOVERY_CHECK_ACK)" \
-		./tools/tutorial_action.sh recovery-check
-
 characterize-board:
 	@ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
 		CHARACTERIZATION_ACK="$(CHARACTERIZATION_ACK)" \
 		./tools/tutorial_action.sh characterize-board
-
-hil-start:
-	@./tools/tutorial_action.sh hil-start
-
-hil-peripheral-check:
-	@./tools/tutorial_action.sh hil-peripheral-check
-
-hil-recovery-check:
-	@./tools/tutorial_action.sh hil-recovery-check
 
 release-software-gates:
 	@RELEASE_GATES_ACK="$(RELEASE_GATES_ACK)" \

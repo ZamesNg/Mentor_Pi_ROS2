@@ -493,7 +493,12 @@ if(MENTOR_PI_BUILD_ROS2)
     RUNTIME DESTINATION lib/${PROJECT_NAME}
   )
   install(DIRECTORY include/ DESTINATION include)
-  install(DIRECTORY config launch systemd udev DESTINATION share/${PROJECT_NAME})
+  install(
+    DIRECTORY config launch systemd udev
+    DESTINATION share/${PROJECT_NAME}
+    PATTERN "__pycache__" EXCLUDE
+    PATTERN "*.pyc" EXCLUDE
+  )
   install(PROGRAMS
     scripts/capture_board_diagnostics
     systemd/install_production_assets

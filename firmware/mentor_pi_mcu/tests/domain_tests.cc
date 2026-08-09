@@ -59,13 +59,7 @@ BoundedText MakeText(const char* text) {
 }
 
 MotorControlConfiguration FullRangeTestMotorConfiguration() {
-  // This enables mathematical unit coverage only. It is not hardware HIL
-  // evidence and must never be reused as the production target default.
-  MotorControlConfiguration configuration{};
-  configuration.mode = MotorControlMode::kClosedLoop;
-  configuration.maximum_accepted_rps = 6.0F;
-  configuration.output_limit_permille = kMotorOutputLimitPermille;
-  return configuration;
+  return DefaultPidMotorControlConfiguration();
 }
 
 template <typename Command>
@@ -787,94 +781,47 @@ void TestMotorController() {
   zero_target.EvaluateLeases(1000000U);
   CHECK(zero_target.watchdog_stop_mask() == 0U);
 
-  // The default configuration is deliberately motor-locked. Every valid
-  // subset and every model rejects motion atomically, while selected zero
-  // remains a valid stop and a model change cannot bypass the lock.
+  // The only default configuration admits PID motion for every valid subset
+  // while enforcing the active model limit and atomic stop semantics.
   constexpr std::array<MotorModel, 4> kModels{
       MotorModel::kJgb520, MotorModel::kJgb37, MotorModel::kJga27,
       MotorModel::kJgb528};
-  MotorController locked;
-  locked.SetSessionActive(true);
+  MotorController default_pid;
+  default_pid.SetSessionActive(true);
   for (MotorModel model : kModels) {
-    CHECK(locked.SetModel(model).result.ok());
+    CHECK(default_pid.SetModel(model).result.ok());
     for (std::uint16_t raw_mask = 1U; raw_mask <= kAllMotorMask; ++raw_mask) {
-      MotorCommand rejected{};
-      rejected.update_mask = static_cast<std::uint8_t>(raw_mask);
+      MotorCommand requested{};
+      requested.update_mask = static_cast<std::uint8_t>(raw_mask);
       MotorCommand zero_selected{};
-      zero_selected.update_mask = rejected.update_mask;
+      zero_selected.update_mask = requested.update_mask;
       for (std::size_t motor = 0U; motor < kMotorCount; ++motor) {
         const auto bit = static_cast<std::uint8_t>(1U << motor);
-        if ((rejected.update_mask & bit) != 0U) {
-          rejected.target_rps[motor] = 0.1F;
+        if ((requested.update_mask & bit) != 0U) {
+          requested.target_rps[motor] = 0.1F;
         }
       }
-      CHECK(locked.AcceptCommand(rejected, 1000U).code ==
-            ResultCode::kUnsupported);
-      for (const MotorChannelState& channel : locked.channels()) {
-        CHECK(!channel.armed);
-        CHECK_NEAR(channel.target_rps, 0.0F, 0.0001F);
+      CHECK(default_pid.AcceptCommand(requested, 1000U).ok());
+      for (std::size_t motor = 0U; motor < kMotorCount; ++motor) {
+        const auto bit = static_cast<std::uint8_t>(1U << motor);
+        CHECK(default_pid.channels()[motor].armed ==
+              ((requested.update_mask & bit) != 0U));
       }
-      CHECK(locked.AcceptCommand(zero_selected, 2000U).ok());
+      CHECK(default_pid.AcceptCommand(zero_selected, 2000U).ok());
     }
   }
-  MotorCommand mixed_locked{};
-  mixed_locked.update_mask = 3U;
-  mixed_locked.target_rps[0] = 0.0F;
-  mixed_locked.target_rps[1] = 0.1F;
-  CHECK(locked.AcceptCommand(mixed_locked, 3000U).code ==
-        ResultCode::kUnsupported);
-  for (const MotorChannelState& channel : locked.channels()) {
+  MotorCommand over_limit{};
+  over_limit.update_mask = 3U;
+  over_limit.target_rps[0] = kMotorImplementationMaximumRps + 0.01F;
+  over_limit.target_rps[1] = 0.1F;
+  CHECK(default_pid.AcceptCommand(over_limit, 3000U).code ==
+        ResultCode::kOutOfRange);
+  for (const MotorChannelState& channel : default_pid.channels()) {
     CHECK(!channel.armed);
     CHECK_NEAR(channel.target_rps, 0.0F, 0.0001F);
   }
 
-  // Commissioning limits are independent hard caps below model limits.
-  const MotorControlConfiguration commissioning =
-      CommissioningMotorControlConfiguration();
-  CHECK(commissioning.mode == MotorControlMode::kDirectionCheck);
-  CHECK_NEAR(commissioning.maximum_accepted_rps, 0.25F, 0.0001F);
-  CHECK(commissioning.output_limit_permille == 1000);
-  MotorController capped(commissioning);
-  capped.SetSessionActive(true);
-  MotorCommand limited{};
-  limited.update_mask = 1U;
-  limited.target_rps[0] = 0.25F;
-  CHECK(capped.AcceptCommand(limited, 0U).ok());
-  std::array<std::uint32_t, kMotorCount> stationary{};
-  for (std::size_t sample = 0U; sample < 100U; ++sample) {
-    const auto capped_output = capped.ControlStep(stationary);
-    CHECK(capped_output[0] == kMotorDirectionCheckDutyPermille);
-    CHECK(capped.channels()[0].output_permille ==
-          kMotorDirectionCheckDutyPermille);
-  }
-  limited.target_rps[0] = -0.25F;
-  CHECK(capped.AcceptCommand(limited, 50000U).ok());
-  limited.target_rps[0] = 0.251F;
-  CHECK(capped.AcceptCommand(limited, 100000U).code == ResultCode::kOutOfRange);
-  CHECK_NEAR(capped.channels()[0].target_rps, -0.25F, 0.0001F);
-  limited.target_rps[0] = -0.251F;
-  CHECK(capped.AcceptCommand(limited, 100001U).code == ResultCode::kOutOfRange);
-  CHECK_NEAR(capped.channels()[0].target_rps, -0.25F, 0.0001F);
-  CHECK(capped.command_rejection_count(0U) == 2U);
-  CHECK(capped.command_rejection_count(1U) == 0U);
-  CHECK(capped.command_rejection_count(2U) == 0U);
-  CHECK(capped.command_rejection_count(3U) == 0U);
-  capped.EvaluateLeases(50000U + kMotorLeaseExpiryUs);
-  CHECK(!capped.channels()[0].armed);
-
-  MotorController overspeed(commissioning);
-  overspeed.SetSessionActive(true);
-  limited.target_rps[0] = 0.1F;
-  CHECK(overspeed.AcceptCommand(limited, 0U).ok());
-  stationary.fill(100U);
-  CHECK(overspeed.ControlStep(stationary)[0] ==
-        kMotorDirectionCheckDutyPermille);
-  stationary[0] = 0U;
-  CHECK(overspeed.ControlStep(stationary)[0] == 0);
-  CHECK(!overspeed.channels()[0].armed);
-  CHECK(overspeed.watchdog_stop_mask() == 1U);
-
-  MotorController rejection_accounting(commissioning);
+  MotorController rejection_accounting;
   rejection_accounting.RecordRejectedCommand(0U);
   rejection_accounting.RecordRejectedCommand(0x10U);
   rejection_accounting.RecordRejectedCommand(0x15U);
@@ -886,17 +833,18 @@ void TestMotorController() {
   CHECK(rejection_accounting.command_rejection_count(1U) == 0U);
   CHECK(rejection_accounting.command_rejection_count(2U) == 1U);
   CHECK(rejection_accounting.command_rejection_count(3U) == 0U);
-  CHECK(!capped.channels()[0].armed);
-  CHECK(capped.lease_expiry_count(0U) == 1U);
-
   SetMotorPidCommand pid_update{};
   pid_update.update_mask = 3U;
   pid_update.proportional_gain[0] = 1000.0F;
   pid_update.proportional_gain[1] = 500.0F;
   pid_update.velocity_filter_new_weight[0] = 1.0F;
   pid_update.velocity_filter_new_weight[1] = 1.0F;
-  CHECK(locked.SetPid(pid_update).result.code == ResultCode::kUnsupported);
-  CHECK(capped.SetPid(pid_update).result.code == ResultCode::kUnsupported);
+  MotorControlConfiguration invalid_configuration{};
+  invalid_configuration.maximum_accepted_rps = 0.0F;
+  MotorController invalid_controller(invalid_configuration);
+  CHECK(!invalid_controller.configuration_valid());
+  CHECK(invalid_controller.SetPid(pid_update).result.code ==
+        ResultCode::kUnsupported);
 
   MotorController pid_controller(FullRangeTestMotorConfiguration());
   MotorPidUpdate pid_result = pid_controller.SetPid(pid_update);
@@ -915,6 +863,7 @@ void TestMotorController() {
   pid_drive.target_rps[0] = 0.5F;
   pid_drive.target_rps[1] = 0.5F;
   CHECK(pid_controller.AcceptCommand(pid_drive, 0U).ok());
+  std::array<std::uint32_t, kMotorCount> stationary{};
   const auto overridden_output = pid_controller.ControlStep(stationary);
   CHECK(overridden_output[0] == 500);
   CHECK(overridden_output[1] == kMotorOutputDeadbandPermille);

@@ -17,6 +17,8 @@ RUN apt-get update \
        "ros-humble-ackermann-steering-controller=${ACKERMANN_CONTROLLER_VERSION}" \
        "ros-humble-foxglove-bridge=${FOXGLOVE_BRIDGE_VERSION}" \
        "ros-humble-xacro=${XACRO_VERSION}" \
+       psmisc \
+       udev \
     && test "$(dpkg-query -W -f='${Version}' ros-humble-ros2-control)" = \
        "${ROS2_CONTROL_VERSION}" \
     && test "$(dpkg-query -W -f='${Version}' ros-humble-ros2-controllers)" = \

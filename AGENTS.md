@@ -4,31 +4,49 @@ Read `README.md` and `docs/NEXT_STEPS.md` before changing this repository.
 Treat the framework documents as the detailed contract when a task needs exact
 interface, hardware, or safety requirements.
 
+## Current implementation handoff (2026-08-09)
+
+- The ROS workspace/schema migration, single-default-PID firmware migration,
+  eight-tutorial checkout sequence, and Python-only launch migration are
+  implemented in the current worktree. Preserve them as the current contract.
+- `mentor_pi_bringup controller.launch.py` starts the compiled micro-ROS Agent
+  and configuration supervisor as one fail-coupled launch. Direct native use
+  performs the acknowledgement, serial identity/ownership, executable, and
+  development-artifact preflight; `make start` remains the adaptive
+  native-or-Docker entry point.
+- The firmware domain has one PID control configuration. Do not restore the
+  removed locked/direction-check enum, factories, constants, or control-step
+  branches. Invalid configuration values still fail closed.
+- Focused documentation, tutorial/runtime, artifact, flash, handoff, domain,
+  and controller tests pass. A complete pinned quality-container rerun is the
+  first remaining software action: the approval service refused that final
+  rerun after the last firmware edits. See `docs/NEXT_STEPS.md` for exact
+  evidence and remaining native/HIL gates.
+
 ## Next-version migration mandate
 
-The default-firmware portion of this user-authorized migration remains the next
-implementation priority. The ROS workspace and schema-removal portions below
-describe the current required layout and must remain enforced.
+The user-authorized migration is implemented. The requirements below describe
+the current required layout and behavior and must remain enforced.
 
 ### Default PID firmware
 
-- Change `make firmware`, `make flash`, and `make start` to build, verify,
-  flash, and run the normal motor-enabled `PID` artifact with
-  `control_mode=CLOSED_LOOP`. This default path shall not require the former
-  commissioning build, flash, or runtime acknowledgements.
+- `make firmware`, `make flash`, and `make start` build, verify, flash, and run
+  the normal motor-enabled `PID` artifact with `control_mode=CLOSED_LOOP`. No
+  commissioning classification, mode aliases, or multi-mode branching is
+  required or supported.
 - Preserve the configuration supervisor and its current authorization gate,
   startup inhibition, atomic command validation, model-specific RPS limits,
   the 6 RPS implementation ceiling, the +/-1000-permille output limit,
   independent 198 ms leases, session-loss disarming, and transport-failure
   shutdown.
-- Retain independently classified recovery targets named `firmware-locked`,
-  `flash-locked`, and `start-locked`. Retain the guarded direction-check image
-  separately. Cross-mode artifact substitution must fail closed.
-- Retain the former commissioning-PID Make commands temporarily as aliases to
-  the normal PID path. They must not build or identify a fourth firmware mode.
+- Build, verify, package, and run only one firmware artifact classification:
+  `NORMAL_CLOSED_LOOP_DEFAULT` (PID release). Handoff packaging produces a
+  single `firmware-pid-release/` layout with one ELF/Hex/Bin/Map set plus
+  BUILD-METADATA and BUILD-MODE.
 - Update framework requirements, safety text, tutorials, metadata, artifact
-  verification, packaging, and runtime checks together. The existing locked
-  hardware evidence does not qualify the new PID default.
+  verification, packaging, and runtime checks together. Powered motion and
+  release-qualification claims require recorded HIL evidence from the
+  numbered tutorial sequence.
 
 ### Standard ROS 2 workspace
 
@@ -68,7 +86,7 @@ describe the current required layout and must remain enforced.
 - Run focused tests while migrating, then run the complete regression target
   once after every focused group passes.
 - Verify direct native Humble colcon use and the root adaptive Make/Docker
-  path. Verify `PID`, `LOCKED`, and direction-check artifacts independently.
+  path. Verify the single PID release artifact and its handoff layout.
 - Keep path-contract tests rejecting a root package tree or a dependency on
   the removed schema snapshot. Distinguish package-internal, ignored
   legacy-evidence, and upstream third-party `src/` paths.
@@ -98,9 +116,10 @@ describe the current required layout and must remain enforced.
   authorizes a public-interface change.
 - Invalid motor commands must remain atomic and must not refresh leases. PWM
   and bus servos hold their last accepted state on host loss.
-- Commissioning motion requires passive encoder-direction checks, raised or
+- Powered motor motion requires passive encoder-direction checks, raised or
   equivalently guarded wheels, a current-limited supply, and the documented
-  build and flash acknowledgements.
+  build and flash acknowledgements. Complete Tutorials 01--05 passively
+  before any guarded powered work.
 
 ## Repository hygiene
 

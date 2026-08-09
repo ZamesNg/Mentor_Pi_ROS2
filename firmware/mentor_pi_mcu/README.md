@@ -26,67 +26,41 @@ effective duty. Every model defaults to `Kp=250.0`, `Ki=0.1`, `Kd=0.5`, and a
 velocity-filter new-sample weight of `0.5`. These are provisional starting
 values under the stated units and require guarded physical retuning.
 
-## Motor safety modes
+## Motor safety configuration
 
-The default firmware build is motor-locked. It accepts selected zero-speed
-commands as explicit stop commands, rejects any command containing a selected
-nonzero target atomically as `UNSUPPORTED`, and keeps encoder telemetry active
-for passive direction checks. No ROS message, service, parameter, or host-side
-`motion_enabled` value can unlock that image.
+The only supported firmware build is the closed-loop PID image
+(`control_mode=CLOSED_LOOP`, 6 RPS ceiling, ±1000 permille output,
+`release_qualified=0` pending HIL). It accepts all validated zero-speed commands and
+atomically rejects invalid or out-of-range commands without refreshing leases.
+An invalid build-time controller configuration rejects otherwise-valid nonzero
+commands as `UNSUPPORTED`. Valid nonzero commands are accepted
+and applied through closed-loop PID control, bounded by the model-specific
+RPS profile, the 6 RPS implementation ceiling, and the ±1000 permille
+output limit. Passive encoder telemetry remains active whenever the MCU is
+powered.
 
-Build and inspect the default profile from the repository root:
+Build and inspect the PID release profile from the repository root:
 
 ```sh
 make firmware
 ```
 
-With no commissioning acknowledgement it must report
-`mode=LOCKED`, `control_mode=LOCKED`, and zero speed/output authority.
+The verifier must report `motor_mode=PID`, `artifact_mode=NORMAL`,
+`control_mode=CLOSED_LOOP`, `release_qualified=0`, valid provenance, and at
+least 20% headroom in every
+memory class. The configuration supervisor gate, model-specific RPS limits,
+independent 198 ms per-motor leases, session-loss disarming, and
+transport-failure shutdown apply to every accepted command.
 
-After manually rotating each wheel with motor power disconnected and confirming
-the raw and normalized encoder signs, a guarded non-release image may be built
-from the repository root in either mode:
-
-- Direction-check stage (existing fixed-sign commissioning):
-
-  ```sh
-  make firmware-commissioning
-  ```
-
-  This image reports `control_mode=DIRECTION_CHECK`. It applies a fixed low duty
-  from the requested sign, bypasses PID control, and stops the selected channel
-  if measured speed reaches 0.50 RPS.
-
-- PID test stage (closed-loop commissioning):
-
-  ```sh
-  make firmware-commissioning-pid
-  ```
-
-  This image reports `control_mode=CLOSED_LOOP` and runs bounded closed-loop
-  speed control over the same guarded fixture and power limits.
-
-The direction-check commissioning build must report
-`mode=COMMISSIONING`, `control_mode=DIRECTION_CHECK`, `maximum_accepted_rps=0.25`,
-`output_limit_permille=1000`, and `release_qualified=0`. The closed-loop
-commissioning test build reports
-`mode=COMMISSIONING_PID`, `control_mode=CLOSED_LOOP`, `maximum_accepted_rps=6.0`,
-`output_limit_permille=1000`, and `release_qualified=0`. Omitting or changing
-the acknowledgement fails even for this non-building probe.
-
-Both the wrapper and CMake fail closed if the exact acknowledgement is absent.
-The direction-check image limits accepted commands to 0.25 RPS, applies fixed
-250-permille output from the command sign, and the PID test image allows up to
-6.0 RPS with bounded closed-loop duty. Each motor model retains its lower
-profile limit where applicable. Direction-check control disarms at 0.50 RPS.
-Active channel wiring signs are fixed as `{1, 1, 1, 1}` in firmware.
-Use it only with every wheel raised or equivalently contained,
-a current-limited supply, an accessible motor-power stop, and one motor under
-test at a time. It is not a release image. D3 HIL must qualify or replace every
-PID, filter, deadband, motor/channel polarity, and full-range behavior before a
-production image may accept nonzero motion. See
-[Tutorial 06](../../docs/tutorials/06-commission-one-motor-safely.md) for the
-ordered guarded procedure.
+Active channel wiring signs are fixed as `{1, 1, 1, 1}` in firmware. Before
+any powered motor work, complete Tutorials 01--05 passively with actuator
+power disconnected, confirm wheel clearance, use a current-limited supply,
+keep a physical motor-power stop reachable, follow the guarded checkout in
+[Tutorial 06](../../docs/tutorials/06-ros2-cli-hardware-checkout.md), and run
+the campaign gates in
+[Tutorial 07](../../docs/tutorials/07-run-stress-soak-and-release-gates.md).
+D3 HIL must qualify or replace every PID, filter, deadband, motor/channel
+polarity, and full-range behavior before production nonzero-motion claims.
 
 Every successful supported build also writes
 `build/stm32/rrclite-build-metadata.txt`. The direct CubeProgrammer flash

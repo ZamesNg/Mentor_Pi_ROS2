@@ -36,8 +36,8 @@ physical wiring or safe output is a stop-work condition until resolved.
 ## Operator and qualification path
 
 The ordered [tutorial series](../tutorials/01-prepare-ubuntu-development-host.md)
-contains environment setup, locked flashing, host deployment, passive bring-up,
-SWD characterization, guarded commissioning, functional HIL, and long
+contains environment setup, default PID flashing, host deployment, passive
+bring-up, SWD characterization, guarded CLI checkout, functional HIL, and long
 qualification campaigns. Exact ROS commands appear at the stage where they are
 safe to run.
 

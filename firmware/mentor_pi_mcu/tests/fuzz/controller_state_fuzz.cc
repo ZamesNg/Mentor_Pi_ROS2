@@ -44,19 +44,8 @@ bool Equal(const PwmServoState& left, const PwmServoState& right) {
          left.moving_mask == right.moving_mask;
 }
 
-Result ExpectedCommissioningMotorResult(const MotorCommand& command) {
-  Result result = ValidateMotorCommand(command, 6.0F);
-  if (!result.ok()) {
-    return result;
-  }
-  for (std::size_t index = 0U; index < kMotorCount; ++index) {
-    const auto bit = static_cast<std::uint8_t>(1U << index);
-    if ((command.update_mask & bit) != 0U &&
-        std::fabs(command.target_rps[index]) > kMotorCommissioningMaximumRps) {
-      return {ResultCode::kOutOfRange, static_cast<std::uint16_t>(index + 1U)};
-    }
-  }
-  return OkResult();
+Result ExpectedDefaultMotorResult(const MotorCommand& command) {
+  return ValidateMotorCommand(command, kMotorImplementationMaximumRps);
 }
 
 MotorCommand ReadMotor(FuzzInput* input) {
@@ -73,11 +62,11 @@ void CheckMotorState(const std::uint8_t* data, std::size_t size) {
   const MotorCommand command = ReadMotor(&input);
   const std::uint32_t now_us = input.ReadU32();
   const MotorControlConfiguration configuration =
-      CommissioningMotorControlConfiguration();
+      DefaultPidMotorControlConfiguration();
   MotorController controller(configuration);
   controller.SetSessionActive(true);
   const auto before = controller.channels();
-  const Result expected = ExpectedCommissioningMotorResult(command);
+  const Result expected = ExpectedDefaultMotorResult(command);
   const Result result = controller.AcceptCommand(command, now_us);
   Require(Equal(result, expected));
 
@@ -127,12 +116,12 @@ void CheckMotorModelService(const std::uint8_t* data, std::size_t size) {
   }
 
   const MotorControlConfiguration configuration =
-      CommissioningMotorControlConfiguration();
+      DefaultPidMotorControlConfiguration();
   MotorController moving(configuration);
   moving.SetSessionActive(true);
   MotorCommand start{};
   start.update_mask = 0x01U;
-  start.target_rps[0] = kMotorCommissioningMaximumRps;
+  start.target_rps[0] = 0.25F;
   Require(moving.AcceptCommand(start, 1U).ok());
   Require(moving.SetModel(MotorModel::kJga27).result.ok());
   const MotorModelChange busy = moving.SetModel(MotorModel::kJgb520);

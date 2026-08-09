@@ -82,35 +82,26 @@ const MotorProfile& GetMotorProfile(MotorModel model) {
 MotorController::MotorController(MotorControlConfiguration configuration)
     : configuration_(configuration),
       profile_(&GetMotorProfile(MotorModel::kJga27)) {
-  bool configuration_valid =
-      configuration_.mode == MotorControlMode::kLocked ||
-      configuration_.mode == MotorControlMode::kDirectionCheck ||
-      configuration_.mode == MotorControlMode::kClosedLoop;
   for (std::size_t index = 0; index < kMotorCount; ++index) {
     const std::uint8_t bits = configuration_.counter_bits[index];
     if (bits != 16U && bits != 32U) {
       configuration_.counter_bits[index] = 16U;
-      configuration_valid = false;
+      configuration_valid_ = false;
     }
     if (configuration_.channel_wiring_sign[index] != -1 &&
         configuration_.channel_wiring_sign[index] != 1) {
       configuration_.channel_wiring_sign[index] = 1;
-      configuration_valid = false;
+      configuration_valid_ = false;
     }
   }
   if (!std::isfinite(configuration_.maximum_accepted_rps) ||
       configuration_.maximum_accepted_rps <= 0.0F ||
-      configuration_.maximum_accepted_rps > 6.0F ||
+      configuration_.maximum_accepted_rps > kMotorImplementationMaximumRps ||
       configuration_.output_limit_permille <= 0 ||
-      configuration_.output_limit_permille > kMotorOutputLimitPermille ||
-      (configuration_.mode == MotorControlMode::kDirectionCheck &&
-       configuration_.output_limit_permille <
-           kMotorDirectionCheckDutyPermille)) {
-    configuration_valid = false;
+      configuration_.output_limit_permille > kMotorOutputLimitPermille) {
+    configuration_valid_ = false;
   }
-  if (configuration_.mode == MotorControlMode::kLocked ||
-      !configuration_valid) {
-    configuration_.mode = MotorControlMode::kLocked;
+  if (!configuration_valid_) {
     configuration_.maximum_accepted_rps = 0.0F;
     configuration_.output_limit_permille = 0;
   }
@@ -141,7 +132,7 @@ Result MotorController::AcceptCommand(const MotorCommand& command,
         command.target_rps[index] == 0.0F) {
       continue;
     }
-    if (!nonzero_motion_enabled()) {
+    if (!configuration_valid_) {
       RecordRejectedCommand(command.update_mask);
       return {ResultCode::kUnsupported, static_cast<std::uint16_t>(index + 1U)};
     }
@@ -200,7 +191,7 @@ MotorPidUpdate MotorController::SetPid(const SetMotorPidCommand& command) {
   if (!validation.ok()) {
     return {validation, 0U};
   }
-  if (configuration_.mode != MotorControlMode::kClosedLoop) {
+  if (!configuration_valid_) {
     return {{ResultCode::kUnsupported, 0U}, 0U};
   }
 
@@ -288,19 +279,6 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
       continue;
     }
 
-    if (configuration_.mode == MotorControlMode::kDirectionCheck) {
-      if (std::fabs(channel.measured_rps) >= kMotorDirectionCheckOverspeedRps) {
-        StopChannel(index, true);
-        outputs[index] = 0;
-        continue;
-      }
-      channel.output_permille = channel.target_rps > 0.0F
-                                    ? kMotorDirectionCheckDutyPermille
-                                    : -kMotorDirectionCheckDutyPermille;
-      outputs[index] = channel.output_permille;
-      continue;
-    }
-
     PidState& pid = pid_state_[index];
     const float error = channel.target_rps - channel.measured_rps;
     const float proportional = gains.proportional_gain * error;
@@ -351,7 +329,7 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
 }
 
 float MotorController::maximum_accepted_rps() const {
-  return nonzero_motion_enabled()
+  return configuration_valid_
              ? std::min(profile_->max_rps, configuration_.maximum_accepted_rps)
              : 0.0F;
 }

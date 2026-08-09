@@ -3,6 +3,7 @@
 set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly HOST_BUILDER="${SCRIPT_DIR}/build_host.sh"
 readonly AGENT_BUILDER="${SCRIPT_DIR}/build_agent.sh"
 readonly CONTAINER_NAME="mentor-pi-runtime"
@@ -63,6 +64,8 @@ set -u
 export ROS_DOMAIN_ID="${ros_domain_id}"
 ros2 daemon stop >/dev/null 2>&1 || true
 export MENTOR_PI_DEVELOPMENT_RUNTIME=1
+export MENTOR_PI_PROJECT_ROOT="${PROJECT_ROOT}"
+export MENTOR_PI_FIRMWARE_VERIFIER="${PROJECT_ROOT}/tools/verify_firmware_artifact.sh"
 export MENTOR_PI_HOST_PREFIX="${host_prefix}"
 export MENTOR_PI_AGENT_PREFIX="${agent_prefix}"
 export MENTOR_PI_AGENT_EXECUTABLE="${agent_executable}"

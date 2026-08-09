@@ -656,24 +656,9 @@ platform::TaskHooks ConvertTaskEntries(
 }
 
 mentor_pi::mcu::MotorControlConfiguration BuildMotorConfiguration() {
-#if MENTOR_PI_MOTOR_COMMISSIONING
-  // This image is only for raised-wheel, current-limited commissioning. The
-  // build system requires the explicit MOTORS_RAISED acknowledgement. These
-  // deliberately low limits do not qualify encoder polarity or PID gains.
-  auto configuration = mentor_pi::mcu::CommissioningMotorControlConfiguration();
-#if MENTOR_PI_MOTOR_COMMISSIONING_CLOSED_LOOP
-  configuration.mode = mentor_pi::mcu::MotorControlMode::kClosedLoop;
-  configuration.maximum_accepted_rps =
-      mentor_pi::mcu::kMotorCommissioningClosedLoopMaximumRps;
-#else
-  configuration.mode = mentor_pi::mcu::MotorControlMode::kDirectionCheck;
-#endif
-#else
-  auto configuration = mentor_pi::mcu::LockedMotorControlConfiguration();
-#endif
+  auto configuration = mentor_pi::mcu::DefaultPidMotorControlConfiguration();
   // Passive one-wheel-at-a-time captures establish connector order as
   // M1/front-left, M2/rear-left, M3/front-right, M4/rear-right.
-  // This board requires a positive wiring sign for all four channels.
   configuration.channel_wiring_sign = {1, 1, 1, 1};
   return configuration;
 }

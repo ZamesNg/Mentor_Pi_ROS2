@@ -24,9 +24,6 @@ readonly CUBE_REPOSITORY="https://github.com/STMicroelectronics/STM32CubeF4.git"
 readonly MICROROS_REPOSITORY="https://github.com/micro-ROS/micro_ros_stm32cubemx_utils.git"
 readonly EXPECTED_CUBE_COMMIT="52757b5e33259a088509a777a9e3a5b971194c7d"
 readonly EXPECTED_MICROROS_COMMIT="bd531b273c1bcd070b3143c5642128ec75a6f04e"
-readonly COMMISSIONING_MAXIMUM_RPS="0.25"
-readonly COMMISSIONING_CLOSED_LOOP_MAXIMUM_RPS="6.0"
-readonly COMMISSIONING_OUTPUT_LIMIT_PERMILLE="1000"
 
 declare -a docker_build_command=(docker build)
 for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
@@ -84,62 +81,13 @@ if [[ "$#" -gt 1 || ("$#" -eq 1 && "$1" != "--print-motor-profile") ]]; then
   Fail "usage: ./tools/build_firmware.sh [--print-motor-profile]"
 fi
 
-readonly MOTOR_COMMISSIONING_CLOSED_LOOP_RAW="${RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:-0}"
-case "${RRCLITE_MOTOR_COMMISSIONING:-0}" in
-  0)
-    readonly MOTOR_COMMISSIONING_OPTION="OFF"
-    readonly MOTOR_COMMISSIONING_ACK=""
-    ;;
-  1)
-    [[ "${RRCLITE_MOTOR_COMMISSIONING_ACK:-}" == "MOTORS_RAISED" ]] || \
-      Fail "commissioning requires RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED after raising all wheels and using a current-limited supply"
-    readonly MOTOR_COMMISSIONING_OPTION="ON"
-    readonly MOTOR_COMMISSIONING_ACK="MOTORS_RAISED"
-    ;;
-  *)
-    Fail "RRCLITE_MOTOR_COMMISSIONING must be 0 or 1"
-    ;;
-esac
-
-case "${MOTOR_COMMISSIONING_CLOSED_LOOP_RAW}" in
-  0)
-    readonly MOTOR_COMMISSIONING_CLOSED_LOOP="OFF"
-    ;;
-  1)
-    [[ "${RRCLITE_MOTOR_COMMISSIONING:-0}" == "1" ]] || \
-      Fail "RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP requires RRCLITE_MOTOR_COMMISSIONING=1"
-    readonly MOTOR_COMMISSIONING_CLOSED_LOOP="ON"
-    ;;
-  *)
-    Fail "RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP must be 0 or 1"
-    ;;
-esac
-
 if [[ "${1:-}" == "--print-motor-profile" ]]; then
-  if [[ "${MOTOR_COMMISSIONING_OPTION}" == "ON" ]]; then
-    if [[ "${MOTOR_COMMISSIONING_CLOSED_LOOP}" == "ON" ]]; then
-      readonly MOTOR_COMMISSIONING_CONTROL_MODE="CLOSED_LOOP"
-      readonly MOTOR_COMMISSIONING_MAXIMUM_RPS="${COMMISSIONING_CLOSED_LOOP_MAXIMUM_RPS}"
-    else
-      readonly MOTOR_COMMISSIONING_CONTROL_MODE="DIRECTION_CHECK"
-      readonly MOTOR_COMMISSIONING_MAXIMUM_RPS="${COMMISSIONING_MAXIMUM_RPS}"
-    fi
-    printf '%s\n' \
-      "mode=$([[ "${MOTOR_COMMISSIONING_CLOSED_LOOP}" == "ON" ]] && echo COMMISSIONING_PID || echo COMMISSIONING)" \
-      "control_mode=${MOTOR_COMMISSIONING_CONTROL_MODE}" \
-      'nonzero_motion_enabled=1' \
-      "maximum_accepted_rps=${MOTOR_COMMISSIONING_MAXIMUM_RPS}" \
-      "output_limit_permille=${COMMISSIONING_OUTPUT_LIMIT_PERMILLE}" \
-      'release_qualified=0'
-  else
-    printf '%s\n' \
-      'mode=LOCKED' \
-      'control_mode=LOCKED' \
-      'nonzero_motion_enabled=0' \
-      'maximum_accepted_rps=0.0' \
-      'output_limit_permille=0' \
-      'release_qualified=0'
-  fi
+  printf '%s\n' \
+    'mode=PID' \
+    'control_mode=CLOSED_LOOP' \
+    'maximum_accepted_rps=6.0' \
+    'output_limit_permille=1000' \
+    'release_qualified=0'
   exit 0
 fi
 
@@ -213,10 +161,7 @@ if [[ "${RRCLITE_BUILD_LOCAL:-0}" == "1" ]]; then
   RemoveBuildRoot
   cmake -S "${TARGET_ROOT}" -B "${BUILD_ROOT}" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_FILE}" \
-    -DCMAKE_BUILD_TYPE=MinSizeRel \
-    -DRRCLITE_MOTOR_COMMISSIONING="${MOTOR_COMMISSIONING_OPTION}" \
-    -DRRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP="${MOTOR_COMMISSIONING_CLOSED_LOOP}" \
-    -DRRCLITE_MOTOR_COMMISSIONING_ACK="${MOTOR_COMMISSIONING_ACK}"
+    -DCMAKE_BUILD_TYPE=MinSizeRel
   cmake --build "${BUILD_ROOT}" --parallel
 else
   command -v docker >/dev/null || Fail "Docker is not installed"
@@ -228,9 +173,6 @@ else
   docker run --rm \
     --user "$(id -u):$(id -g)" \
     --env SOURCE_DATE_EPOCH=0 \
-    --env RRCLITE_CMAKE_MOTOR_OPTION="${MOTOR_COMMISSIONING_OPTION}" \
-    --env RRCLITE_CMAKE_MOTOR_CLOSED_LOOP="${MOTOR_COMMISSIONING_CLOSED_LOOP}" \
-    --env RRCLITE_CMAKE_MOTOR_ACK="${MOTOR_COMMISSIONING_ACK}" \
     --volume "${PROJECT_ROOT}:/workspace" \
     --workdir /workspace \
     "${IMAGE}" \
@@ -239,10 +181,7 @@ else
         -B firmware/mentor_pi_mcu/build/stm32 \
         -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/workspace/firmware/mentor_pi_mcu/target/stm32/arm-none-eabi-toolchain.cmake \
-        -DCMAKE_BUILD_TYPE=MinSizeRel \
-        -DRRCLITE_MOTOR_COMMISSIONING="${RRCLITE_CMAKE_MOTOR_OPTION}" \
-        -DRRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP="${RRCLITE_CMAKE_MOTOR_CLOSED_LOOP}" \
-        -DRRCLITE_MOTOR_COMMISSIONING_ACK="${RRCLITE_CMAKE_MOTOR_ACK}"
+        -DCMAKE_BUILD_TYPE=MinSizeRel
       cmake --build firmware/mentor_pi_mcu/build/stm32 --parallel
     '
 fi
@@ -278,18 +217,10 @@ if [[ "${SOURCE_FINGERPRINT_BEFORE}" != "${SOURCE_FINGERPRINT_AFTER}" ]]; then
   Fail "project-owned firmware inputs changed during the build"
 fi
 
-if [[ "${MOTOR_COMMISSIONING_CLOSED_LOOP}" == "ON" ]]; then
-  readonly MOTOR_MODE="COMMISSIONING_PID"
-  readonly CONTROL_MODE="CLOSED_LOOP"
-elif [[ "${MOTOR_COMMISSIONING_OPTION}" == "ON" ]]; then
-  readonly MOTOR_MODE="COMMISSIONING"
-  readonly CONTROL_MODE="DIRECTION_CHECK"
-else
-  readonly MOTOR_MODE="LOCKED"
-  readonly CONTROL_MODE="LOCKED"
-fi
+readonly MOTOR_MODE="PID"
+readonly CONTROL_MODE="CLOSED_LOOP"
 readonly ARTIFACT_MODE="NORMAL"
-readonly VERIFICATION_MODE="${MOTOR_MODE}"
+readonly VERIFICATION_MODE="PID"
 readonly METADATA="${BUILD_ROOT}/rrclite-build-metadata.txt"
 readonly METADATA_TEMP="${METADATA}.tmp"
 printf '%s\n' \
@@ -299,7 +230,6 @@ printf '%s\n' \
   "motor_mode=${MOTOR_MODE}" \
   "control_mode=${CONTROL_MODE}" \
   "artifact_mode=${ARTIFACT_MODE}" \
-  "commissioning_ack=${MOTOR_COMMISSIONING_ACK}" \
   'release_qualified=0' \
   "source_sha256=${SOURCE_FINGERPRINT_AFTER}" \
   "interfaces_sha256=${INTERFACE_FINGERPRINT}" \

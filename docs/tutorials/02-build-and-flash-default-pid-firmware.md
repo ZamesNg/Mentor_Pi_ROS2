@@ -1,7 +1,7 @@
-# Tutorial 02: Build and Flash the Locked Firmware
+# Tutorial 02: Build and Flash the Default PID Firmware
 
 Build, provenance-check, program, read back, and automatically reset the normal
-motor-locked firmware. No firmware handoff is needed for a local board.
+closed-loop PID firmware. No firmware handoff is needed for a local board.
 
 **Run on:** the connected Ubuntu host
 **Hardware state:** all motors, PWM servos, and bus servos disconnected
@@ -9,16 +9,16 @@ motor-locked firmware. No firmware handoff is needed for a local board.
 Previous: [Tutorial 01: Prepare the Ubuntu Development Host](01-prepare-ubuntu-development-host.md)
 Next: [Tutorial 03: Build and Run the Humble Host](03-build-and-run-humble-host.md)
 
-## 1. Build the locked image
+## 1. Build the default PID image
 
 ```sh
 cd /home/zames/Mentor_Pi && make firmware
 ```
 
-Expected result: the artifact verifier reports `motor_mode=LOCKED`,
-`artifact_mode=NORMAL`, valid provenance, and at least 20% headroom in every
-memory class. Stop on stale metadata, a commissioning profile, or any build,
-hash, vector, or memory failure.
+Expected result: the artifact verifier reports `motor_mode=PID`,
+`artifact_mode=NORMAL`, `control_mode=CLOSED_LOOP`, `release_qualified=0`, valid
+provenance, and at least 20% headroom in every memory class. Stop on stale
+metadata, an invalid profile, or any build, hash, vector, or memory failure.
 
 ## 2. Configure the stable serial alias once
 
@@ -36,16 +36,19 @@ guided one-line flash commands automatically activate an already-granted but
 not-yet-active membership for their own process. Stop if the identity is
 ambiguous or the alias is not readable and writable afterward.
 
-## 3. Flash without touching BOOT or RST
+## 3. Flash the default PID image without touching BOOT or RST
 
 **Warning:** Motor power is disconnected. PWM and bus servos unplugged. Close
-the Agent, serial terminals, and CubeProgrammer before continuing.
+the Agent, serial terminals, and CubeProgrammer before continuing. The default
+PID image remains unqualified (`release_qualified=0`) until its HIL evidence is
+complete. Passive checks (Tutorial 04) and characterization (Tutorial 05) MUST
+be completed before any guarded powered work.
 
 ```sh
-cd /home/zames/Mentor_Pi && make flash-locked
+cd /home/zames/Mentor_Pi && make flash
 ```
 
-Type the requested acknowledgement exactly:
+Type the requested bootloader acknowledgement exactly:
 
 ```text
 ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED

@@ -11,22 +11,20 @@ Fail() {
 }
 
 Usage() {
-  echo "Usage: ./tools/check_firmware_memory.sh LOCKED|COMMISSIONING|COMMISSIONING_PID [PROJECT_ROOT]" >&2
+  echo "Usage: ./tools/check_firmware_memory.sh PID [PROJECT_ROOT]" >&2
 }
 
 [[ "$#" -ge 1 && "$#" -le 2 ]] || {
   Usage
   exit 2
 }
-readonly MODE="$1"
+readonly REQUESTED_MODE="$1"
 readonly PROJECT_ROOT="${2:-${DEFAULT_PROJECT_ROOT}}"
-case "${MODE}" in
-  LOCKED | COMMISSIONING | COMMISSIONING_PID) ;;
-  *)
-    Usage
-    Fail "mode must identify the exact verified artifact"
-    ;;
-esac
+if [[ "${REQUESTED_MODE}" != "PID" ]]; then
+  Usage
+  Fail "mode must be exactly PID"
+fi
+readonly MODE="PID"
 
 readonly BUILD_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32"
 readonly MAP_FILE="${BUILD_ROOT}/mentor_pi_mcu.map"

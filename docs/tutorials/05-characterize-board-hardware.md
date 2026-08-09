@@ -5,16 +5,16 @@ probe. This does not command a motor or authorize unguarded motion.
 
 **Run on:** the connected native-or-Docker Humble host while `make start`
 remains running in its own terminal
-**Hardware state:** locked firmware; motor power disconnected; encoders
+**Hardware state:** verified default PID firmware; motor power disconnected; encoders
 connected; servos unplugged; all four wheels raised
 
 Previous: [Tutorial 04: Run Passive Board Bring-Up](04-run-passive-board-bringup.md)
-Next: [Tutorial 06: Commission One Motor Safely](06-commission-one-motor-safely.md)
+Next: [Tutorial 06: ROS 2 CLI Hardware Checkout](06-ros2-cli-hardware-checkout.md)
 
 ## 1. Run the guided passive characterization
 
 **Warning:** Disconnect the motor supply and every servo before continuing.
-Leave the encoder connectors attached and keep every wheel raised. The locked
+Leave the encoder connectors attached and keep every wheel raised. The PID
 firmware must remain installed.
 
 ```sh
@@ -48,7 +48,7 @@ limitation; they do not invalidate a successful encoder-direction test. The
 first six-face capture on this board rejected the legacy identity mapping and
 measured PCB X = sensor Y, PCB Y = -sensor X, and PCB Z = sensor Z. The current
 firmware applies that signed permutation. All six rows must report `PASS` after
-the corrected locked image is flashed.
+the corrected PID image is flashed.
 
 Stop before powered commissioning if a wheel changes no channel, changes more
 than one channel, or two physical wheels resolve to the same ROS channel.
@@ -71,6 +71,6 @@ precision safety measurement.
 
 Formal battery accuracy, raw-register capture, and instrumented electrical
 timing remain release-qualification work in Tutorial 07. They do not block the
-guarded one-motor procedure when every encoder row passes.
+guarded CLI checkout when every encoder row passes.
 
-Next: [Tutorial 06: Commission One Motor Safely](06-commission-one-motor-safely.md).
+Next: [Tutorial 06: ROS 2 CLI Hardware Checkout](06-ros2-cli-hardware-checkout.md).

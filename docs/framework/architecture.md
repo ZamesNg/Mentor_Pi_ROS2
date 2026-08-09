@@ -90,26 +90,20 @@ command acceptance.
 ## Motor build-time safety gate
 
 Motor motion authority is a compile-time property and has no ROS unlock. The
-normal build leaves closed-loop output disabled: while the session is active it
-accepts valid selected zero targets as stop commands, but atomically rejects a
-message containing any selected nonzero target as `UNSUPPORTED`. Encoder
-sampling and motor-state telemetry remain active so direction can be checked by
-turning a raised wheel manually without energizing the bridge.
-
-The only pre-HIL image allowed to accept nonzero targets is a commissioning
-image built through the supported wrapper with both deliberate inputs:
+only supported build is the normal PID release artifact:
 
 ```sh
-make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED
+make firmware
 ```
 
-The wrapper and CMake configuration fail if commissioning is requested without
-the exact acknowledgement. The resulting direction-check image admits signed
-commands through 0.25 RPS, bypasses PID, applies fixed 250-permille output from
-the sign, and disarms above 0.50 measured RPS. Those bounds
-do not make an unguarded motor safe: all wheels shall remain raised or on an
-equivalent guarded fixture and the board shall use a current-limited supply.
-The commissioning image is not a production or release-qualified image.
+It is classified `NORMAL_CLOSED_LOOP_DEFAULT` with
+`control_mode=CLOSED_LOOP`. It enforces the active model's RPS limit, the 6 RPS
+implementation ceiling, the +/-1000-permille output limit, independent 198 ms
+lease expiry, session-loss disarming, and transport-failure shutdown. No build
+alias or ROS value selects another control mode. These limits do not make
+unguarded motor motion safe: all wheels shall remain raised or on an equivalent
+guarded fixture and the board shall use a current-limited supply until the
+required HIL evidence is recorded.
 
 Before its first powered command, each channel shall pass a passive encoder
 direction test with motor PWM disabled. The current JGA27 model polarity factor
@@ -405,9 +399,10 @@ SAFE_BOOT -> WAIT_AGENT -> CREATE_ENTITIES -> ACTIVE
 
 Initialize clocks and GPIO with all motor compares zero and motor outputs
 disabled. Create all static RTOS objects and start hardware owners. Configure
-the custom transport, but do not arm motors. A normal image retains the
-compile-time motor lock after entering `ACTIVE`; a session transition does not
-change build authority. PWM-servo GPIO remains low until
+the custom transport, but do not arm motors. The default PID image retains its
+compile-time model limit, implementation ceiling, and output clamp after
+entering `ACTIVE`; a session transition does not change build authority.
+PWM-servo GPIO remains low until
 `PeripheralTask` starts the validated TIM13 frame generator; it then produces
 the documented 1500 microsecond reset default without consulting a ROS
 mailbox. `PeripheralTask` also establishes the reset defaults of LEDs off,
@@ -632,12 +627,12 @@ The supervisor publishes that state with transient-local reliable QoS on both
 authorization value is zero while disabled. While enabled, its upper 32 bits
 are the low 32 bits of the host-local configuration generation and its lower 32
 bits are `agent_session_id`. The supervisor is the only permitted publisher of
-the authorization topic. The guarded commissioning utility requires exactly
+the authorization topic. The guarded motor utility requires exactly
 one discovered publisher with node identity `/mentor_pi/configuration_supervisor`
 and locks the nonzero generation/session pair for the complete run; publisher
 loss, duplication, identity mismatch, or token change initiates the stop phase.
 This token prevents a retained Boolean from a different publisher or session
-from authorizing a new commissioning run; it is not MCU motor authority.
+from authorizing a new guarded run; it is not MCU motor authority.
 
 The supervisor republishes the current authorization after every received
 heartbeat. Project-owned hardware adapters locally invalidate their accepted
@@ -648,7 +643,7 @@ boot whose first `agent_session_id` collides with an earlier boot.
 
 Project-owned host motion publishers shall not publish while this gate is
 false. A true host-local gate means only that the three configuration services
-completed; it neither overrides the normal firmware motor lock nor qualifies
+completed; it neither overrides the firmware motor limits nor qualifies
 PID/polarity. The MCU independently applies its compile-time authority and
 requires a fresh valid command, so the host gate is an additional sequencing
 rule, not the motor safety mechanism.

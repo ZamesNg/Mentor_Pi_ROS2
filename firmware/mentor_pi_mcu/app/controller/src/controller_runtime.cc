@@ -26,8 +26,8 @@ constexpr std::uint32_t kPeripheralWaitMs = 1U;
 constexpr std::uint32_t kSafetyStartupGraceMs = 250U;
 
 float MotorAdmissionLimit(const mentor_pi::mcu::MotorController& controller) {
-  return controller.nonzero_motion_enabled() ? controller.maximum_accepted_rps()
-                                             : controller.profile().max_rps;
+  return controller.configuration_valid() ? controller.maximum_accepted_rps()
+                                          : controller.profile().max_rps;
 }
 
 void SafetyTaskTrampoline(void* context) {

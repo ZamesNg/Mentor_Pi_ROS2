@@ -61,33 +61,6 @@ set(RRCLITE_MICROROS_ROOT
   CACHE PATH "Generated Humble libmicroros directory")
 set(RRCLITE_EXPECTED_GCC_VERSION "13.2.1" CACHE STRING
   "Exact Arm GNU compiler version used for qualified firmware builds")
-option(RRCLITE_MOTOR_COMMISSIONING
-  "Enable the raised-wheel, current-limited motor commissioning gate" OFF)
-set(RRCLITE_MOTOR_COMMISSIONING_ACK "" CACHE STRING
-  "Required acknowledgement when motor commissioning is enabled")
-option(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP
-  "Use closed-loop PID commissioning controls instead of direction-check" OFF)
-if(RRCLITE_MOTOR_COMMISSIONING)
-  if(NOT RRCLITE_MOTOR_COMMISSIONING_ACK STREQUAL "MOTORS_RAISED")
-    message(FATAL_ERROR
-      "Motor commissioning requires "
-      "-DRRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED. "
-      "Raise all wheels and use a current-limited supply first.")
-  endif()
-  set(RRCLITE_MOTOR_COMMISSIONING_DEFINE 1)
-else()
-  set(RRCLITE_MOTOR_COMMISSIONING_DEFINE 0)
-endif()
-if(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP)
-  if(NOT RRCLITE_MOTOR_COMMISSIONING)
-    message(FATAL_ERROR
-      "Closed-loop commissioning requires "
-      "-DRRCLITE_MOTOR_COMMISSIONING=ON.")
-  endif()
-  set(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP_DEFINE 1)
-else()
-  set(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP_DEFINE 0)
-endif()
 set(RRCLITE_CUBE_COMMIT
   "52757b5e33259a088509a777a9e3a5b971194c7d")
 set(RRCLITE_MICROROS_UTILS_COMMIT
@@ -415,8 +388,6 @@ target_compile_definitions(mentor_pi_mcu PRIVATE
   STM32F407xx
   USE_HAL_DRIVER
   MENTOR_PI_RRCLITE_V1
-  MENTOR_PI_MOTOR_COMMISSIONING=${RRCLITE_MOTOR_COMMISSIONING_DEFINE}
-  MENTOR_PI_MOTOR_COMMISSIONING_CLOSED_LOOP=${RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP_DEFINE}
   CLOCK_MONOTONIC=0
 )
 target_include_directories(mentor_pi_mcu PRIVATE
@@ -494,17 +465,7 @@ add_custom_command(TARGET mentor_pi_mcu POST_BUILD
 )
 
 message(STATUS "RRCLite target: STM32F407VET6")
-if(RRCLITE_MOTOR_COMMISSIONING)
-  if(RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP)
-    message(WARNING
-      "RRCLite motor mode: COMMISSIONING CLOSED_LOOP (bounded control)")
-  else()
-    message(WARNING
-      "RRCLite motor mode: COMMISSIONING DIRECTION_CHECK (250 permille fixed, 0.50 RPS cutoff)")
-  endif()
-else()
-  message(STATUS "RRCLite motor mode: LOCKED (zero/stop commands only)")
-endif()
+message(STATUS "RRCLite motor mode: PID CLOSED_LOOP (6 RPS, ±1000 permille)")
 message(STATUS "STM32CubeF4: ${RRCLITE_CUBE_COMMIT}")
 message(STATUS "libmicroros: ${RRCLITE_MICROROS_LIBRARY}")
 message(STATUS "linker script: ${RRCLITE_LINKER_SCRIPT}")

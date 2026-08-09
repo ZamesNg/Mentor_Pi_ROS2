@@ -9,12 +9,11 @@ readonly AGENT_BUILDER="${SCRIPT_DIR}/build_agent.sh"
 readonly FIRMWARE_VERIFIER="${SCRIPT_DIR}/verify_firmware_artifact.sh"
 readonly HOST_RUNTIME_BUILDER="${SCRIPT_DIR}/build_host_runtime_image.sh"
 readonly CONTAINER_NAME="mentor-pi-runtime"
-readonly REQUIRED_LOCKED_ACK="LOCKED_FIRMWARE_ACTUATORS_DISCONNECTED"
-readonly REQUIRED_COMMISSIONING_ACK="MOTORS_RAISED_CURRENT_LIMITED"
+readonly REQUIRED_PID_ACK="PID_FIRMWARE_ACTUATORS_PREPARED"
+readonly firmware_mode="PID"
 
 serial_device=""
 ros_domain_id=""
-firmware_mode="LOCKED"
 vehicle_config=""
 resolved_vehicle_config=""
 dry_run=0
@@ -27,21 +26,16 @@ Fail() {
 Usage() {
   cat >&2 <<'EOF'
 Usage: run_runtime.sh --device /dev/mentor_pi_mcu \
-  --ros-domain-id 0..232 [--firmware-mode LOCKED|COMMISSIONING|COMMISSIONING_PID] \
-  [--vehicle-config /absolute/robot.yaml] [--dry-run]
+  --ros-domain-id 0..232 [--vehicle-config /absolute/robot.yaml] [--dry-run]
 
 Ubuntu 22.04 runs the locally built ROS 2 Humble host natively. Every other
 Ubuntu release runs it in pinned Ubuntu 22.04/Humble Docker with only the
 reviewed MCU character device passed through.
 
-Before starting, disconnect motor power, PWM servos, and bus servos; contain
-every wheel; verify the normal LOCKED firmware; then set:
+Before starting a normal default PID firmware session, confirm safe actuator
+state and operational clearances, then set:
 
-  RRCLITE_RUNTIME_ACK=LOCKED_FIRMWARE_ACTUATORS_DISCONNECTED
-
-Commissioning mode additionally requires raised wheels and current limiting:
-
-  RRCLITE_RUNTIME_ACK=MOTORS_RAISED_CURRENT_LIMITED
+  RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED
 EOF
   exit 2
 }
@@ -77,11 +71,6 @@ while (($# > 0)); do
       ros_domain_id="$2"
       shift 2
       ;;
-    --firmware-mode)
-      (($# >= 2)) || Usage
-      firmware_mode="$2"
-      shift 2
-      ;;
     --vehicle-config)
       (($# >= 2)) || Usage
       vehicle_config="$2"
@@ -93,10 +82,6 @@ while (($# > 0)); do
   esac
 done
 
-case "${firmware_mode}" in
-  LOCKED | COMMISSIONING | COMMISSIONING_PID) ;;
-  *) Fail "firmware mode must be LOCKED, COMMISSIONING, or COMMISSIONING_PID" ;;
-esac
 if [[ -n "${vehicle_config}" ]]; then
   [[ "${vehicle_config}" == /* && "${vehicle_config}" != *:* && \
     "${vehicle_config}" != *$'\n'* ]] || \
@@ -172,12 +157,7 @@ if ((dry_run == 1)); then
   exit 0
 fi
 
-required_ack="${REQUIRED_LOCKED_ACK}"
-if [[ "${firmware_mode}" == "COMMISSIONING" || \
-      "${firmware_mode}" == "COMMISSIONING_PID" ]]; then
-  required_ack="${REQUIRED_COMMISSIONING_ACK}"
-fi
-readonly required_ack
+readonly required_ack="${REQUIRED_PID_ACK}"
 [[ "${RRCLITE_RUNTIME_ACK:-}" == "${required_ack}" ]] || {
   Usage
   Fail "set RRCLITE_RUNTIME_ACK=${required_ack} only after completing the required fixture checks"
@@ -201,12 +181,14 @@ if [[ "${ubuntu_version}" == "22.04" ]]; then
   set -u
   export ROS_DOMAIN_ID="${ros_domain_id}"
   export MENTOR_PI_DEVELOPMENT_RUNTIME=1
+  export MENTOR_PI_PROJECT_ROOT="${PROJECT_ROOT}"
+  export MENTOR_PI_FIRMWARE_VERIFIER="${FIRMWARE_VERIFIER}"
   export MENTOR_PI_RRCLITE_AUTORESET=1
   export MENTOR_PI_HOST_PREFIX="${host_prefix}"
   export MENTOR_PI_AGENT_PREFIX="${agent_prefix}"
   export MENTOR_PI_AGENT_EXECUTABLE="${agent_executable}"
   if [[ -z "${resolved_vehicle_config}" ]]; then
-    exec ros2 launch mentor_pi_bringup controller.launch.xml \
+    exec ros2 launch mentor_pi_bringup controller.launch.py \
       "serial_device:=${resolved_device}" \
       "agent_executable:=${agent_executable}"
   fi
@@ -217,6 +199,7 @@ if [[ "${ubuntu_version}" == "22.04" ]]; then
 fi
 
 command -v docker >/dev/null 2>&1 || Fail "Docker is unavailable"
+[[ -d /run/udev ]] || Fail "host udev database is unavailable at /run/udev"
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
   Fail "container ${CONTAINER_NAME} already exists; stop that exact container first"
 fi
@@ -241,6 +224,7 @@ exec docker run --rm \
   --user "$(id -u):$(id -g)" \
   --group-add "${device_gid}" \
   --device "${resolved_device}:/dev/mentor_pi_mcu:rwm" \
+  --volume /run/udev:/run/udev:ro \
   --cap-drop ALL \
   --security-opt no-new-privileges \
   --read-only \
@@ -248,7 +232,10 @@ exec docker run --rm \
   --env HOME=/tmp/mentor-pi-home \
   --env ROS_LOG_DIR=/tmp/mentor-pi-ros-log \
   --env "ROS_DOMAIN_ID=${ros_domain_id}" \
+  --env "RRCLITE_RUNTIME_ACK=${required_ack}" \
   --env MENTOR_PI_DEVELOPMENT_RUNTIME=1 \
+  --env MENTOR_PI_PROJECT_ROOT=/workspace \
+  --env MENTOR_PI_FIRMWARE_VERIFIER=/workspace/tools/verify_firmware_artifact.sh \
   --env MENTOR_PI_RRCLITE_AUTORESET=1 \
   --env MENTOR_PI_HOST_PREFIX=/opt/mentor_pi/host \
   --env MENTOR_PI_AGENT_PREFIX=/opt/mentor_pi/micro_ros_agent \
@@ -268,7 +255,7 @@ exec docker run --rm \
    source /opt/mentor_pi/host/setup.bash
    set -u
    if [[ -z "${1}" ]]; then
-     exec ros2 launch mentor_pi_bringup controller.launch.xml \
+     exec ros2 launch mentor_pi_bringup controller.launch.py \
        serial_device:=/dev/mentor_pi_mcu \
        agent_executable:="${MENTOR_PI_AGENT_EXECUTABLE}"
    fi

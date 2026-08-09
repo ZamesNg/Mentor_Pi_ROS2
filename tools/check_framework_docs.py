@@ -22,14 +22,13 @@ VERIFICATION_PATH = PROJECT_ROOT / "docs/framework/verification.md"
 TUTORIAL_DIRECTORY = PROJECT_ROOT / "docs/tutorials"
 TUTORIAL_FILENAMES = (
     "01-prepare-ubuntu-development-host.md",
-    "02-build-and-flash-locked-firmware.md",
+    "02-build-and-flash-default-pid-firmware.md",
     "03-build-and-run-humble-host.md",
     "04-run-passive-board-bringup.md",
     "05-characterize-board-hardware.md",
-    "06-commission-one-motor-safely.md",
-    "07-qualify-hardware-and-recovery.md",
-    "08-run-stress-soak-and-release-gates.md",
-    "09-run-mentor-pi-hardwares.md",
+    "06-ros2-cli-hardware-checkout.md",
+    "07-run-stress-soak-and-release-gates.md",
+    "08-run-mentor-pi-hardwares.md",
 )
 TUTORIAL_PATHS = tuple(TUTORIAL_DIRECTORY / name for name in TUTORIAL_FILENAMES)
 RETIRED_DOCUMENT_FILENAMES = (
@@ -439,7 +438,7 @@ def validate_tutorial_sequence(paths: list[Path]) -> list[str]:
         TUTORIAL_FILENAMES[1]: (
             "make firmware",
             "make serial-setup",
-            "make flash-locked",
+            "make flash",
         ),
         TUTORIAL_FILENAMES[2]: (
             "make host",
@@ -449,29 +448,28 @@ def validate_tutorial_sequence(paths: list[Path]) -> list[str]:
         TUTORIAL_FILENAMES[3]: (
             "make passive-check",
             "make peripheral-smoke",
-            "make recovery-check",
         ),
         TUTORIAL_FILENAMES[4]: ("make characterize-board",),
         TUTORIAL_FILENAMES[5]: (
-            "make build-commissioning",
-            "make flash-commissioning",
-            "make start-commissioning",
-            "make commission-motor",
-            "make restore-locked",
+            "make start",
+            "make shell",
+            "controller.launch.py",
+            "/mentor_pi/motors/command",
+            "/mentor_pi/motors/set_pid",
         ),
         TUTORIAL_FILENAMES[6]: (
-            "make hil-start",
-            "make hil-peripheral-check",
-            "make hil-recovery-check",
-            "make restore-locked",
-        ),
-        TUTORIAL_FILENAMES[7]: (
             "make release-software-gates",
             "make qualification-preflight",
             "make campaign-load",
             "make campaign-soak",
             "make campaign-recovery",
-            "make restore-locked",
+        ),
+        TUTORIAL_FILENAMES[7]: (
+            "make host",
+            "make start-mecanum",
+            "make start-ackermann",
+            "make start-hardware",
+            "make shell",
         ),
     }
     for filename, actions in required_actions.items():
@@ -509,14 +507,13 @@ def validate_tutorial_feature_paths() -> tuple[list[str], int]:
     safety_markers = {
         "motor-power passive fixture": "Motor power is disconnected",
         "PWM/bus-servo passive fixture": "PWM and bus servos unplugged",
-        "analyzer-only actuator gate": (
-            "Only high-impedance scope/logic-analyzer probes"
-        ),
         "probe-free passive IMU procedure": "six stationary board orientations",
         "first-board passive characterization": "CHARACTERIZATION PASS",
-        "guarded commissioning": "MOTORS_RAISED_CURRENT_LIMITED",
-        "locked restoration": "make restore-locked",
-        "automatic boot control": "make flash-locked",
+        "runtime acknowledgement": "PID_FIRMWARE_ACTUATORS_PREPARED",
+        "guarded powered checkout": "raise or equivalently",
+        "current-limited powered fixture": "current-limited supply",
+        "reachable powered stop": "physical motor-power stop reachable",
+        "automatic boot control": "make flash",
     }
     for description, marker in safety_markers.items():
         if marker not in tutorials:
@@ -524,36 +521,36 @@ def validate_tutorial_feature_paths() -> tuple[list[str], int]:
 
     feature_markers = {
         "four motors": (
-            "make commission-motor",
-            "all four motor channels",
+            "/mentor_pi/motors/command",
+            "update_mask: 15",
+            "independent lease",
         ),
         "four PWM servos": (
-            "all four unloaded PWM channels",
-            "PWM 500/1500/2500 microseconds",
-            "±10 microsecond accuracy",
+            "/mentor_pi/pwm_servos/command",
+            "500--2500 microseconds",
+            "-100 through +100 us",
         ),
         "up to sixteen bus servos": (
             "/mentor_pi/bus_servos/get_state",
-            "never publishes `BusServoCommand` motion",
-            "1- and 16-device arrays",
+            "/mentor_pi/bus_servos/configure",
+            "/mentor_pi/bus_servos/stop",
         ),
         "two host LEDs and heartbeat LED3": (
             "/mentor_pi/leds/command",
-            "for led_id in 1 2",
             "LED3",
         ),
         "buzzer": (
             "/mentor_pi/buzzer/command",
-            "cleans up LED1/LED2, the buzzer, and RGB1",
+            "low-battery alarm has priority",
         ),
         "host RGB and MCU status RGB": (
             "/mentor_pi/rgb/command",
-            "RGB2 red",
-            "red/green pulse",
+            "Only RGB1 is host-controlled",
+            "RGB2 reports firmware RX/TX activity",
         ),
         "two buttons": (
             "/mentor_pi/buttons/events",
-            "`button_id` 1 and 2",
+            "ButtonEvent",
         ),
         "QMI8658": (
             "/mentor_pi/imu",
@@ -565,11 +562,12 @@ def validate_tutorial_feature_paths() -> tuple[list[str], int]:
             "11:1",
             "6300 mV low threshold",
             "at or below 4900 mV",
-            "alarm asserts after 10 seconds",
+            "/mentor_pi/battery/set_low_threshold",
         ),
         "OLED": (
             "/mentor_pi/oled/command",
-            "both OLED lines",
+            "line_1",
+            "line_2",
         ),
     }
     for description, markers in feature_markers.items():

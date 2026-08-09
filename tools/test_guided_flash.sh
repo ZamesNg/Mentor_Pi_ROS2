@@ -38,7 +38,7 @@ printf '%s\n' \
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
-  'printf "%s\t%s\t%s\n" "${RRCLITE_AUTOMATIC_BOOT_CONTROL:-0}" "$1" "$2" >>"${FAKE_FLASH_LOG}"' \
+  'printf "%s\t%s\n" "${RRCLITE_AUTOMATIC_BOOT_CONTROL:-0}" "$1" >>"${FAKE_FLASH_LOG}"' \
   'if [[ "${RRCLITE_AUTOMATIC_BOOT_CONTROL:-0}" == 1 ]]; then' \
   '  exit "${FAKE_AUTOMATIC_STATUS:-0}"' \
   'fi' \
@@ -90,11 +90,11 @@ Run() {
     FAKE_BOOT_CONTROL="${TEST_ROOT}/boot-control" \
     FAKE_FLASH_LOG="${TEST_ROOT}/flash.log" \
     FAKE_BOOT_LOG="${TEST_ROOT}/boot.log" \
-    "$@" "${TEST_ROOT}/tools/guided_flash.sh" LOCKED /dev/null
+    "$@" "${TEST_ROOT}/tools/guided_flash.sh" /dev/null
 }
 
 Run RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED
-grep -Fqx $'1\tLOCKED\t/dev/null' "${TEST_ROOT}/flash.log" || \
+grep -Fqx $'1\t/dev/null' "${TEST_ROOT}/flash.log" || \
   Fail "automatic success did not call the automatic flash path"
 [[ ! -e "${TEST_ROOT}/boot.log" ]] || \
   Fail "guided wrapper redundantly reset after automatic success"
@@ -105,7 +105,7 @@ Run RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
   FAKE_SERIAL_GROUP_TEST=1 FAKE_SG_LOG="${TEST_ROOT}/sg.log"
 grep -Fqx mentor-pi-serial "${TEST_ROOT}/sg.log" || \
   Fail "inactive serial membership was not activated with sg"
-grep -Fqx $'1\tLOCKED\t/dev/null' "${TEST_ROOT}/flash.log" || \
+grep -Fqx $'1\t/dev/null' "${TEST_ROOT}/flash.log" || \
   Fail "group-activated flash did not reach the automatic flash path"
 
 : >"${TEST_ROOT}/flash.log"
@@ -132,9 +132,9 @@ printf '\n' | script -qfec \
     FAKE_BOOT_LOG='${TEST_ROOT}/boot.log' \
     FAKE_AUTOMATIC_STATUS=3 \
     RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
-    '${TEST_ROOT}/tools/guided_flash.sh' LOCKED /dev/null" \
+    '${TEST_ROOT}/tools/guided_flash.sh' /dev/null" \
   /dev/null >/dev/null
-printf '%s\n' $'1\tLOCKED\t/dev/null' $'0\tLOCKED\t/dev/null' \
+printf '%s\n' $'1\t/dev/null' $'0\t/dev/null' \
   >"${TEST_ROOT}/expected-flash.log"
 cmp "${TEST_ROOT}/expected-flash.log" "${TEST_ROOT}/flash.log" || \
   Fail "manual fallback did not perform exactly one safe retry"
@@ -150,7 +150,7 @@ if printf '\n' | script -qfec \
     FAKE_BOOT_LOG='${TEST_ROOT}/boot.log' \
     FAKE_AUTOMATIC_STATUS=3 FAKE_MANUAL_STATUS=1 \
     RRCLITE_UART_BOOTLOADER_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED \
-    '${TEST_ROOT}/tools/guided_flash.sh' LOCKED /dev/null" \
+    '${TEST_ROOT}/tools/guided_flash.sh' /dev/null" \
   /dev/null >/dev/null; then
   Fail "failed manual retry unexpectedly succeeded"
 fi

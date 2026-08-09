@@ -15,12 +15,10 @@ Fail() {
 }
 
 [[ "$#" -eq 0 ]] || Fail "usage: ./tools/run_firmware_target_ci.sh"
-[[ "${RRCLITE_MOTOR_COMMISSIONING:-0}" == "0" ]] || \
-  Fail "target CI is restricted to the motor-locked image"
 [[ -f "${DOCKERFILE}" ]] || Fail "analysis Dockerfile is missing"
 [[ -x "${ARTIFACT_VERIFIER}" ]] || Fail "artifact verifier is missing"
 
-"${ARTIFACT_VERIFIER}" LOCKED "${PROJECT_ROOT}" >/dev/null
+"${ARTIFACT_VERIFIER}" PID "${PROJECT_ROOT}" >/dev/null
 
 command -v docker >/dev/null 2>&1 || Fail "Docker is not installed"
 docker info >/dev/null 2>&1 || Fail "Docker Desktop/Engine is not running"

@@ -31,7 +31,7 @@ ReadMetadata() {
 
 Usage() {
   cat <<'EOF'
-Usage: ./tools/verify_firmware_artifact.sh LOCKED|COMMISSIONING|COMMISSIONING_PID [PROJECT_ROOT]
+Usage: ./tools/verify_firmware_artifact.sh PID [PROJECT_ROOT]
 
 Verify that the authoritative ELF, build profile, micro-ROS interface library,
 and project-owned sources all match the successful-build metadata. This is a
@@ -43,16 +43,13 @@ EOF
   Usage >&2
   exit 2
 }
-readonly EXPECTED_MODE="$1"
+readonly REQUESTED_MODE="$1"
 readonly PROJECT_ROOT="${2:-${DEFAULT_PROJECT_ROOT}}"
-case "${EXPECTED_MODE}" in
-  LOCKED | COMMISSIONING | COMMISSIONING_PID)
-    ;;
-  *)
-    Usage >&2
-    Fail "expected mode must be LOCKED, COMMISSIONING, or COMMISSIONING_PID"
-    ;;
-esac
+if [[ "${REQUESTED_MODE}" != "PID" ]]; then
+  Usage >&2
+  Fail "mode must be exactly PID"
+fi
+readonly EXPECTED_MODE="PID"
 
 readonly BUILD_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32"
 readonly CACHE="${BUILD_ROOT}/CMakeCache.txt"
@@ -91,48 +88,17 @@ readonly PINNED_MICROROS_TREE_HASH="${PROJECT_ROOT}/firmware/mentor_pi_mcu/confi
 [[ "$(ReadMetadata ros_distro)" == "humble" ]] || \
   Fail "build metadata targets a different ROS distribution"
 [[ "$(ReadMetadata release_qualified)" == "0" ]] || \
-  Fail "build metadata must classify the artifact as non-release"
+  Fail "build metadata must leave release qualification pending HIL evidence"
 
 readonly RECORDED_MODE="$(ReadMetadata motor_mode)"
 readonly RECORDED_ARTIFACT_MODE="$(ReadMetadata artifact_mode)"
-readonly EXPECTED_MOTOR_MODE="${EXPECTED_MODE}"
-[[ "${RECORDED_MODE}" == "${EXPECTED_MOTOR_MODE}" ]] || \
-  Fail "artifact motor mode is ${RECORDED_MODE}, but ${EXPECTED_MOTOR_MODE} was requested"
+readonly RECORDED_CONTROL_MODE="$(ReadMetadata control_mode)"
+[[ "${RECORDED_MODE}" == "PID" ]] || \
+  Fail "artifact motor mode is ${RECORDED_MODE}, but PID was requested"
+[[ "${RECORDED_CONTROL_MODE}" == "CLOSED_LOOP" ]] || \
+  Fail "artifact control mode is ${RECORDED_CONTROL_MODE}, but CLOSED_LOOP was required"
 [[ "${RECORDED_ARTIFACT_MODE}" == "NORMAL" ]] || \
   Fail "artifact mode is ${RECORDED_ARTIFACT_MODE}, but NORMAL was requested"
-readonly RECORDED_COMMISSIONING_ACK="$(ReadMetadata commissioning_ack)"
-
-if [[ "${EXPECTED_MODE}" == "COMMISSIONING" || \
-      "${EXPECTED_MODE}" == "COMMISSIONING_PID" ]]; then
-  [[ "${RECORDED_COMMISSIONING_ACK}" == "MOTORS_RAISED" ]] || \
-    Fail "commissioning build metadata acknowledgement is missing or invalid"
-  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING:BOOL=ON' "${CACHE}" || \
-    Fail "CMake cache is not a commissioning build"
-  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=MOTORS_RAISED' \
-    "${CACHE}" || Fail "commissioning acknowledgement is missing"
-  if [[ "${EXPECTED_MODE}" == "COMMISSIONING_PID" ]]; then
-    grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=ON' "${CACHE}" || \
-      Fail "CMake cache is not a closed-loop commissioning build"
-    [[ "$(ReadMetadata control_mode)" == "CLOSED_LOOP" ]] || \
-      Fail "build metadata is not classified as closed-loop PID"
-  else
-    grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF' "${CACHE}" || \
-      Fail "CMake cache is not a direction-check commissioning build"
-    [[ "$(ReadMetadata control_mode)" == "DIRECTION_CHECK" ]] || \
-      Fail "build metadata is not classified as direction-check"
-  fi
-else
-  [[ -z "${RECORDED_COMMISSIONING_ACK}" ]] || \
-    Fail "locked build metadata contains a commissioning acknowledgement"
-  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING:BOOL=OFF' "${CACHE}" || \
-    Fail "CMake cache is not motor-locked"
-  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=' "${CACHE}" || \
-    Fail "locked build contains a commissioning acknowledgement"
-  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_CLOSED_LOOP:BOOL=OFF' "${CACHE}" || \
-    Fail "locked build contains closed-loop commissioning authority"
-  [[ "$(ReadMetadata control_mode)" == "LOCKED" ]] || \
-    Fail "build metadata is not classified as locked"
-fi
 
 readonly CURRENT_SOURCE_SHA256="$(
   "${FINGERPRINT_TOOL}" firmware "${PROJECT_ROOT}"

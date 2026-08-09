@@ -22,36 +22,42 @@ motion.
 | Step | Tutorial | Main command |
 | ---: | --- | --- |
 | 01 | [Prepare the Ubuntu development host](docs/tutorials/01-prepare-ubuntu-development-host.md) | `make setup` |
-| 02 | [Build and flash the locked firmware](docs/tutorials/02-build-and-flash-locked-firmware.md) | `make flash-locked` |
+| 02 | [Build and flash the default PID firmware](docs/tutorials/02-build-and-flash-default-pid-firmware.md) | `make flash` |
 | 03 | [Build and run the Humble host](docs/tutorials/03-build-and-run-humble-host.md) | `make start` |
 | 04 | [Run passive board bring-up](docs/tutorials/04-run-passive-board-bringup.md) | `make passive-check` |
 | 05 | [Characterize board hardware](docs/tutorials/05-characterize-board-hardware.md) | `make characterize-board` |
-| 06 | [Commission one motor safely](docs/tutorials/06-commission-one-motor-safely.md) | `make commission-motor` |
-| 07 | [Qualify hardware and recovery](docs/tutorials/07-qualify-hardware-and-recovery.md) | `make hil-start` |
-| 08 | [Run stress, soak, and release gates](docs/tutorials/08-run-stress-soak-and-release-gates.md) | `make release-software-gates` |
-| 09 | [Run ros2_control hardwares extension](docs/tutorials/09-run-mentor-pi-hardwares.md) | `make host-hardwares` |
+| 06 | [Run ROS 2 CLI hardware checkout](docs/tutorials/06-ros2-cli-hardware-checkout.md) | `make shell` |
+| 07 | [Run stress, soak, and release gates](docs/tutorials/07-run-stress-soak-and-release-gates.md) | `make release-software-gates` |
+| 08 | [Run ros2_control hardwares extension](docs/tutorials/08-run-mentor-pi-hardwares.md) | `make host-hardwares` |
 
 Every complex operation is a one-line Make action. The helper prompts for
 hardware-specific values and exact safety acknowledgements, so operators do
 not copy long ROS command blocks or edit placeholder text.
 
 The current board has a hardware-verified timing baseline, while the newest
-complete locked candidate is prepared but not yet flashed. Its practical
-resume point is Tutorial 02 for that locked flash, followed by Tutorial 04's
-passive checks. A new computer or operator starts at Tutorial 01.
+complete default PID candidate is prepared but not yet flashed. Its practical
+resume point is Tutorial 02 for that PID default flash, followed by Tutorial
+04's passive checks. A new computer or operator starts at Tutorial 01.
 
 ## Safety and current status
 
-The default firmware is motor-locked: zero/stop motor commands work, but every
-selected nonzero target is rejected. The stack is ready for first-board
-bring-up; motor/encoder polarity, PID tuning, IMU axes, analog scaling,
-peripheral timing, watchdog timing, and endurance/reconnect gates still require
-physical results.
+The default firmware is the normal closed-loop PID image:
+`control_mode=CLOSED_LOOP`, ±1000-permille output limit, a 6 RPS ceiling,
+independent 198 ms per-motor leases, session-loss disarming, transport-failure
+shutdown, and atomic command validation with no lease refresh on invalid
+values. The configuration supervisor gate, model-specific RPS limits, and
+supervisor startup inhibition are all preserved.
 
-Never flash or commission with actuators connected. Before powered motor work,
-complete passive encoder-direction checks, raise or equivalently guard every
-wheel, use a current-limited supply, and keep a physical motor-power stop
-reachable. The tutorials repeat the required warning immediately before every
+The PID artifact remains explicitly unqualified (`release_qualified=0`) until
+the numbered HIL sequence records the required physical evidence. Software
+gates verify its implementation bounds and provenance; they do not promote
+its physical qualification status.
+
+Never flash or run with actuators connected until the passive bring-up steps
+in Tutorial 04--05 are complete. Before powered motor work, complete passive
+encoder-direction checks, raise or equivalently guard every wheel, use a
+current-limited supply, and keep a physical motor-power stop reachable. The
+tutorials repeat the required warning immediately before every
 hardware-sensitive step.
 
 ## Supported environments
@@ -64,7 +70,8 @@ hardware-sensitive step.
 - Firmware build: CMake/Ninja through the root Makefile.
 - Host build: native Humble `colcon` on Ubuntu 22.04, otherwise Docker Humble.
 - UART flashing: STM32CubeProgrammer CLI through CH9102F/USART1.
-- Project-owned runtime: C++17; Python is limited to upstream/build tooling.
+- Project-owned data-plane runtime: C++17; Python is limited to ROS launch and
+  build orchestration.
 
 Run `make help` for the supported build and flash interface. Generated build,
 dependency, micro-ROS, log, and qualification outputs are disposable or
@@ -91,7 +98,7 @@ does not substitute for an unobserved physical metric.
   mecanum/Ackermann `mentor_pi_hardwares` ros2_control adapters.
 - [`tools/`](tools/) — pinned setup, build, verification, packaging, flash, and
   developer serial-access helpers.
-- [`docs/tutorials/`](docs/tutorials/) — the ordered 01--09 operator workflow.
+- [`docs/tutorials/`](docs/tutorials/) — the ordered 01--08 operator workflow.
 - [`docs/framework/`](docs/framework/) — normative design and verification
   contracts.
 

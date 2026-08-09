@@ -30,16 +30,6 @@ CleanupPeripheralOutputs() {
     >/dev/null 2>&1
 }
 
-ReadUnsignedYamlScalar() {
-  local key="$1"
-  local file="$2"
-  local value
-  value="$(sed -n "s/^${key}: //p" "${file}" | tail -n 1)"
-  [[ "${value}" =~ ^[0-9]+$ ]] || \
-    Fail "${file} does not contain one valid ${key} value"
-  printf '%s' "${value}"
-}
-
 RequireZeroMotorTargets() {
   local file="$1"
   awk '
@@ -52,7 +42,7 @@ RequireZeroMotorTargets() {
       if (count == 4) in_targets=0
     }
     END { exit !(found && count == 4 && !bad) }
-  ' "${file}" || Fail "locked firmware reported a nonzero motor target"
+  ' "${file}" || Fail "zero-command preflight reported a nonzero motor target"
 }
 
 InsideRuntime() {
@@ -192,7 +182,7 @@ InsideRuntime() {
       local oled_present="$1"
       local output="${PROJECT_ROOT}/build/diagnostics/passive-$(date -u +%Y%m%dT%H%M%SZ)"
       echo "PASSIVE CHECK [1/3]: verifying firmware and controller graph."
-      "${SCRIPT_DIR}/verify_firmware_artifact.sh" LOCKED "${PROJECT_ROOT}"
+      "${SCRIPT_DIR}/verify_firmware_artifact.sh" PID "${PROJECT_ROOT}"
       ros2 node list --no-daemon --spin-time 2.0 \
         | tee "${output}.nodes.txt"
       grep -Fqx '/mentor_pi/controller' "${output}.nodes.txt" || \
@@ -212,34 +202,19 @@ InsideRuntime() {
       echo "PASSIVE CHECK [2/3]: collecting diagnostics and monitoring telemetry for 60 seconds."
       "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/scripts/capture_board_diagnostics" \
         "${capture_arguments[@]}"
-      echo "PASSIVE CHECK [3/3]: proving the locked image rejects nonzero motor commands."
-      timeout 10 ros2 topic echo --once --qos-reliability reliable \
-        /mentor_pi/diagnostics mentor_pi_interfaces/msg/ControllerDiagnostics \
-        >"${output}/locked-motor-diagnostics-before.yaml"
-      local rejections_before
-      rejections_before="$(ReadUnsignedYamlScalar command_rejections \
-        "${output}/locked-motor-diagnostics-before.yaml")"
+      echo "PASSIVE CHECK [3/3]: proving the PID image remains at zero with actuator power disconnected."
       ros2 topic pub --once --qos-reliability best_effort \
         --qos-durability volatile --qos-depth 1 \
         /mentor_pi/motors/command mentor_pi_interfaces/msg/MotorCommand \
         '{update_mask: 15, target_rps: [0.0, 0.0, 0.0, 0.0]}'
-      ros2 topic pub --once --qos-reliability best_effort \
-        --qos-durability volatile --qos-depth 1 \
-        /mentor_pi/motors/command mentor_pi_interfaces/msg/MotorCommand \
-        '{update_mask: 1, target_rps: [0.01, 0.0, 0.0, 0.0]}'
       timeout 10 ros2 topic echo --once --qos-reliability best_effort \
         --qos-durability volatile /mentor_pi/motors/state \
         mentor_pi_interfaces/msg/MotorState \
-        | tee "${output}/locked-motor-state.yaml"
-      RequireZeroMotorTargets "${output}/locked-motor-state.yaml"
+        | tee "${output}/pid-zero-motor-state.yaml"
+      RequireZeroMotorTargets "${output}/pid-zero-motor-state.yaml"
       timeout 10 ros2 topic echo --once --qos-reliability reliable \
         /mentor_pi/diagnostics mentor_pi_interfaces/msg/ControllerDiagnostics \
-        | tee "${output}/locked-motor-diagnostics.yaml"
-      local rejections_after
-      rejections_after="$(ReadUnsignedYamlScalar command_rejections \
-        "${output}/locked-motor-diagnostics.yaml")"
-      ((rejections_after > rejections_before)) || \
-        Fail "the locked image did not report rejection of the nonzero command"
+        | tee "${output}/pid-zero-motor-diagnostics.yaml"
       if [[ "${oled_present}" == "0" ]]; then
         echo "PASSIVE CHECK PASS WITH LIMITATION: OLED NOT INSTALLED/NOT TESTED; ${output}"
       else

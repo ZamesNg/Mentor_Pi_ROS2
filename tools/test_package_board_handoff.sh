@@ -9,7 +9,9 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rrclite-handoff-test.XXXXXX")"
 readonly TEST_ROOT
 
 Cleanup() {
-  cmake -E remove_directory "${TEST_ROOT}"
+  [[ -d "${TEST_ROOT}" ]] || return
+  chmod -R u+rwX "${TEST_ROOT}" 2>/dev/null || true
+  rm -rf -- "${TEST_ROOT}"
 }
 trap Cleanup EXIT
 
@@ -37,8 +39,8 @@ VerifyManifest() {
 
 SetUpFakeProject() {
   local project="$1"
-  cmake -E make_directory "${project}/tools"
-  cmake -E copy "${PACKAGE_SCRIPT}" \
+  mkdir -p -- "${project}/tools"
+  cp -- "${PACKAGE_SCRIPT}" \
     "${project}/tools/package_board_handoff.sh"
   chmod +x "${project}/tools/package_board_handoff.sh"
 
@@ -59,39 +61,18 @@ fi
 count=$((count + 1))
 printf '%s\n' "${count}" >"${count_file}"
 
-case "${RRCLITE_MOTOR_COMMISSIONING:-0}" in
-  0)
-    mode="LOCKED"
-    option="OFF"
-    ack=""
-    ;;
-  1)
-    [[ "${RRCLITE_MOTOR_COMMISSIONING_ACK:-}" == "MOTORS_RAISED" ]]
-    mode="COMMISSIONING"
-    option="ON"
-    ack="MOTORS_RAISED"
-    ;;
-  *)
-    exit 2
-    ;;
-esac
+mode="PID"
+
 printf '%s\n' "${mode}" >>"${order_file}"
 
-if [[ "${mode}" == "COMMISSIONING" && \
-      "${FAKE_FAIL_COMMISSIONING:-0}" == "1" ]]; then
-  exit 9
-fi
-if [[ "${mode}" == "LOCKED" && \
-      -n "${FAKE_FAIL_LOCKED_FROM_COUNT:-}" && \
-      "${count}" -ge "${FAKE_FAIL_LOCKED_FROM_COUNT}" ]]; then
+if [[ -n "${FAKE_FAIL_PID_FROM_COUNT:-}" && \
+      "${count}" -ge "${FAKE_FAIL_PID_FROM_COUNT}" ]]; then
   exit 10
 fi
 
-cmake -E make_directory "${build_root}"
-printf 'RRCLITE_MOTOR_COMMISSIONING:BOOL=%s\n' "${option}" \
+mkdir -p -- "${build_root}"
+printf '%s\n' 'CMAKE_BUILD_TYPE:STRING=MinSizeRel' \
   >"${build_root}/CMakeCache.txt"
-printf 'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=%s\n' "${ack}" \
-  >>"${build_root}/CMakeCache.txt"
 for extension in elf hex bin map; do
   printf '%s-build-%s-%s\n' "${mode}" "${count}" "${extension}" \
     >"${build_root}/mentor_pi_mcu.${extension}"
@@ -108,8 +89,8 @@ printf '%s\n' \
   'target=STM32F407VET6' \
   'ros_distro=humble' \
   "motor_mode=${mode}" \
+  'control_mode=CLOSED_LOOP' \
   'artifact_mode=NORMAL' \
-  "commissioning_ack=${ack}" \
   'release_qualified=0' \
   'source_sha256=0000000000000000000000000000000000000000000000000000000000000000' \
   'interfaces_sha256=1111111111111111111111111111111111111111111111111111111111111111' \
@@ -135,98 +116,56 @@ EOF
   chmod +x "${project}/tools/build_firmware.sh"
 }
 
-AssertLockedAuthoritativeBuild() {
+AssertPidBuild() {
   local project="$1"
   local cache="${project}/firmware/mentor_pi_mcu/build/stm32/CMakeCache.txt"
   AssertFile "${cache}"
-  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING:BOOL=OFF' "${cache}" || \
-    Fail "authoritative build is not locked"
-  grep -Fqx 'RRCLITE_MOTOR_COMMISSIONING_ACK:STRING=' "${cache}" || \
-    Fail "authoritative build retained a commissioning acknowledgement"
+  grep -Fqx 'CMAKE_BUILD_TYPE:STRING=MinSizeRel' "${cache}" || \
+    Fail "authoritative PID build did not use MinSizeRel"
 }
 
-locked_project="${TEST_ROOT}/locked-only"
-SetUpFakeProject "${locked_project}"
-"${locked_project}/tools/package_board_handoff.sh" handoff >/dev/null
-AssertFile "${locked_project}/handoff/locked/mentor_pi_mcu-locked.elf"
-AssertFile "${locked_project}/handoff/locked/SHA256SUMS"
-AssertFile "${locked_project}/handoff/locked/BUILD-METADATA.txt"
-AssertNoPath "${locked_project}/handoff/commissioning-nonrelease"
-VerifyManifest "${locked_project}/handoff/locked"
-VerifyManifest "${locked_project}/handoff"
-AssertLockedAuthoritativeBuild "${locked_project}"
-[[ "$(tr -d '\n' <"${locked_project}/build-order.txt")" == "LOCKED" ]] || \
-  Fail "locked-only build order was not LOCKED"
+base_project="${TEST_ROOT}/base-default"
+SetUpFakeProject "${base_project}"
+"${base_project}/tools/package_board_handoff.sh" handoff >/dev/null
+AssertFile "${base_project}/handoff/firmware-pid-release/mentor_pi_mcu-firmware-pid-release.elf"
+AssertFile "${base_project}/handoff/firmware-pid-release/SHA256SUMS"
+AssertFile "${base_project}/handoff/firmware-pid-release/BUILD-METADATA.txt"
+AssertFile "${base_project}/handoff/firmware-pid-release/BUILD-MODE.txt"
+grep -Fqx 'classification=NORMAL_CLOSED_LOOP_DEFAULT' \
+  "${base_project}/handoff/firmware-pid-release/BUILD-MODE.txt" || \
+  Fail "firmware-pid-release BUILD-MODE does not mark the normal closed-loop default"
+grep -Fqx 'control_mode=CLOSED_LOOP' \
+  "${base_project}/handoff/firmware-pid-release/BUILD-MODE.txt" || \
+  Fail "firmware-pid-release BUILD-MODE does not report closed-loop PID"
+VerifyManifest "${base_project}/handoff/firmware-pid-release"
+VerifyManifest "${base_project}/handoff"
+AssertPidBuild "${base_project}"
+[[ "$(tr -d '\n' <"${base_project}/build-order.txt")" == "PID" ]] || \
+  Fail "base build order was not PID only"
 
-gate_project="${TEST_ROOT}/missing-gate"
-SetUpFakeProject "${gate_project}"
-if RRCLITE_MOTOR_COMMISSIONING=1 \
-    "${gate_project}/tools/package_board_handoff.sh" handoff \
-    >/dev/null 2>&1; then
-  Fail "commissioning succeeded without MOTORS_RAISED acknowledgement"
-fi
-AssertNoPath "${gate_project}/handoff"
-AssertNoPath "${gate_project}/build-order.txt"
-
-dual_project="${TEST_ROOT}/dual-package"
-SetUpFakeProject "${dual_project}"
-RRCLITE_MOTOR_COMMISSIONING=1 \
-RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-  "${dual_project}/tools/package_board_handoff.sh" handoff >/dev/null
-AssertFile "${dual_project}/handoff/locked/mentor_pi_mcu-locked.elf"
-AssertFile "${dual_project}/handoff/commissioning-nonrelease/mentor_pi_mcu-commissioning-nonrelease.elf"
-AssertFile "${dual_project}/handoff/commissioning-nonrelease/SHA256SUMS"
-AssertFile "${dual_project}/handoff/commissioning-nonrelease/BUILD-METADATA.txt"
-VerifyManifest "${dual_project}/handoff/locked"
-VerifyManifest "${dual_project}/handoff/commissioning-nonrelease"
-VerifyManifest "${dual_project}/handoff"
-AssertLockedAuthoritativeBuild "${dual_project}"
-for extension in elf hex bin map; do
-  cmp \
-    "${dual_project}/firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.${extension}" \
-    "${dual_project}/handoff/locked/mentor_pi_mcu-locked.${extension}"
-done
-expected_order=$'LOCKED\nCOMMISSIONING\nLOCKED'
-[[ "$(sed -n '1,3p' "${dual_project}/build-order.txt")" == \
-   "${expected_order}" ]] || Fail "dual-package build order was unsafe"
-
-failure_project="${TEST_ROOT}/commissioning-failure"
+failure_project="${TEST_ROOT}/metadata-mismatch"
 SetUpFakeProject "${failure_project}"
-if RRCLITE_MOTOR_COMMISSIONING=1 \
-    RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-    FAKE_FAIL_COMMISSIONING=1 \
+if FAKE_BAD_METADATA_EXTENSION=hex \
     "${failure_project}/tools/package_board_handoff.sh" handoff \
     >/dev/null 2>&1; then
-  Fail "simulated commissioning failure unexpectedly succeeded"
+  Fail "metadata/artifact mismatch unexpectedly packaged"
 fi
 AssertNoPath "${failure_project}/handoff"
-AssertLockedAuthoritativeBuild "${failure_project}"
-expected_failure_order=$'LOCKED\nCOMMISSIONING\nLOCKED'
-[[ "$(sed -n '1,3p' "${failure_project}/build-order.txt")" == \
-   "${expected_failure_order}" ]] || \
-  Fail "commissioning failure did not restore a locked build"
+[[ "$(tr -d '\n' <"${failure_project}/build-order.txt")" == "PID" ]] || \
+  Fail "failure build order was not PID only"
 
-restore_failure_project="${TEST_ROOT}/locked-restore-failure"
+restore_failure_project="${TEST_ROOT}/pid-build-failure"
 SetUpFakeProject "${restore_failure_project}"
-if RRCLITE_MOTOR_COMMISSIONING=1 \
-    RRCLITE_MOTOR_COMMISSIONING_ACK=MOTORS_RAISED \
-    FAKE_FAIL_LOCKED_FROM_COUNT=3 \
+if FAKE_FAIL_PID_FROM_COUNT=1 \
     "${restore_failure_project}/tools/package_board_handoff.sh" handoff \
     >/dev/null 2>&1; then
-  Fail "simulated locked-restoration failure unexpectedly succeeded"
+  Fail "simulated PID build failure unexpectedly succeeded"
 fi
 AssertNoPath "${restore_failure_project}/handoff"
 AssertNoPath \
   "${restore_failure_project}/firmware/mentor_pi_mcu/build/stm32"
-
-metadata_mismatch_project="${TEST_ROOT}/metadata-mismatch"
-SetUpFakeProject "${metadata_mismatch_project}"
-if FAKE_BAD_METADATA_EXTENSION=hex \
-    "${metadata_mismatch_project}/tools/package_board_handoff.sh" handoff \
-    >/dev/null 2>&1; then
-  Fail "metadata/artifact mismatch unexpectedly packaged"
-fi
-AssertNoPath "${metadata_mismatch_project}/handoff"
+[[ "$(tr -d '\n' <"${restore_failure_project}/build-order.txt")" == "PID" ]] || \
+  Fail "restore-failure build order was not PID only"
 
 missing_metadata_project="${TEST_ROOT}/missing-metadata"
 SetUpFakeProject "${missing_metadata_project}"

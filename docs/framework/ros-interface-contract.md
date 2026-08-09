@@ -188,24 +188,15 @@ active model:
 | 2 | JGA27 | 1040 | 6.0 |
 | 3 | JGB528 | 5764 | 1.1 |
 
-These profile limits describe the model data and do not grant motion
-authority. In a normal firmware build, a structurally valid command whose
-selected targets are all zero is accepted as a stop update and does not arm a
-motor. If any selected target is nonzero, the complete message is rejected
-atomically as `UNSUPPORTED`; no selected target changes and no motion lease is
-refreshed. Because this is a topic, the result is reported through controller
-diagnostics rather than a synchronous response.
-
-Before motor HIL, nonzero commands are available only in a commissioning image
-built with
-`make firmware-commissioning COMMISSIONING_BUILD_ACK=MOTORS_RAISED`.
-The target passes the two required internal CMake gates and fails closed if the
-acknowledgement is missing or changed. The initial image is explicitly
-`DIRECTION_CHECK`: it accepts signed direction commands through 0.25 RPS,
-bypasses PID, applies fixed 250-permille output, and disarms above 0.50 measured
-RPS. A target beyond the admission limit rejects the whole message as
-`OUT_OF_RANGE` rather than being clamped. The build acknowledgement is not a
-runtime ROS field and no host message or service can change it.
+The only supported firmware artifact is `NORMAL_CLOSED_LOOP_DEFAULT` with
+`control_mode=CLOSED_LOOP`. A structurally valid selected zero target is a stop
+update. A selected nonzero target is accepted only when its magnitude is no
+greater than both the active profile limit and the 6 RPS implementation
+ceiling. A command containing any invalid selected value is rejected atomically
+as `INVALID_ARGUMENT` or `OUT_OF_RANGE`; no selected target changes and no
+motion lease is refreshed. Because this is a topic, the result is reported
+through controller diagnostics rather than a synchronous response. No ROS
+message or service selects a different firmware control mode.
 
 Each selected channel receives an independent 200 ms lease. TIM7 releases
 `MotorControlTask` at 1 kHz; including scheduling jitter, the qualified maximum
@@ -246,9 +237,9 @@ uint8 watchdog_stop_mask
   no ROS API resets it.
 - `watchdog_stop_mask` uses the same bit mapping as `MotorCommand`.
 
-Encoder sampling and these state fields remain active in a normal motor-locked
-image. They are the ROS-visible evidence for the required passive direction
-test performed by manually rotating each raised wheel before powered motion.
+Encoder sampling and these state fields remain active while motor output is
+zero. They are the ROS-visible evidence for the required passive direction test
+performed by manually rotating each raised wheel before powered motion.
 For JGA27, the current normalized state applies a provisional model polarity
 factor of `-1` inferred from legacy controller evidence; that sign is not a
 release-qualified physical mapping.
@@ -275,16 +266,15 @@ including while a target is nonzero. For an actual model change, if any current
 target is nonzero, return `BUSY` and change nothing. A successful actual change
 applies the encoder constant, RPS limit, and fixed controller gains to all four
 motors, resets their PID integrator/derivative state, and returns the effective
-profile values. The returned `max_rps` is the model limit; it does not override
-the normal motor lock or the commissioning image's stricter 0.25 RPS admission
-limit. The setting is runtime-only. Before enabling its session-bound motion
+profile values. The returned `max_rps` is the model limit and does not override
+the 6 RPS implementation ceiling. The setting is runtime-only. Before enabling its session-bound motion
 authorization, the host supervisor shall require an `OK` response to echo the
 requested `active_model` and the exact profile values in the project-owned
 shared contract. A mismatched model, tick count, non-finite speed, or different
 finite speed is treated as `IO_ERROR`; configuration is rejected for that
 generation and the motion gate remains closed.
 
-All four profiles use the same hardcoded, bounded positional-PID commissioning
+All four profiles use the same hardcoded, bounded positional-PID
 defaults: `Kp=250.0`, `Ki=0.1`, `Kd=0.5`, and velocity-filter new-sample
 weight `0.5`. They are not release-qualified. D3 HIL shall qualify or replace
 the gains, output
@@ -321,12 +311,12 @@ weight shall be finite and in `[0, 1]`. A non-finite selected value returns
 `INVALID_ARGUMENT`, while a finite selected value outside its interval returns
 `OUT_OF_RANGE`.
 
-The service returns `UNSUPPORTED` unless the running artifact is the
-closed-loop `COMMISSIONING_PID` image. It returns `BUSY` unless every channel is
-disarmed, every target is zero, and every measured speed has magnitude below
-`0.01 RPS`. Validation, application, and PID-state reset are atomic across all
-selected channels. On success `applied_mask == update_mask`; every failure
-returns an applied mask of zero. Overrides are volatile: they survive an Agent
+The service is supported by the default closed-loop PID artifact. It returns
+`BUSY` unless every channel is disarmed, every target is zero, and every
+measured speed has magnitude below `0.01 RPS`. Validation, application, and
+PID-state reset are atomic across all selected channels. On success
+`applied_mask == update_mask`; every failure returns an applied mask of zero.
+Overrides are volatile: they survive an Agent
 transport reconnection but are cleared by an MCU reset or an actual motor-model
 change.
 If the bounded service deadline expires before the motor owner commits the

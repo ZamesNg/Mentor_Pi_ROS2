@@ -11,7 +11,7 @@ failure, and conversely.
 The mode-specific top-level launch contains four independently managed
 processes:
 
-1. the micro-ROS Agent from `mentor_pi_bringup/controller.launch.xml`;
+1. the micro-ROS Agent from `mentor_pi_bringup/controller.launch.py`;
 2. the configuration supervisor from that same included launch;
 3. `robot_state_publisher`;
 4. `controller_manager`, which loads one `SystemInterface` plugin and spawns
@@ -78,8 +78,8 @@ publisher: `/mentor_pi/configuration_supervisor`. An absent, zero-generation,
 zero-session, duplicated, session-mismatched, or differently-owned
 authorization rejects the write and publishes zero. Queues are best-effort
 depth one, matching the firmware command/state contract. Firmware remains the
-final authority for command validation, independent 198 ms leases,
-session-loss disarming, and the normal motor lock.
+final authority for command validation, model and implementation limits,
+independent 198 ms leases, and session-loss disarming.
 
 ## Developer entry points
 
@@ -94,6 +94,6 @@ make start-mecanum PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0
 make start-ackermann PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=1
 ```
 
-The normal locked firmware still rejects nonzero motion. Commissioning requires
-the separate acknowledged firmware and runtime procedures; loading a hardware
-plugin never bypasses those gates.
+The default PID firmware accepts bounded nonzero commands only after its normal
+session and configuration gates are satisfied. Loading a hardware plugin never
+bypasses the firmware limits, per-motor leases, or guarded-HIL prerequisites.
