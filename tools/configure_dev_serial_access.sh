@@ -218,7 +218,10 @@ id -nG "${target_user}" | tr ' ' '\n' | grep -Fqx "${SERIAL_GROUP}" || \
 resolved_device="$(readlink -f "${selected_device}")"
 [[ "${resolved_device}" == /dev/* ]] || \
   Fail "selected device did not resolve below /dev"
-"${UDEVADM}" trigger --action=change --subsystem-match=tty \
+# A change event refreshes symlinks but does not reliably reapply device-node
+# ownership and mode. Replay an add event for only the already validated tty so
+# the newly installed GROUP and MODE policy takes effect without reconnecting.
+"${UDEVADM}" trigger --action=add --subsystem-match=tty \
   --sysname-match="$(basename "${resolved_device}")"
 "${UDEVADM}" settle
 

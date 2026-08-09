@@ -27,6 +27,12 @@ Fail() {
   exit 1
 }
 
+grep -Fq -- 'trigger --action=add --subsystem-match=tty' "${HELPER}" || \
+  Fail "serial-access setup does not replay an add event for device permissions"
+if grep -Fq -- 'trigger --action=change --subsystem-match=tty' "${HELPER}"; then
+  Fail "serial-access setup still uses a change event that can leave stale permissions"
+fi
+
 ExpectFailure() {
   local expected_text="$1"
   shift

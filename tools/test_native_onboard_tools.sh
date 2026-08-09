@@ -64,6 +64,9 @@ fi
 grep -Fq 'MICROROS_RESTORE_OWNERSHIP=0' \
   "${SCRIPT_DIR}/build_microros_library.sh" || \
   Fail "native micro-ROS generation is not selected"
+grep -Fq 'EXTERNAL_SKIP=clang-tidy' \
+  "${SCRIPT_DIR}/build_microros_library.sh" || \
+  Fail "native generated-workspace rosdep does not exclude clang-tidy"
 grep -Fq 'MICROROS_GENERATOR_WORKSPACE' \
   "${PROJECT_ROOT}/firmware/mentor_pi_mcu/config/microros_library_generation.sh" || \
   Fail "micro-ROS generation still assumes only the container workspace"

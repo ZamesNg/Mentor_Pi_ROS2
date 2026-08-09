@@ -203,8 +203,12 @@ if ((native_generation == 1)); then
   }
   readonly NATIVE_TOOLCHAIN_BIN="$("${NATIVE_TOOLCHAIN_BOOTSTRAP}" --print-bin)"
   readonly NATIVE_GENERATOR_WORKSPACE="${BUILD_ROOT}/native-generator-workspace"
+  # Upstream create_firmware_ws.sh appends EXTERNAL_SKIP to both of its
+  # generated-workspace rosdep calls. The onboard production build does not
+  # use clang-tidy, whose dependency chain is not resolvable on the RDK image.
   env \
     PATH="${NATIVE_TOOLCHAIN_BIN}:${PATH}" \
+    EXTERNAL_SKIP=clang-tidy \
     ROS_DISTRO=humble \
     MICROROS_LIBRARY_FOLDER=build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide \
     STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_microxrcedds_c \
