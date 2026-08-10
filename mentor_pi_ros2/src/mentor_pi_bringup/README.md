@@ -347,6 +347,9 @@ CH9102F identity, promoted host layout, site files, and systemd units. It
 creates the dedicated `mentor-pi-serial` group and service account, removes the
 service account from the broad `dialout` group, and renders the unique udev
 rule. First-install mode refuses every pre-existing site file.
+The sole exception is an exact root-owned rule created by the repository's
+development serial setup; first install adopts that rule and removes the
+development user's serial-group access before production ownership begins.
 
 The required `/etc/default/mentor-pi` is authoritative and contains exactly one
 active setting, `ROS_DOMAIN_ID`. The runtime service loads it last and its launcher

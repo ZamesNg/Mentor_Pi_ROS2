@@ -15,6 +15,7 @@ identity_value=""
 device=""
 share_dir=""
 runtime_image=""
+adopt_development_rule=0
 
 Usage() {
   cat >&2 <<'EOF'
@@ -196,8 +197,14 @@ SetupServiceAccount() {
   IFS=',' read -r -a member_list <<<"${members}"
   for member in "${member_list[@]}"; do
     if [[ -n "${member}" && "${member}" != "${SERVICE_USER}" ]]; then
-      echo "Refusing shared ${SERIAL_GROUP} membership for ${member}." >&2
-      exit 1
+      if [[ "${mode}" == "first-install" && \
+            "${adopt_development_rule}" == "1" ]]; then
+        gpasswd --delete "${member}" "${SERIAL_GROUP}" >/dev/null
+        echo "Removed development serial access for ${member}."
+      else
+        echo "Refusing shared ${SERIAL_GROUP} membership for ${member}." >&2
+        exit 1
+      fi
     fi
   done
 
@@ -279,12 +286,23 @@ readonly UDEV_DEST="${ETC_UDEV}/${UDEV_RULE_NAME}"
 
 if [[ "${mode}" == "first-install" ]]; then
   for destination in "${CONTROLLER_DEST}" "${RUNTIME_IMAGE_DEST}" \
-      "${SHARED_DEST}" "${UDEV_DEST}"; do
+      "${SHARED_DEST}"; do
     if [[ -e "${destination}" || -L "${destination}" ]]; then
       echo "First install refuses existing site file ${destination}." >&2
       exit 1
     fi
   done
+  if [[ -e "${UDEV_DEST}" || -L "${UDEV_DEST}" ]]; then
+    [[ -f "${UDEV_DEST}" && ! -L "${UDEV_DEST}" && \
+       "$(stat -c '%U:%G:%a' "${UDEV_DEST}")" == root:root:644 && \
+       -z "${TEST_ROOT}" && \
+       cmp -s "${TEMP_ROOT}/${UDEV_RULE_NAME}" "${UDEV_DEST}" ]] || {
+      echo "First install refuses existing site file ${UDEV_DEST}." >&2
+      exit 1
+    }
+    adopt_development_rule=1
+    echo "Adopting the exact development serial rule for production."
+  fi
   SetupServiceAccount
   InstallFile "${SHARE_DIR}/config/controller.yaml" "${CONTROLLER_DEST}"
   InstallFile "${TEMP_ROOT}/runtime-image" "${RUNTIME_IMAGE_DEST}"

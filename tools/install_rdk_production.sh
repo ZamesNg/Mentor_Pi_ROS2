@@ -176,6 +176,38 @@ fi
 readonly installer="${OPT_ROOT}/host/lib/mentor_pi_bringup/install_production_assets"
 [[ -x "${installer}" && ! -L "${installer}" ]] || \
   Fail "installed production asset helper is missing or symbolic"
+if [[ "${mode}" == first-install && -z "${TEST_ROOT}" && \
+      -e /etc/udev/rules.d/99-mentor-pi-mcu.rules ]]; then
+  readonly udev_template="${OPT_ROOT}/host/share/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in"
+  [[ -f "${udev_template}" && ! -L "${udev_template}" ]] || \
+    Fail "installed production udev template is missing or symbolic"
+  transition_rule="$(mktemp)"
+  trap 'rm -f -- "${transition_rule}"' EXIT
+  if [[ "${identity_kind}" == serial ]]; then
+    selector="ATTRS{serial}==\"${identity_value}\""
+  else
+    selector="ENV{ID_PATH}==\"${identity_value}\""
+  fi
+  sed "s|@MENTOR_PI_DEVICE_IDENTITY@|${selector}|" \
+    "${udev_template}" >"${transition_rule}"
+  [[ "$(sudo stat -c '%U:%G:%a' \
+      /etc/udev/rules.d/99-mentor-pi-mcu.rules)" == root:root:644 ]] && \
+    sudo cmp -s "${transition_rule}" \
+      /etc/udev/rules.d/99-mentor-pi-mcu.rules || \
+    Fail "existing serial rule differs from the requested production identity"
+  members="$(getent group mentor-pi-serial 2>/dev/null | cut -d: -f4 || true)"
+  IFS=',' read -r -a member_list <<<"${members}"
+  for member in "${member_list[@]}"; do
+    if [[ -n "${member}" && "${member}" != mentor-pi ]]; then
+      sudo gpasswd --delete "${member}" mentor-pi-serial >/dev/null
+      echo "Removed development serial access for ${member}."
+    fi
+  done
+  sudo rm -f -- /etc/udev/rules.d/99-mentor-pi-mcu.rules
+  rm -f -- "${transition_rule}"
+  trap - EXIT
+  echo "Adopted the matching development serial setup for production."
+fi
 echo "[5/5] Installing production configuration and verifying systemd units."
 sudo "${installer}" --mode "${mode}" --ros-domain-id "${ros_domain_id}" \
   --identity-kind "${identity_kind}" --identity-value "${identity_value}" \
