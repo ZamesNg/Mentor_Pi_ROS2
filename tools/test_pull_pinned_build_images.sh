@@ -36,6 +36,8 @@ for architecture in amd64 arm64; do
     Fail "${architecture} plan omits the pinned Humble host image"
   [[ "${output}" == *"prepare_build_images.sh --architecture ${architecture} --include-quality"* ]] || \
     Fail "${architecture} normal-computer setup does not prepare the quality image"
+  [[ "${output}" == *"TARGETARCH=${architecture}"* ]] || \
+    Fail "${architecture} setup plan does not forward the Docker build architecture"
   [[ "${output}" == *"image pull plan is valid for linux/${architecture}"* ]] || \
     Fail "${architecture} dry-run completion message is missing"
   [[ "${output}" != *'sha256:7bea3d9aa2483d3ca34c8e30d921b79273b0913bd7dc64bebf51d082b5d107e4'* && \
@@ -51,6 +53,16 @@ rdk_output="$(${PULL_TOOL} --dry-run --profile rdk-x5 --architecture arm64)"
   Fail "RDK setup unexpectedly prepares the full quality image"
 [[ "${rdk_output}" == *'Pinned RRCLite rdk-x5 image pull plan is valid'* ]] || \
   Fail "RDK dry-run completion message is missing"
+[[ "${rdk_output}" == *'TARGETARCH=arm64'* ]] || \
+  Fail "RDK dry-run does not forward TARGETARCH=arm64"
+
+grep -Fq -- 'build_command+=(--build-arg "TARGETARCH=${architecture}")' \
+  "${SCRIPT_DIR}/prepare_build_images.sh" || \
+  Fail "prepared Docker builds do not pass TARGETARCH explicitly"
+for dockerfile in firmware-builder.Dockerfile microros-builder.Dockerfile; do
+  grep -Fqx 'ARG TARGETARCH' "${SCRIPT_DIR}/docker/${dockerfile}" || \
+    Fail "${dockerfile} does not declare TARGETARCH"
+done
 
 readonly AMD64_HOST_IMAGE="$("${IMAGE_SELECTOR}" host amd64)"
 readonly ARM64_HOST_IMAGE="$("${IMAGE_SELECTOR}" host arm64)"

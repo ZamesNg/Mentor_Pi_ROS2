@@ -106,6 +106,12 @@ for component in "${components[@]}"; do
     --label "org.mentor-pi.build-image.dockerfile-sha256=${dockerfile_sha}"
     --file "${dockerfile}" --tag "${image}"
   )
+  if [[ "${component}" == firmware || "${component}" == microros ]]; then
+    # BuildKit supplies TARGETARCH automatically, but the legacy Docker builder
+    # does not. Pass the already validated native architecture explicitly so
+    # both builders select the same pinned Arm GNU toolchain archive.
+    build_command+=(--build-arg "TARGETARCH=${architecture}")
+  fi
   use_host_network=0
   for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
       http_proxy https_proxy no_proxy; do

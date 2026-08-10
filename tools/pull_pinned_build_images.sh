@@ -128,10 +128,12 @@ if [[ "${dry_run}" == "1" ]]; then
   printf './tools/build_host_runtime_image.sh --architecture %q\n' \
     "${architecture}"
   if [[ "${profile}" == normal ]]; then
-    printf './tools/prepare_build_images.sh --architecture %q --include-quality\n' \
+    printf './tools/prepare_build_images.sh --architecture %q --include-quality # TARGETARCH=%q\n' \
+      "${architecture}" \
       "${architecture}"
   else
-    printf './tools/prepare_build_images.sh --architecture %q\n' \
+    printf './tools/prepare_build_images.sh --architecture %q # TARGETARCH=%q\n' \
+      "${architecture}" \
       "${architecture}"
   fi
   echo "Pinned RRCLite ${profile} image pull plan is valid for linux/${architecture}."
