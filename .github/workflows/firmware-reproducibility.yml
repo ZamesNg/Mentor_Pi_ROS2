@@ -1,44 +1,8 @@
 name: Pinned firmware reproducibility
 
+# Automatic push and pull-request runs are intentionally disabled. Start this
+# expensive reproducibility workflow explicitly from the GitHub Actions UI.
 on:
-  pull_request:
-    paths:
-      - '.clang-tidy'
-      - '.github/workflows/firmware-reproducibility.yml'
-      - 'firmware/**'
-      - 'mentor_pi_ros2/src/mentor_pi_interfaces/**'
-      - 'tools/apply_microros_source_lock.sh'
-      - 'tools/bootstrap_firmware_dependencies.sh'
-      - 'tools/build_firmware.sh'
-      - 'tools/build_microros_library.sh'
-      - 'tools/check_firmware_reproducibility.sh'
-      - 'tools/run_firmware_target_ci.sh'
-      - 'tools/run_firmware_target_ci_container.sh'
-      - 'tools/firmware_source_fingerprint.sh'
-      - 'tools/microros_artifact_fingerprint.sh'
-      - 'tools/test_firmware_dependency_provenance.sh'
-      - 'tools/test_microros_source_lock.sh'
-      - 'tools/verify_firmware_artifact.sh'
-      - 'tools/docker/**'
-  push:
-    paths:
-      - '.clang-tidy'
-      - '.github/workflows/firmware-reproducibility.yml'
-      - 'firmware/**'
-      - 'mentor_pi_ros2/src/mentor_pi_interfaces/**'
-      - 'tools/apply_microros_source_lock.sh'
-      - 'tools/bootstrap_firmware_dependencies.sh'
-      - 'tools/build_firmware.sh'
-      - 'tools/build_microros_library.sh'
-      - 'tools/check_firmware_reproducibility.sh'
-      - 'tools/run_firmware_target_ci.sh'
-      - 'tools/run_firmware_target_ci_container.sh'
-      - 'tools/firmware_source_fingerprint.sh'
-      - 'tools/microros_artifact_fingerprint.sh'
-      - 'tools/test_firmware_dependency_provenance.sh'
-      - 'tools/test_microros_source_lock.sh'
-      - 'tools/verify_firmware_artifact.sh'
-      - 'tools/docker/**'
   workflow_dispatch:
 
 permissions:

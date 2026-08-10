@@ -76,6 +76,9 @@ grep -Fq 'prepare_native_microros_setup_launcher.sh' \
 grep -Fq 'export PATH="/usr/bin:/bin:${PATH}"' \
   "${SCRIPT_DIR}/prepare_native_microros_setup_launcher.sh" || \
   Fail "native micro-ROS cleanup does not restore required system commands"
+grep -Fq 'build_firmware.sh' \
+  "${SCRIPT_DIR}/prepare_native_microros_setup_launcher.sh" || \
+  Fail "native micro-ROS launcher bundle does not preserve the final build entrypoint"
 grep -Fq 'MICROROS_GENERATOR_WORKSPACE' \
   "${PROJECT_ROOT}/firmware/mentor_pi_mcu/config/microros_library_generation.sh" || \
   Fail "micro-ROS generation still assumes only the container workspace"

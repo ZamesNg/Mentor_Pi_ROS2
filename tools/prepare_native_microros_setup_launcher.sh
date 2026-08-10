@@ -25,10 +25,11 @@ done
 
 readonly SCRIPT_ROOT="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup"
 readonly CREATE_FIRMWARE_SOURCE="${SCRIPT_ROOT}/create_firmware_ws.sh"
+readonly BUILD_FIRMWARE_SOURCE="${SCRIPT_ROOT}/build_firmware.sh"
 readonly CREATE_WORKSPACE_SOURCE="${SCRIPT_ROOT}/create_ws.sh"
 readonly CLEAN_ENV_SOURCE="${SCRIPT_ROOT}/clean_env.sh"
-[[ -x "${CREATE_FIRMWARE_SOURCE}" && -x "${CREATE_WORKSPACE_SOURCE}" &&
-   -r "${CLEAN_ENV_SOURCE}" ]] || \
+[[ -x "${CREATE_FIRMWARE_SOURCE}" && -x "${BUILD_FIRMWARE_SOURCE}" &&
+   -x "${CREATE_WORKSPACE_SOURCE}" && -r "${CLEAN_ENV_SOURCE}" ]] || \
   Fail "pinned micro_ros_setup scripts are incomplete"
 
 if [[ -e "${OUTPUT_ROOT}" || -L "${OUTPUT_ROOT}" ]]; then
@@ -38,11 +39,14 @@ else
   mkdir -p -- "${OUTPUT_ROOT}"
 fi
 readonly CREATE_FIRMWARE_OUTPUT="${OUTPUT_ROOT}/create_firmware_ws.sh"
+readonly BUILD_FIRMWARE_OUTPUT="${OUTPUT_ROOT}/build_firmware.sh"
 readonly CLEAN_ENV_OUTPUT="${OUTPUT_ROOT}/clean_env.sh"
-[[ ! -L "${CREATE_FIRMWARE_OUTPUT}" && ! -L "${CLEAN_ENV_OUTPUT}" ]] || \
+[[ ! -L "${CREATE_FIRMWARE_OUTPUT}" && ! -L "${BUILD_FIRMWARE_OUTPUT}" &&
+   ! -L "${CLEAN_ENV_OUTPUT}" ]] || \
   Fail "refusing symbolic launcher output"
 
 install -m 0755 "${CREATE_FIRMWARE_SOURCE}" "${CREATE_FIRMWARE_OUTPUT}"
+install -m 0755 "${BUILD_FIRMWARE_SOURCE}" "${BUILD_FIRMWARE_OUTPUT}"
 install -m 0755 "${CLEAN_ENV_SOURCE}" "${CLEAN_ENV_OUTPUT}"
 
 # The upstream cleanup can remove /usr/bin when /usr is present in an RDK

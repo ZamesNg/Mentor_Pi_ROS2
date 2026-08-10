@@ -1,22 +1,8 @@
 name: ROS 2 Humble host matrix
 
+# Automatic push and pull-request runs are intentionally disabled. Start this
+# architecture build explicitly from the GitHub Actions UI.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/ros-humble-amd64.yml'
-      - 'Makefile'
-      - 'tools/**'
-      - 'mentor_pi_ros2/**'
-      - 'docs/framework/ros-interface-contract.md'
-      - 'docs/tutorials/03-build-and-run-humble-host.md'
-  push:
-    paths:
-      - '.github/workflows/ros-humble-amd64.yml'
-      - 'Makefile'
-      - 'tools/**'
-      - 'mentor_pi_ros2/**'
-      - 'docs/framework/ros-interface-contract.md'
-      - 'docs/tutorials/03-build-and-run-humble-host.md'
   workflow_dispatch:
 
 permissions:

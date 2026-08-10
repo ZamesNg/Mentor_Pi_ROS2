@@ -1,8 +1,8 @@
 name: Software quality
 
+# Automatic push and pull-request runs are intentionally disabled. Start the
+# complete quality suite explicitly from the GitHub Actions UI.
 on:
-  pull_request:
-  push:
   workflow_dispatch:
 
 permissions:

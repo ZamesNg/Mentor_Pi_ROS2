@@ -117,6 +117,7 @@ readonly CREATE_WORKSPACE_SCRIPT="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup/c
   exit 1
 }
 create_firmware_workspace_command="${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
+declare -a build_firmware_command=(ros2 run micro_ros_setup build_firmware.sh)
 # The container overlay is disposable, so improve its import diagnostics in
 # place. The native root-owned overlay remains read-only; use a private copy of
 # its pinned launcher so upstream clean_env.sh cannot hide the verified colcon
@@ -140,8 +141,12 @@ else
     "${MICROROS_SETUP_PREFIX}" \
     "${MICROROS_GENERATOR_WORKSPACE}/mentor-pi-micro-ros-setup-scripts" \
     "${MICROROS_NATIVE_COLCON_EXECUTABLE}")"
+  build_firmware_command=(
+    "${MICROROS_GENERATOR_WORKSPACE}/mentor-pi-micro-ros-setup-scripts/build_firmware.sh"
+  )
 fi
 readonly create_firmware_workspace_command
+readonly -a build_firmware_command
 if ! "${create_firmware_workspace_command}" generate_lib; then
   echo "Pinned micro-ROS workspace creation failed; see the repository import error above." >&2
   exit 1
@@ -273,7 +278,7 @@ done <"${GENERATED_COLCON_IGNORES}"
 rm -f -- "${GENERATED_COLCON_IGNORES}"
 
 export TOOLCHAIN_PREFIX="${PINNED_TOOLCHAIN_ROOT}/arm-none-eabi-"
-if ! ros2 run micro_ros_setup build_firmware.sh \
+if ! "${build_firmware_command[@]}" \
     "${BASE_PATH}/library_generation/toolchain.cmake" \
     "${BASE_PATH}/library_generation/colcon.meta"; then
   echo "micro-ROS firmware build failed; non-empty package logs follow:" >&2
