@@ -3,9 +3,9 @@
 Prove the PID artifact, ROS graph, telemetry rates, zero motor state, passive
 outputs, and basic board inputs before any powered actuator work. Detailed
 firmware history is recorded in the
-[firmware stabilization log](../firmware-stabilization-log.md).
+[firmware stabilization log](../../firmware-stabilization-log.md).
 
-**Run on:** either computer's connected Docker Humble runtime
+**Run on:** normal development computer's connected Docker Humble runtime
 **Hardware state:** motor power disconnected; PWM and bus servos unplugged;
 wheels contained
 

@@ -205,9 +205,15 @@ readonly EXPECTED_ALTO="${CORRESPONDING_ROOT}/mentor_pi_ros2/third_party/altro-c
 grep -Eq '^altro_patch_sha256=[0-9a-f]{64}$' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "handoff omits the ALTO patch checksum"
 [[ "$(find "${HANDOFF}/docs/tutorials" -maxdepth 1 -name '*.md' | wc -l)" == 8 ]] || \
-  Fail "handoff does not contain exactly one 01--08 tutorial sequence"
+  Fail "handoff does not contain exactly one RDK 01--08 tutorial sequence"
 [[ -z "$(find "${HANDOFF}/docs/tutorials" -mindepth 1 -type d -print -quit)" ]] || \
-  Fail "handoff contains obsolete host-track tutorial directories"
+  Fail "handoff contains a repository tutorial-track directory"
+grep -Fq 'Prepare and Receive the RDK Deployment' \
+  "${HANDOFF}/docs/tutorials/01-prepare-ubuntu-development-host.md" || \
+  Fail "handoff does not package the RDK deployment tutorial track"
+if grep -Rql 'Prepare the Host Computer' "${HANDOFF}/docs/tutorials"; then
+  Fail "handoff contains host-computer tutorial content"
+fi
 
 cp -a "${HOST_PREFIX}" "${TEST_ROOT}/bad-host"
 sed -i 's#builder_image=.*#builder_image=native-ubuntu-22.04#' \

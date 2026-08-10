@@ -5,9 +5,10 @@ RRCLite v2: STM32F407VET6 firmware using FreeRTOS, STM32 HAL, and a pinned ROS 2
 Humble micro-ROS stack, with architecture-native Ubuntu 22.04/Humble Docker
 images on `amd64` or `arm64`. Host ROS installations are not used.
 
-For hands-on work, start with
-[Tutorial 01](../tutorials/01-prepare-ubuntu-development-host.md)
-and follow its numbered `Next` links. For changing project status, use
+For hands-on work, start with either
+[RDK deploy Tutorial 01](../tutorials/rdk_deploy/01-prepare-ubuntu-development-host.md)
+or [host-computer Tutorial 01](../tutorials/host_computer/01-prepare-ubuntu-development-host.md),
+then follow that track's numbered `Next` links. For changing project status, use
 [Next steps](../NEXT_STEPS.md). This README indexes the normative contracts;
 tutorials do not override them.
 
@@ -36,11 +37,11 @@ physical wiring or safe output is a stop-work condition until resolved.
 
 ## Operator and qualification path
 
-The ordered [tutorial series](../tutorials/01-prepare-ubuntu-development-host.md)
-contains environment setup, default PID flashing, host deployment, passive
-bring-up, SWD characterization, guarded CLI checkout, functional HIL, and long
-qualification campaigns. Exact ROS commands appear at the stage where they are
-safe to run.
+The ordered [RDK deployment](../tutorials/rdk_deploy/01-prepare-ubuntu-development-host.md)
+and [host-computer](../tutorials/host_computer/01-prepare-ubuntu-development-host.md)
+series each contain setup, PID flashing, runtime startup, passive bring-up,
+characterization, guarded CLI checkout, functional HIL, and qualification
+campaigns. Exact ROS commands appear at the stage where they are safe to run.
 
 Manual Markdown checklists and ledgers are not used. Diagnostic collectors and
 qualification tools create immutable logs, checksums, JSON/CSV metrics, JUnit,

@@ -3,7 +3,7 @@
 Run the coordinated ROS 2 Humble stack for a mecanum or Ackermann vehicle using
 the `/mentor_pi` firmware endpoints.
 
-**Run on:** either computer through the pinned Ubuntu 22.04/Humble Docker runtime
+**Run on:** RDK X5 through the pinned Ubuntu 22.04/Humble Docker runtime
 **Initial fixture:** actuator power disconnected and wheels contained
 
 Previous: [Tutorial 07: Run Stress, Soak, and Release Gates](07-run-stress-soak-and-release-gates.md)
@@ -14,13 +14,18 @@ Keep actuator power disconnected until Tutorials 01--06 are complete. Powered
 validation requires raised or equivalently guarded wheels, a current-limited
 supply, a reachable stop, and recorded HIL evidence.
 
-## 1. Build and verify the host
+## 1. Prepare the native vehicle-runtime qualification
 
 ```sh
-cd "${HOME}/Mentor_Pi" && make host
+cd "${HOME}/Mentor_Pi"
+sudo systemctl stop mentor-pi-controller.target
+make host
 ```
 
-`make host-hardwares` is an alias for the same adaptive build and test path.
+The production target must release the MCU before an explicit vehicle launch.
+This native build is the optional RDK hardware-runtime qualification path; it
+does not replace the installed production controller service. `make
+host-hardwares` is an alias for the same adaptive build and test path.
 Interfaces, bringup, and `mentor_pi_hardwares` build together.
 The two tracking interface/controller packages and the pinned ALTO source are
 built in the same workspace and unified project image.

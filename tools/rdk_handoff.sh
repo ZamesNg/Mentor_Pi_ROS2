@@ -717,7 +717,7 @@ RefreshChangedInputs() {
       Fail "packaged tutorial directory is missing or symbolic"
     rm -rf -- "${HOST_HANDOFF}/docs/tutorials"
     mkdir -p "${HOST_HANDOFF}/docs/tutorials"
-    cp -a "${WORK_ROOT}/docs/tutorials/." \
+    cp -a "${WORK_ROOT}/docs/tutorials/rdk_deploy/." \
       "${HOST_HANDOFF}/docs/tutorials/"
     package_source="$(${HOST_FINGERPRINT} "${WORK_ROOT}")"
     [[ "$(awk -F= '$1 == "source_sha256" {count++} END {print count + 0}' \
@@ -1011,7 +1011,9 @@ host_handoff_directory=host-handoff
 board_handoff_directory=board-handoff
 EOF
 cat >"${staging_root}/INSTALL.txt" <<'EOF'
-Follow docs/tutorials/01-prepare-ubuntu-development-host.md in host-handoff to
+Follow docs/tutorials/rdk_deploy/01-prepare-ubuntu-development-host.md in the
+repository, or docs/tutorials/01-prepare-ubuntu-development-host.md inside the
+packaged host-handoff, to
 verify and transfer this complete bundle. On the native arm64 RDK X5, follow
 Tutorial 02 to flash board-handoff/firmware-pid-release without rebuilding,
 then Tutorial 03 to load the OCI image, install the Agent and host prefixes,

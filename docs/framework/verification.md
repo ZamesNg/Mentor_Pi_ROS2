@@ -345,7 +345,9 @@ requires the rationale specified by `requirements.md`.
 ## Release acceptance report
 
 Use the machine-generated campaign directories from
-[Tutorial 07](../tutorials/07-run-stress-soak-and-release-gates.md) as the
+[host-computer Tutorial 07](../tutorials/host_computer/07-run-stress-soak-and-release-gates.md)
+or [RDK-deploy Tutorial 07](../tutorials/rdk_deploy/07-run-stress-soak-and-release-gates.md)
+as the
 immutable candidate results. Each output binds revision, environment,
 start/end time, result, JSON/CSV metrics, JUnit, session transitions, and
 instrument-generated measurements to the candidate. Requirement/audit trace

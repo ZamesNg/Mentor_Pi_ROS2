@@ -7,7 +7,7 @@ interface, hardware, or safety requirements.
 ## Current implementation handoff (2026-08-10)
 
 - The ROS workspace/schema migration, single-default-PID firmware migration,
-  single eight-tutorial Docker host track, and Python-only launch migration are
+  split RDK-deploy and host-computer eight-tutorial tracks, and Python-only launch migration are
   implemented in the current worktree. Preserve them as the current contract.
 - `mentor_pi_bringup controller.launch.py` starts the compiled micro-ROS Agent
   and configuration supervisor as one fail-coupled launch inside the hardened
@@ -75,9 +75,10 @@ the current required layout and behavior and must remain enforced.
   inputs, source fingerprints, installers, packaging, CI filters, tests,
   launch/runtime tools, and documentation atomically to use
   `mentor_pi_ros2/src`.
-- Keep one complete ordered 01--08 sequence directly under `docs/tutorials/`.
-  Tutorial 01 may branch for the arm64 CubeProgrammer package and Tutorial 07
-  for the lightweight RDK versus complete normal-computer software gate.
+- Keep two complete ordered 01--08 sequences under
+  `docs/tutorials/rdk_deploy/` and `docs/tutorials/host_computer/`. Do not add
+  root tutorial files or compatibility links. Production handoffs package only
+  the RDK deployment sequence.
 
 ### Manifest validation
 

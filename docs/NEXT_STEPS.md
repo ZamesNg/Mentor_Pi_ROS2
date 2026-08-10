@@ -35,9 +35,10 @@ The active host policy is Docker-only:
 - `make rdk-receive`, `make flash-production`, and `make production-install`
   provide the compact RDK receive, flash, image/Agent/host, and systemd install
   path without timestamp placeholders or manual deployment plumbing; and
-- the operator path is one Docker-first Tutorial 01--08 sequence. Tutorial 07
-  keeps a lightweight RDK gate without fuzzing, coverage, or the full Clang
-  suite and a complete normal-computer gate.
+- the operator path has independent RDK-deploy and host-computer Tutorial
+  01--08 tracks. RDK Tutorial 07 is the lightweight onboard gate without
+  fuzzing, coverage, or the full Clang suite; host-computer Tutorial 07 is the
+  complete software gate.
 
 The opt-in `mentor_pi_tracking` package runs the ALTO-based mecanum or
 Ackermann lower-level tracker onboard the RDK X5. It uses the GPL-2.0-or-later
@@ -144,21 +145,22 @@ recorded; mocks never establish hardware behavior.
    as a conservative per-command limit for this
    emulated arm64 build; it is not an RDK setting. Do not treat the build as
    native performance evidence.
-3. On the RDK X5, run `make rdk-receive`, then follow Tutorial 02 and run
+3. On the RDK X5, run `make rdk-receive`, then follow RDK-deploy Tutorial 02 and run
    `make flash-production` with actuator power disconnected. These commands
    verify/extract the bundle and flash the exact packaged PID artifact.
-4. Follow Tutorial 03 and run `make production-install` with the reviewed
+4. Follow RDK-deploy Tutorial 03 and run `make production-install` with the reviewed
    CH9102F identity arguments, then enable the installed controller target. The compact
    installer loads and verifies the OCI image, versioned Agent and host prefix,
    site configuration, and units without rebuilding the workspace. Record image
    identity, load/install duration, memory use, and runtime behavior. Benchmark
    both trackers at 30 Hz with the 25 ms solve deadline before hardware use. A
    native RDK host build is optional diagnostics only.
-5. Complete Tutorials 04--05. Verify the graph, supervisor `READY`, heartbeat,
+5. Complete RDK-deploy Tutorials 04--05. Verify the graph, supervisor `READY`, heartbeat,
    diagnostics, passive encoder signs, IMU samples, and Agent restart recovery.
-6. Only after every passive gate passes, follow Tutorial 06 with guarded wheels,
-   a current-limited supply, and a reachable stop. Use Tutorial 07 for campaign
-   evidence and Tutorial 08 only after hardware checkout is complete.
+6. Only after every passive gate passes, follow RDK-deploy Tutorial 06 with
+   guarded wheels, a current-limited supply, and a reachable stop. Use that
+   track's Tutorial 07 for campaign evidence and Tutorial 08 only after
+   hardware checkout is complete.
 
 ## Physical and release boundary
 

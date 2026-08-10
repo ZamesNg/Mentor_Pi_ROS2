@@ -208,7 +208,7 @@ jobs. Long HIL, 60-minute load, reconnect/reset, and 24-hour soak jobs may run o
 dedicated hardware, but their signed results are required for release.
 
 The checked-in hosted workflows and their local entry points are run in
-[Tutorial 07](../tutorials/07-run-stress-soak-and-release-gates.md). Hosted jobs
+[host-computer Tutorial 07](../tutorials/host_computer/07-run-stress-soak-and-release-gates.md). Hosted jobs
 use no project secret and cover documentation/traceability, format,
 `clang-tidy`, native Debug ASan/UBSan, native Release, TSan, deterministic fuzz
 smoke, generated CDR/introspection checks on ROS 2 Humble amd64 and arm64, and

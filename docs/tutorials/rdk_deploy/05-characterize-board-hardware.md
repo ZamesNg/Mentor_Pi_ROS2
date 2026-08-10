@@ -3,8 +3,7 @@
 Confirm passive encoder direction and the IMU board axes without a debug
 probe. This does not command a motor or authorize unguarded motion.
 
-**Run on:** either connected computer while `make start` remains running in its
-own terminal
+**Run on:** RDK X5 while `mentor-pi-controller.target` remains active
 **Hardware state:** verified default PID firmware; motor power disconnected; encoders
 connected; servos unplugged; all four wheels raised
 

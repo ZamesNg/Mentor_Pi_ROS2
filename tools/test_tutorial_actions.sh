@@ -45,9 +45,11 @@ for target in rdk-handoff rdk-transfer rdk-receive serial-setup flash \
     Fail "Makefile target is missing: ${target}"
 done
 
-readonly TUTORIAL_01="${PROJECT_ROOT}/docs/tutorials/01-prepare-ubuntu-development-host.md"
-readonly TUTORIAL_02="${PROJECT_ROOT}/docs/tutorials/02-build-and-flash-default-pid-firmware.md"
-readonly TUTORIAL_03="${PROJECT_ROOT}/docs/tutorials/03-build-and-run-humble-host.md"
+readonly RDK_TUTORIAL_ROOT="${PROJECT_ROOT}/docs/tutorials/rdk_deploy"
+readonly HOST_TUTORIAL_ROOT="${PROJECT_ROOT}/docs/tutorials/host_computer"
+readonly TUTORIAL_01="${RDK_TUTORIAL_ROOT}/01-prepare-ubuntu-development-host.md"
+readonly TUTORIAL_02="${RDK_TUTORIAL_ROOT}/02-build-and-flash-default-pid-firmware.md"
+readonly TUTORIAL_03="${RDK_TUTORIAL_ROOT}/03-build-and-run-humble-host.md"
 for required in qemu-user-static 'make rdk-handoff' \
     'make rdk-transfer RDK_LOGIN=sunrise@rdk-hostname' \
     'make rdk-receive'; do
@@ -74,6 +76,22 @@ done
 if rg -q 'PLACEHOLDER: replace YYYYMMDDTHHMMSSZ|readonly (RDK_BUNDLE|HOST_HANDOFF|RUNTIME_IMAGE_ID)' \
     "${TUTORIAL_01}" "${TUTORIAL_02}" "${TUTORIAL_03}"; then
   Fail "Tutorials 01--03 still expose manual timestamp or handoff plumbing"
+fi
+for required in 'make firmware' 'make flash'; do
+  grep -Fq "${required}" \
+    "${HOST_TUTORIAL_ROOT}/02-build-and-flash-default-pid-firmware.md" || \
+    Fail "host-computer Tutorial 02 omits local action: ${required}"
+done
+for required in 'make host' 'make start' 'make shell'; do
+  grep -Fq "${required}" \
+    "${HOST_TUTORIAL_ROOT}/03-build-and-run-humble-host.md" || \
+    Fail "host-computer Tutorial 03 omits development action: ${required}"
+done
+if rg -q 'rdk-(handoff|transfer|receive)|production-install|flash-production' \
+    "${HOST_TUTORIAL_ROOT}/01-prepare-ubuntu-development-host.md" \
+    "${HOST_TUTORIAL_ROOT}/02-build-and-flash-default-pid-firmware.md" \
+    "${HOST_TUTORIAL_ROOT}/03-build-and-run-humble-host.md"; then
+  Fail "host-computer Tutorials 01--03 contain RDK deployment actions"
 fi
 grep -Fq 'RUN_ONBOARD_DOCKER_GATES' "${SCRIPT_DIR}/tutorial_action.sh" || \
   Fail "RDK Docker gates do not require their distinct acknowledgement"

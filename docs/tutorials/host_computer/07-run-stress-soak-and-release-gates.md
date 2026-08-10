@@ -1,26 +1,17 @@
 # Tutorial 07: Run Software, Stress, Soak, and Release Gates
 
-Before enabling either lower-level tracker on hardware, also benchmark its
-selected vehicle model natively on the RDK X5. Record image identity, peak
-memory, sustained 30 Hz behavior, every 25 ms ALTO deadline miss/failure, and
-the duration of any bounded feedback fallback. This benchmark is not part of
-the lightweight amd64 mock and is not a powered-motion qualification claim.
-
 Run software, performance, endurance, and recovery gates for one exact default
 PID candidate. Software-gate qualification does not by itself prove powered
 motion, PID performance, peripheral timing, or physical recovery behavior.
 
-**Run on:** either computer; the RDK X5 uses the lightweight Docker gate and a
-normal computer uses the complete Docker software suite
+**Run on:** normal Ubuntu development computer using the complete Docker suite
 **Fixture:** guarded peripherals, current limiting, independent wire/resource
 measurement, and a reachable physical stop
 
 Previous: [Tutorial 06: ROS 2 CLI Hardware Checkout](06-ros2-cli-hardware-checkout.md)
 Next: [Tutorial 08: Run the `mentor_pi_hardwares` Integration](08-run-mentor-pi-hardwares.md)
 
-## 1. Run the software gate for this computer
-
-On a normal development computer, run the complete suite:
+## 1. Run the complete host-computer software gate
 
 ```sh
 cd "${HOME}/Mentor_Pi" && make release-software-gates
@@ -31,30 +22,15 @@ Debug/Release tests, sanitizers, coverage, formatting, static analysis, fuzz
 smoke, firmware reproducibility, target integrity, memory headroom, and PID
 artifact provenance.
 
-On the RDK X5 onboard computer, run the memory-conscious gate instead:
-
-```sh
-cd "${HOME}/Mentor_Pi" && make release-onboard-gates
-```
-
-Type `RUN_ONBOARD_DOCKER_GATES`. It runs the relevant documentation,
-Debug/Release, sanitizer, host, firmware-reproducibility, target-integrity,
-memory-headroom, and artifact-provenance checks in architecture-native Docker.
-It intentionally omits fuzzing, coverage, formatting, and the full Clang
-analysis suite. Those remain normal-computer evidence and are not implied by
-an RDK pass.
-
 Expected: zero test, sanitizer, race, format, static-analysis, or provenance
 failure; required coverage; reproducible loadable bytes; complete fault
 vectors; and at least 20% headroom in every memory class. The verified artifact
 classification is `NORMAL_CLOSED_LOOP_DEFAULT`, with `motor_mode=PID`,
 `control_mode=CLOSED_LOOP`, and `release_qualified=0` pending HIL evidence.
 
-The standard `make rdk-handoff` workflow may produce the deployable arm64 image
-and handoff on amd64, but it does not satisfy this release gate. Native RDK
-compilation is optional; image loading, runtime, memory, tracker-deadline, and
-applicable hardware gates still run on the native RDK before release or
-performance claims.
+This complete software gate does not replace the separate native RDK runtime,
+memory, tracker-deadline, peripheral, or hardware evidence required for an RDK
+deployment.
 
 ## 2. Run the connected zero-command preflight
 

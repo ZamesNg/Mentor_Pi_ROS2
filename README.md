@@ -16,24 +16,40 @@ transport.
 
 ## Start here
 
-Follow the single tutorial sequence in numerical order on either the RDK X5
-onboard computer or a normal Ubuntu development computer. One content-addressed
+Choose one complete tutorial track and follow its 01--08 sequence in order.
+Use **RDK deploy** for a transferred arm64 production handoff, or **host
+computer** for local development builds. One content-addressed
 project image per native architecture supplies ROS 2 Humble, the Agent,
 firmware tools, builds, lightweight tests, and runtime on both. Only udev
 serial configuration and STM32CubeProgrammer flashing remain host operations.
 `make shell` opens a zsh runtime with pinned Oh My Zsh, completion,
 autosuggestions, and syntax highlighting.
 
+### RDK deploy track
+
 | Step | Tutorial | Main command |
 | ---: | --- | --- |
-| 01 | [Prepare the Docker host](docs/tutorials/01-prepare-ubuntu-development-host.md) | `make setup` |
-| 02 | [Build and flash PID](docs/tutorials/02-build-and-flash-default-pid-firmware.md) | `make firmware`, `make flash` |
-| 03 | [Build and run Humble](docs/tutorials/03-build-and-run-humble-host.md) | `make host`, `make start` |
-| 04 | [Run passive board bring-up](docs/tutorials/04-run-passive-board-bringup.md) | `make passive-check` |
-| 05 | [Characterize board hardware](docs/tutorials/05-characterize-board-hardware.md) | `make characterize-board` |
-| 06 | [Run ROS 2 CLI checkout](docs/tutorials/06-ros2-cli-hardware-checkout.md) | `make shell` |
-| 07 | [Run software and physical gates](docs/tutorials/07-run-stress-soak-and-release-gates.md) | computer-specific release gate |
-| 08 | [Run ros2_control](docs/tutorials/08-run-mentor-pi-hardwares.md) | `make host-hardwares` |
+| 01 | [Prepare and receive deployment](docs/tutorials/rdk_deploy/01-prepare-ubuntu-development-host.md) | `make rdk-handoff`, `make rdk-receive` |
+| 02 | [Flash packaged PID](docs/tutorials/rdk_deploy/02-build-and-flash-default-pid-firmware.md) | `make flash-production` |
+| 03 | [Install and start production](docs/tutorials/rdk_deploy/03-build-and-run-humble-host.md) | `make production-install`, `systemctl` |
+| 04 | [Run passive board bring-up](docs/tutorials/rdk_deploy/04-run-passive-board-bringup.md) | `make passive-check` |
+| 05 | [Characterize board hardware](docs/tutorials/rdk_deploy/05-characterize-board-hardware.md) | `make characterize-board` |
+| 06 | [Run ROS 2 CLI checkout](docs/tutorials/rdk_deploy/06-ros2-cli-hardware-checkout.md) | `make shell` |
+| 07 | [Run onboard and physical gates](docs/tutorials/rdk_deploy/07-run-stress-soak-and-release-gates.md) | `make release-onboard-gates` |
+| 08 | [Run ros2_control](docs/tutorials/rdk_deploy/08-run-mentor-pi-hardwares.md) | `make start-mecanum` or `make start-ackermann` |
+
+### Host computer track
+
+| Step | Tutorial | Main command |
+| ---: | --- | --- |
+| 01 | [Prepare the host computer](docs/tutorials/host_computer/01-prepare-ubuntu-development-host.md) | `make doctor`, `make setup` |
+| 02 | [Build and flash PID](docs/tutorials/host_computer/02-build-and-flash-default-pid-firmware.md) | `make firmware`, `make flash` |
+| 03 | [Build and run Humble](docs/tutorials/host_computer/03-build-and-run-humble-host.md) | `make host`, `make start` |
+| 04 | [Run passive board bring-up](docs/tutorials/host_computer/04-run-passive-board-bringup.md) | `make passive-check` |
+| 05 | [Characterize board hardware](docs/tutorials/host_computer/05-characterize-board-hardware.md) | `make characterize-board` |
+| 06 | [Run ROS 2 CLI checkout](docs/tutorials/host_computer/06-ros2-cli-hardware-checkout.md) | `make shell` |
+| 07 | [Run full software and physical gates](docs/tutorials/host_computer/07-run-stress-soak-and-release-gates.md) | `make release-software-gates` |
+| 08 | [Run ros2_control](docs/tutorials/host_computer/08-run-mentor-pi-hardwares.md) | `make host-hardwares` |
 
 Every complex operation is a one-line Make action. The helper prompts for
 hardware-specific values and exact safety acknowledgements, so operators do
@@ -56,8 +72,9 @@ RDK compilation is optional diagnostics, not release evidence.
 
 The current board has a hardware-verified timing baseline, while the newest
 complete default PID candidate is prepared but not yet flashed. Its practical
-resume point is Tutorial 02 for that PID default flash, followed by Tutorial
-04's passive checks. A new computer or operator starts at Tutorial 01.
+RDK resume point is the RDK deploy Tutorial 02 for that PID default flash,
+followed by Tutorial 04's passive checks. A new operator starts at Tutorial 01
+of the applicable track.
 
 ## Safety and current status
 
@@ -126,8 +143,10 @@ does not substitute for an unobserved physical metric.
 - [`thirdpart/`](thirdpart/) — the checked repository copy of the licensed
   STM32CubeProgrammer 2.23.0 arm64 Debian-package archive used by the onboard
   CubeProgrammer installer.
-- [`docs/tutorials/`](docs/tutorials/) — one complete Docker-first 01--08
-  operator workflow for both computer types.
+- [`docs/tutorials/rdk_deploy/`](docs/tutorials/rdk_deploy/) — complete RDK
+  handoff, production installation, and onboard 01--08 workflow.
+- [`docs/tutorials/host_computer/`](docs/tutorials/host_computer/) — complete
+  local build, development runtime, and full-gate 01--08 workflow.
 - [`docs/framework/`](docs/framework/) — normative design and verification
   contracts.
 

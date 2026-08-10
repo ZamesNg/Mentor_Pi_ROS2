@@ -193,7 +193,8 @@ instruments are attached. Consequently `CampaignSummary::release_qualified`
 is always false and `summary.json` always says
 `release_qualification: INCOMPLETE`; a zero exit status or green JUnit record
 never closes D5 by itself. Follow
-[Tutorial 07](../../../docs/tutorials/07-run-stress-soak-and-release-gates.md) and
+[host-computer Tutorial 07](../../../docs/tutorials/host_computer/07-run-stress-soak-and-release-gates.md)
+or [RDK-deploy Tutorial 07](../../../docs/tutorials/rdk_deploy/07-run-stress-soak-and-release-gates.md), and
 retain generated campaign and independent instrument files; an absent or
 `NOT_OBSERVED` physical metric keeps the release gate open.
 
@@ -313,9 +314,10 @@ checksummed OCI runtime-image archive. The installed host path is an atomically
 replaced symlink; never build into it.
 
 For connected development, follow
-[Tutorial 03](../../../docs/tutorials/03-build-and-run-humble-host.md). For a
+[host-computer Tutorial 03](../../../docs/tutorials/host_computer/03-build-and-run-humble-host.md).
+For a
 production handoff, use the dedicated target and the transfer/install commands
-in Tutorials 01--03.
+in [RDK-deploy Tutorials 01--03](../../../docs/tutorials/rdk_deploy/01-prepare-ubuntu-development-host.md).
 
 ```sh
 make rdk-handoff

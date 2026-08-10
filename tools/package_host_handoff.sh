@@ -246,7 +246,7 @@ cp -a "${host_prefix}/." "${staging_root}/host/"
 cp -a "${agent_prefix}/." "${staging_root}/agent/"
 install -m 0644 "${runtime_image_archive}" \
   "${staging_root}/runtime-image/mentor-pi-runtime.tar"
-cp -a "${PROJECT_ROOT}/docs/tutorials/." \
+cp -a "${PROJECT_ROOT}/docs/tutorials/rdk_deploy/." \
   "${staging_root}/docs/tutorials/"
 git -C "${ALTO_CHECKOUT}" archive "${ALTO_COMMIT}" | \
   tar -xf - -C \
@@ -323,17 +323,20 @@ corresponding_source_directory=corresponding-source
 symlink_manifest=SYMLINKS.txt
 EOF
 cat >"${staging_root}/INSTALL.txt" <<EOF
-From the transferred repository root on the RDK X5, follow Tutorials 01--03.
+From the transferred repository root on the RDK X5, follow
+docs/tutorials/rdk_deploy/ Tutorials 01--03.
 The compact production path verifies this release's checksums, symlinks,
 metadata, Agent, host prefix, runtime image ID, and linux/${ARCHITECTURE}
 platform before installation:
 
   make rdk-receive
   make flash-production
-  make production-install ROS_DOMAIN_ID=0 ID_SERIAL_SHORT=YOUR_BOARD_SERIAL
+  udevadm info --query=property --name=/dev/mentor_pi_mcu
+  make production-install ROS_DOMAIN_ID=0 ID_SERIAL_SHORT=596F060000
   sudo systemctl enable --now mentor-pi-controller.target
 
-Use ID_PATH with its exact value only when ID_SERIAL_SHORT is empty and the
+Replace 596F060000 with the exact value printed after ID_SERIAL_SHORT=. Use
+ID_PATH with its exact value only when ID_SERIAL_SHORT is empty and the
 adapter has no unique serial. Do not enable or start production until the exact packaged PID
 firmware has passed its flash and read-back verification.
 EOF
