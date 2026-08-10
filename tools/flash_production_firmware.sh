@@ -47,7 +47,10 @@ fi
 
 command -v systemctl >/dev/null 2>&1 || Fail "systemctl is unavailable"
 if systemctl is-active --quiet mentor-pi-controller.target; then
-  Fail "stop mentor-pi-controller.target before flashing production firmware"
+  command -v sudo >/dev/null 2>&1 || \
+    Fail "sudo is required to stop the active production target"
+  echo "Stopping the active Mentor Pi production target before flashing."
+  sudo systemctl stop mentor-pi-controller.target
 fi
 if command -v docker >/dev/null 2>&1 && \
     [[ "$(docker container inspect mentor-pi-production \

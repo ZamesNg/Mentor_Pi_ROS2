@@ -323,33 +323,20 @@ corresponding_source_directory=corresponding-source
 symlink_manifest=SYMLINKS.txt
 EOF
 cat >"${staging_root}/INSTALL.txt" <<EOF
-Verify from this directory:
-  sha256sum --check SHA256SUMS
-  while IFS=$'\t' read -r path target; do
-    test -L "\${path}" && test "\$(readlink -- "\${path}")" = "\${target}"
-  done < SYMLINKS.txt
+From the transferred repository root on the RDK X5, follow Tutorials 01--03.
+The compact production path verifies this release's checksums, symlinks,
+metadata, Agent, host prefix, runtime image ID, and linux/${ARCHITECTURE}
+platform before installation:
 
-On Ubuntu 22.04 ${ARCHITECTURE}, with mentor-pi-controller.target inactive:
-  docker load --input runtime-image/mentor-pi-runtime.tar
-  sudo install -d /opt/mentor_pi/releases/agent/${release_id}
-  sudo cp -a agent/. /opt/mentor_pi/releases/agent/${release_id}/
-  agent_sha=\$(sed -n 's/^executable_sha256=//p' agent/AGENT-BUILD-METADATA.txt)
-  echo "\${agent_sha}  /opt/mentor_pi/releases/agent/${release_id}/lib/micro_ros_agent/micro_ros_agent" | sudo sha256sum --check --strict -
-  sudo ln -sfn /opt/mentor_pi/releases/agent/${release_id} /opt/mentor_pi/micro_ros_agent
-  sudo ./host/lib/mentor_pi_bringup/promote_host_release \\
-    --staged-prefix "\${PWD}/host" --release-id ${release_id}
+  make rdk-receive
+  make flash-production
+  make production-install PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=0 \\
+    IDENTITY_KIND=serial IDENTITY_VALUE=YOUR_BOARD_SERIAL
+  sudo systemctl enable --now mentor-pi-controller.target
 
-Confirm the loaded image platform:
-  test "\$(docker image inspect ${runtime_image_id} --format '{{.Id}}')" = ${runtime_image_id}
-  test "\$(docker image inspect ${runtime_image_id} --format '{{.Os}}/{{.Architecture}}')" = linux/${ARCHITECTURE}
-
-Connect exactly one 1a86:55d4 CH9102F, identify its unique serial or ID_PATH
-(not a changing tty number), then follow docs/tutorials/03-build-and-run-humble-host.md
-to run install_production_assets with --runtime-image ${runtime_image_id}.
-Run systemd-analyze verify for both units. Do not enable or start the controller
-until the exact packaged PID firmware is flashed; afterward use
-systemctl enable --now mentor-pi-controller.target and inspect the target,
-runtime service, and journal.
+Use IDENTITY_KIND=id-path with the exact ID_PATH only when the adapter has no
+unique serial. Do not enable or start production until the exact packaged PID
+firmware has passed its flash and read-back verification.
 EOF
 
 readonly POST_STAGING_SOURCE="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"

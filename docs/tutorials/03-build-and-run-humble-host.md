@@ -13,53 +13,21 @@ Next: [Tutorial 04: Run Passive Board Bring-Up](04-run-passive-board-bringup.md)
 
 On the RDK, use the exact bundle verified and flashed in Tutorials 01–02.
 Do not run `make host`: install its already-tested host and Agent prefixes while
-the controller target is inactive.
-
-```sh
-# PLACEHOLDER: replace YYYYMMDDTHHMMSSZ with the transferred bundle timestamp.
-readonly RDK_BUNDLE="${HOME}/Mentor_Pi/build/received-handoffs/rdk-arm64-YYYYMMDDTHHMMSSZ"
-readonly HOST_HANDOFF="${RDK_BUNDLE}/host-handoff"
-(cd "${RDK_BUNDLE}" && sha256sum --check SHA256SUMS)
-(cd "${HOST_HANDOFF}" && sha256sum --check SHA256SUMS)
-readonly RELEASE_ID="$(sed -n 's/^release_id=//p' "${HOST_HANDOFF}/HOST-HANDOFF.txt")"
-readonly RUNTIME_IMAGE_ID="$(sed -n 's/^runtime_image_id=//p' "${HOST_HANDOFF}/HOST-HANDOFF.txt")"
-docker load --input "${HOST_HANDOFF}/runtime-image/mentor-pi-runtime.tar"
-test "$(docker image inspect "${RUNTIME_IMAGE_ID}" --format '{{.Id}}')" = "${RUNTIME_IMAGE_ID}"
-test "$(docker image inspect "${RUNTIME_IMAGE_ID}" --format '{{.Os}}/{{.Architecture}}')" = linux/arm64
-if systemctl cat mentor-pi-controller.target >/dev/null 2>&1; then
-  sudo systemctl stop mentor-pi-controller.target
-fi
-sudo install -d "/opt/mentor_pi/releases/agent/${RELEASE_ID}"
-sudo cp -a "${HOST_HANDOFF}/agent/." "/opt/mentor_pi/releases/agent/${RELEASE_ID}/"
-readonly AGENT_SHA="$(sed -n 's/^executable_sha256=//p' \
-  "${HOST_HANDOFF}/agent/AGENT-BUILD-METADATA.txt")"
-printf '%s  %s\n' "${AGENT_SHA}" \
-  "/opt/mentor_pi/releases/agent/${RELEASE_ID}/lib/micro_ros_agent/micro_ros_agent" | \
-  sudo sha256sum --check --strict -
-sudo ln -sfn "/opt/mentor_pi/releases/agent/${RELEASE_ID}" \
-  /opt/mentor_pi/micro_ros_agent
-sudo "${HOST_HANDOFF}/host/lib/mentor_pi_bringup/promote_host_release" \
-  --staged-prefix "${HOST_HANDOFF}/host" --release-id "${RELEASE_ID}"
-```
+the controller target is inactive. The compact installer verifies both bundle
+manifests, loads and checks the arm64 image, installs and hashes the Agent,
+promotes the host release, installs the site configuration and units, and runs
+the systemd unit verifier.
 
 Connect exactly one `1a86:55d4` CH9102F. Inspect its current tty and select its
 nonempty unique `ID_SERIAL_SHORT`; use the exact `ID_PATH` with
 `--identity-kind id-path` only when no unique serial exists.
 
 ```sh
-readonly DEVICE=/dev/ttyUSB0
-udevadm info --query=property --name="${DEVICE}" | \
+udevadm info --query=property --name=/dev/ttyUSB0 | \
   grep -E '^(ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL_SHORT|ID_PATH)='
-readonly IDENTITY_KIND=serial
-readonly IDENTITY_VALUE=RRCLITE_A1B2C3
-readonly ROS_DOMAIN=0
-sudo /opt/mentor_pi/host/lib/mentor_pi_bringup/install_production_assets \
-  --mode first-install --ros-domain-id "${ROS_DOMAIN}" \
-  --identity-kind "${IDENTITY_KIND}" --identity-value "${IDENTITY_VALUE}" \
-  --device "${DEVICE}" --runtime-image "${RUNTIME_IMAGE_ID}"
-sudo systemd-analyze verify \
-  /etc/systemd/system/mentor-pi-runtime.service \
-  /etc/systemd/system/mentor-pi-controller.target
+
+make production-install PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=0 \
+  IDENTITY_KIND=serial IDENTITY_VALUE=RRCLITE_A1B2C3
 ```
 
 Replace the identity example with the value just observed. Tutorial 02's

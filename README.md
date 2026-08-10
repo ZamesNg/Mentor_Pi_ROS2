@@ -47,8 +47,10 @@ completed bundle and removes a redundant incomplete duplicate;
 `RDK_HANDOFF_FRESH=1` explicitly forces a new release. Changed inputs rebuild
 only affected stages;
 unaffected checksummed stages and incremental colcon work are retained. The RDK loads and installs the
-bundle without rebuilding the host workspace; native RDK compilation is
-optional diagnostics, not release evidence.
+bundle without rebuilding the host workspace. On the RDK, `make rdk-receive`,
+`make flash-production`, and `make production-install` replace manual archive,
+image, Agent, host-prefix, and systemd installation command sequences. Native
+RDK compilation is optional diagnostics, not release evidence.
 
 The current board has a hardware-verified timing baseline, while the newest
 complete default PID candidate is prepared but not yet flashed. Its practical

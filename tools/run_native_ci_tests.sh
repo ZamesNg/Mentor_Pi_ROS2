@@ -77,6 +77,7 @@ bash -n "${PROJECT_ROOT}"/tools/*.sh
 "${PROJECT_ROOT}/tools/test_microros_source_lock.sh"
 "${PROJECT_ROOT}/tools/test_package_board_handoff.sh"
 "${PROJECT_ROOT}/tools/test_select_rdk_handoff.sh"
+"${PROJECT_ROOT}/tools/test_install_rdk_production.sh"
 "${PROJECT_ROOT}/tools/test_flash_firmware.sh"
 "${PROJECT_ROOT}/tools/test_pull_pinned_build_images.sh"
 "${PROJECT_ROOT}/tools/test_check_time_sync.sh"

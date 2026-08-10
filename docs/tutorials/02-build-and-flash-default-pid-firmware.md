@@ -31,18 +31,25 @@ helper selects the newest valid timestamp under `build/received-handoffs/` by
 default. If only the transferred `.tar` and `.tar.sha256` are present, it
 verifies and atomically extracts the archive first. It then rechecks the outer
 and board manifests before programming.
-
-```sh
-./tools/select_rdk_handoff.sh --latest-received-under \
-  "${HOME}/Mentor_Pi/build/received-handoffs"
-```
+Tutorial 01's `make rdk-receive` performs the standalone receipt check; the
+flash target repeats the relevant selection and manifest verification.
 
 ## 2. Configure the stable serial alias once
 
 Connect only the USB-C connector labelled UART1/download.
 
+For a local development build, run `make serial-setup`. For the production RDK
+handoff, do not install the development-user rule: Tutorial 03 installs the
+production service identity and deliberately refuses a shared development
+serial group. Inspect the current raw tty instead.
+
 ```sh
+# Local development:
 cd "${HOME}/Mentor_Pi" && make serial-setup
+
+# Production RDK:
+udevadm info --query=property --name=/dev/ttyUSB0 | \
+  grep -E '^(ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL_SHORT|ID_PATH)='
 ```
 
 The helper requires exactly one `1a86:55d4` CH9102F and asks for
@@ -61,30 +68,21 @@ PID image remains unqualified (`release_qualified=0`) until its HIL evidence is
 complete. Passive checks (Tutorial 04) and characterization (Tutorial 05) MUST
 be completed before any guarded powered work.
 
-For a locally built image, run `make flash`. For the production bundle, stop
-`mentor-pi-controller.target` and run the one-line production target; it
-selects and reports the newest timestamp, then flashes its packaged ELF without
-rebuilding it:
+For a locally built image, run `make flash`. The production target selects and
+reports the newest timestamp, stops an installed active production target when
+necessary, then flashes its packaged ELF without rebuilding it:
 
 ```sh
 # Local build:
 cd "${HOME}/Mentor_Pi" && make flash
 
-# Production RDK handoff instead:
-sudo systemctl stop mentor-pi-controller.target
-cd "${HOME}/Mentor_Pi" && make flash-production
+# Production RDK handoff instead (host flashing requires root device access):
+cd "${HOME}/Mentor_Pi" && sudo make flash-production PORT=/dev/ttyUSB0
 ```
 
-To deliberately flash an older verified bundle, specify it explicitly:
-
-```sh
-make flash-production \
-  RDK_HANDOFF="${HOME}/Mentor_Pi/build/received-handoffs/rdk-arm64-YYYYMMDDTHHMMSSZ"
-```
-
-`YYYYMMDDTHHMMSSZ` is a placeholder in the override example; replace it with
-the exact transferred timestamp. The helper refuses a non-RDK host, an active
-production service/container, a malformed timestamp, or a failed checksum.
+`RDK_HANDOFF=/absolute/path/to/extracted-handoff` may select an older verified
+bundle explicitly. The helper refuses a non-RDK host, an unmanaged active
+production container, a malformed handoff name, or a failed checksum.
 
 Type the requested bootloader acknowledgement exactly:
 

@@ -321,9 +321,9 @@ in Tutorials 01--03.
 make rdk-handoff
 ```
 
-Load the pinned runtime image, install the packaged Agent prefix, then promote
-the already-tested host prefix. The
-promotion tool refuses an active controller target, an incomplete prefix, an
+On the RDK, the root Make targets load the pinned runtime image, install the
+packaged Agent prefix, and promote the already-tested host prefix. The
+underlying promotion tool refuses an incomplete prefix, an
 existing release ID, or a non-managed `/opt/mentor_pi/host` path. Its layout
 check includes both package-index records, interface metadata, and the
 generated C/C++/Fast-RTPS runtime libraries required by the supervisor. New
@@ -331,56 +331,23 @@ releases must also contain the read-only diagnostic collector and the shared
 deployment idle guard. It copies a complete root-owned, non-group-writable
 release before switching the symlink; older releases remain available for
 rollback. The release promoter and production-asset installer require an exact
-loaded-or-not-found/inactive target state before mutation:
+loaded-or-not-found/inactive target state before mutation. Use the compact
+receive, identity, install, and lifecycle commands:
 
 ```sh
-# PLACEHOLDER: replace YYYYMMDDTHHMMSSZ with the transferred bundle timestamp.
-readonly RDK_BUNDLE=/absolute/path/to/rdk-arm64-YYYYMMDDTHHMMSSZ
-readonly HOST_HANDOFF="${RDK_BUNDLE}/host-handoff"
-readonly RELEASE_ID="$(sed -n 's/^release_id=//p' "${HOST_HANDOFF}/HOST-HANDOFF.txt")"
-readonly RUNTIME_IMAGE_ID="$(sed -n 's/^runtime_image_id=//p' "${HOST_HANDOFF}/HOST-HANDOFF.txt")"
-docker load --input "${HOST_HANDOFF}/runtime-image/mentor-pi-runtime.tar"
-sudo install -d "/opt/mentor_pi/releases/agent/${RELEASE_ID}"
-sudo cp -a "${HOST_HANDOFF}/agent/." "/opt/mentor_pi/releases/agent/${RELEASE_ID}/"
-sudo ln -sfn "/opt/mentor_pi/releases/agent/${RELEASE_ID}" \
-  /opt/mentor_pi/micro_ros_agent
-sudo "${HOST_HANDOFF}/host/lib/mentor_pi_bringup/promote_host_release" \
-  --staged-prefix "${HOST_HANDOFF}/host" \
-  --release-id "${RELEASE_ID}"
-```
-
-Before first installation, connect exactly one target CH9102F and record either
-its nonempty `ID_SERIAL_SHORT` or its physical `ID_PATH` together with the
-current tty node:
-
-```sh
-readonly DEVICE=/dev/ttyUSB0
-udevadm info --query=property --name="${DEVICE}" | \
-  grep -E '^(ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL_SHORT|ID_PATH)='
-```
-
-Use the guarded installer, substituting the reviewed ROS domain and recorded
-identity. `--identity-kind id-path` with the exact `ID_PATH` is supported when
-the adapter has no unique serial. The installer verifies that exactly one
-connected CH9102F matches before writing anything. It creates the dedicated
-`mentor-pi-serial` group and service account, removes the service account from
-the broad `dialout` group, renders a unique udev rule, and installs coordinated
-units. First-install mode refuses every pre-existing site file:
-
-```sh
-sudo /opt/mentor_pi/host/lib/mentor_pi_bringup/install_production_assets \
-  --mode first-install \
-  --ros-domain-id 37 \
-  --identity-kind serial \
-  --identity-value RRCLITE_A1B2C3 \
-  --device "${DEVICE}" \
-  --runtime-image "${RUNTIME_IMAGE_ID}"
-
-sudo systemd-analyze verify \
-  /etc/systemd/system/mentor-pi-runtime.service \
-  /etc/systemd/system/mentor-pi-controller.target
+make rdk-receive
+make production-install PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=37 \
+  IDENTITY_KIND=serial IDENTITY_VALUE=RRCLITE_A1B2C3
 sudo systemctl enable --now mentor-pi-controller.target
 ```
+
+Use `IDENTITY_KIND=id-path` with the exact `ID_PATH` only when the adapter has
+no unique serial. The compact installer verifies the received and host
+manifests, symlinks, image identity/platform, Agent executable, connected
+CH9102F identity, promoted host layout, site files, and systemd units. It
+creates the dedicated `mentor-pi-serial` group and service account, removes the
+service account from the broad `dialout` group, and renders the unique udev
+rule. First-install mode refuses every pre-existing site file.
 
 The required `/etc/default/mentor-pi` is authoritative and contains exactly one
 active setting, `ROS_DOMAIN_ID`. The runtime service loads it last and its launcher
@@ -391,41 +358,25 @@ must contain no `ROS_*` keys. The fixed production serial path is
 Upgrade mode deliberately preserves `/etc/mentor-pi/controller.yaml`, the
 shared ROS identity, controller configuration, and the rendered device rule.
 It fails on a ROS-domain or device-identity mismatch instead of replacing them.
-Build another staged release, stop the target, promote it, install only the new
-units while validating the preserved site state, and then restart:
+Transfer another RDK handoff, select it explicitly only if it is not the newest,
+install in upgrade mode while validating the preserved site state, and restart:
 
 ```sh
-readonly PREVIOUS_RELEASE_ID="2026-08-06.1"
-readonly NEW_RELEASE_ID="2026-09-01.1"
-readonly NEW_STAGED_PREFIX="${PWD}/artifacts/mentor-pi-host-${NEW_RELEASE_ID}"
-sudo systemctl stop mentor-pi-controller.target
-sudo "${NEW_STAGED_PREFIX}/lib/mentor_pi_bringup/promote_host_release" \
-  --staged-prefix "${NEW_STAGED_PREFIX}" \
-  --release-id "${NEW_RELEASE_ID}"
-sudo /opt/mentor_pi/host/lib/mentor_pi_bringup/install_production_assets \
-  --mode upgrade \
-  --ros-domain-id 37 \
-  --identity-kind serial \
-  --identity-value RRCLITE_A1B2C3 \
-  --device "${DEVICE}" \
-  --runtime-image "${RUNTIME_IMAGE_ID}"
+make production-install INSTALL_MODE=upgrade PORT=/dev/ttyUSB0 \
+  ROS_DOMAIN_ID=37 IDENTITY_KIND=serial IDENTITY_VALUE=RRCLITE_A1B2C3
 sudo systemctl start mentor-pi-controller.target
 ```
 
 If validation or live checks fail, keep the target stopped, reactivate the
-previous complete release, reinstall its units in upgrade mode, and start the
-target only after verification:
+previous complete handoff in upgrade mode, and start the target only after
+verification:
 
 ```sh
-sudo /opt/mentor_pi/host/lib/mentor_pi_bringup/promote_host_release \
-  --activate-release "${PREVIOUS_RELEASE_ID}"
-sudo /opt/mentor_pi/host/lib/mentor_pi_bringup/install_production_assets \
-  --mode upgrade \
-  --ros-domain-id 37 \
-  --identity-kind serial \
-  --identity-value RRCLITE_A1B2C3 \
-  --device "${DEVICE}" \
-  --runtime-image "${RUNTIME_IMAGE_ID}"
+make production-install INSTALL_MODE=upgrade \
+  RDK_HANDOFF=/absolute/path/to/rdk-arm64-<previous-timestamp> \
+  PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=37 \
+  IDENTITY_KIND=serial IDENTITY_VALUE=RRCLITE_A1B2C3
+sudo systemctl start mentor-pi-controller.target
 ```
 
 Changing motor model, PWM offsets, battery threshold, ROS domain, or USB

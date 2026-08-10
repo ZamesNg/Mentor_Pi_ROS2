@@ -122,16 +122,12 @@ command only; it does not configure compilation or runtime on the RDK.
 ```sh
 cd "${HOME}/Mentor_Pi"
 make rdk-handoff
-# PLACEHOLDER: replace YYYYMMDDTHHMMSSZ with the timestamp printed above.
-readonly RDK_BUNDLE="${HOME}/Mentor_Pi/build/rdk-handoff/rdk-arm64-YYYYMMDDTHHMMSSZ"
-(cd "${RDK_BUNDLE}" && sha256sum --check SHA256SUMS)
-grep -E '^(build_execution|build_host_architecture|target_architecture|native_target_validated)=' \
-  "${RDK_BUNDLE}/RDK-HANDOFF.txt"
 ```
 
-The values must be `qemu-emulated`, `amd64`, `arm64`, and `0`. This is not
-native RDK runtime, memory, tracker, peripheral, HIL, or release evidence.
-Replace the timestamp above with the exact path printed by the Make command.
+The command verifies the final checksums and reports the timestamped bundle and
+its `qemu-emulated`, `amd64`, `arm64`, and `native_target_validated=0`
+provenance. This is not native RDK runtime, memory, tracker, peripheral, HIL,
+or release evidence.
 Archive, checksum, and transfer the newest completed bundle with one command:
 
 ```sh
@@ -146,24 +142,18 @@ completed bundle or a different remote directory, pass
 `RDK_DEST=/absolute/remote/path`. Configure non-default ports or jump hosts in
 SSH config so the compact command remains unchanged.
 
-A trusted removable drive may replace `scp`. On the RDK, verify the computer
-and archive before extracting anything:
+A trusted removable drive may replace `scp`. On the RDK, one command verifies
+the computer, Docker Engine, archive checksum, safe archive layout, extracted
+bundle manifest, and timestamp. It atomically extracts the newest transferred
+archive only when necessary:
 
 ```sh
 cd "${HOME}/Mentor_Pi"
-test "$(uname -m)" = aarch64
-test "$(. /etc/os-release && printf '%s/%s' "${ID}" "${VERSION_ID}")" = ubuntu/22.04
-./tools/detect_host_profile.sh | grep -Fqx 'profile=rdk-x5'
-docker info >/dev/null
-cd build/received-handoffs
-# PLACEHOLDER: replace YYYYMMDDTHHMMSSZ with the transferred bundle timestamp.
-sha256sum --check rdk-arm64-YYYYMMDDTHHMMSSZ.tar.sha256
-tar -xpf rdk-arm64-YYYYMMDDTHHMMSSZ.tar
-readonly RDK_BUNDLE="${HOME}/Mentor_Pi/build/received-handoffs/rdk-arm64-YYYYMMDDTHHMMSSZ"
-(cd "${RDK_BUNDLE}" && sha256sum --check SHA256SUMS)
+make rdk-receive
 ```
 
-Stop if the native architecture, OS, device-tree profile, Docker engine, or
-either checksum differs. Do not run `make host` on the RDK deployment path.
+Set `RDK_HANDOFF=/absolute/path/to/rdk-arm64-<actual-timestamp>` only to select
+an older extracted bundle explicitly. Stop if any verification fails. Do not
+run `make host` on the RDK deployment path.
 
 Next: [Tutorial 02: Build and Flash the Default PID Firmware](02-build-and-flash-default-pid-firmware.md).

@@ -174,12 +174,11 @@ grep -Eq '^runtime_image_archive_sha256=[0-9a-f]{64}$' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "runtime archive hash is missing"
 grep -Fqx 'runtime_image_archive_format=oci-v1' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "OCI archive format is missing"
-grep -Fq 'docker load --input runtime-image/mentor-pi-runtime.tar' \
-  "${HANDOFF}/INSTALL.txt" || Fail "handoff installer omits OCI load"
-grep -Fq -- "--format '{{.Id}}'" "${HANDOFF}/INSTALL.txt" || \
-  Fail "handoff installer omits the exact loaded image ID check"
-grep -Fq 'promote_host_release' "${HANDOFF}/INSTALL.txt" || \
-  Fail "handoff installer omits host promotion"
+for compact_command in 'make rdk-receive' 'make flash-production' \
+    'make production-install'; do
+  grep -Fq "${compact_command}" "${HANDOFF}/INSTALL.txt" || \
+    Fail "handoff installer omits compact command: ${compact_command}"
+done
 grep -Fqx $'agent/lib/libfixture.so\tlibfixture.so.1' \
   "${HANDOFF}/SYMLINKS.txt" || Fail "Agent symlink manifest is missing"
 [[ "$(readlink "${HANDOFF}/agent/lib/libfixture.so")" == libfixture.so.1 ]] || \

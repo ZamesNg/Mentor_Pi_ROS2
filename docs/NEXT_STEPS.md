@@ -31,7 +31,10 @@ The active host policy is Docker-only:
   provides pinned Oh My Zsh, completion, autosuggestions, syntax highlighting,
   and ROS 2 CLI completion;
 - production uses one systemd-managed Docker service running the fail-coupled
-  Agent and configuration-supervisor launch; and
+  Agent and configuration-supervisor launch;
+- `make rdk-receive`, `make flash-production`, and `make production-install`
+  provide the compact RDK receive, flash, image/Agent/host, and systemd install
+  path without timestamp placeholders or manual deployment plumbing; and
 - the operator path is one Docker-first Tutorial 01--08 sequence. Tutorial 07
   keeps a lightweight RDK gate without fuzzing, coverage, or the full Clang
   suite and a complete normal-computer gate.
@@ -141,14 +144,16 @@ recorded; mocks never establish hardware behavior.
    as a conservative per-command limit for this
    emulated arm64 build; it is not an RDK setting. Do not treat the build as
    native performance evidence.
-3. On the RDK X5, verify and extract the bundle, load its OCI image without
-   rebuilding the host workspace, and follow Tutorials 01--02 to flash the
-   exact packaged PID artifact with actuator power disconnected.
-4. Follow Tutorial 03 to install the versioned Agent and host prefixes, bind
-   the reviewed CH9102F identity, verify the units, and start the production
-   target. Record image identity, load/install duration, memory use, and runtime
-   behavior. Benchmark both trackers at 30 Hz with the 25 ms solve deadline
-   before hardware use. A native RDK host build is optional diagnostics only.
+3. On the RDK X5, run `make rdk-receive`, then follow Tutorial 02 and run
+   `make flash-production` with actuator power disconnected. These commands
+   verify/extract the bundle and flash the exact packaged PID artifact.
+4. Follow Tutorial 03 and run `make production-install` with the reviewed
+   CH9102F identity arguments, then enable the installed controller target. The compact
+   installer loads and verifies the OCI image, versioned Agent and host prefix,
+   site configuration, and units without rebuilding the workspace. Record image
+   identity, load/install duration, memory use, and runtime behavior. Benchmark
+   both trackers at 30 Hz with the 25 ms solve deadline before hardware use. A
+   native RDK host build is optional diagnostics only.
 5. Complete Tutorials 04--05. Verify the graph, supervisor `READY`, heartbeat,
    diagnostics, passive encoder signs, IMU samples, and Agent restart recovery.
 6. Only after every passive gate passes, follow Tutorial 06 with guarded wheels,

@@ -36,7 +36,9 @@ grep -Fqx 'RDK_DEST ?= /home/sunrise/Mentor_Pi/build/received-handoffs' \
   "${PROJECT_ROOT}/Makefile" || \
   Fail "Makefile does not default to the sunrise RDK handoff directory"
 
-for target in rdk-handoff rdk-transfer serial-setup flash flash-production start start-hardware start-mecanum start-ackermann \
+for target in rdk-handoff rdk-transfer rdk-receive serial-setup flash \
+    flash-production production-install \
+    start start-hardware start-mecanum start-ackermann \
     passive-check peripheral-smoke characterize-board \
     release-software-gates release-onboard-gates; do
   grep -Eq "^[^:#]*\\b${target}([ :]|$)" "${PROJECT_ROOT}/Makefile" || \
@@ -48,7 +50,7 @@ readonly TUTORIAL_02="${PROJECT_ROOT}/docs/tutorials/02-build-and-flash-default-
 readonly TUTORIAL_03="${PROJECT_ROOT}/docs/tutorials/03-build-and-run-humble-host.md"
 for required in qemu-user-static 'make rdk-handoff' \
     'make rdk-transfer RDK_LOGIN=sunrise@rdk-hostname' \
-    'sha256sum --check' 'test "$(uname -m)" = aarch64' detect_host_profile.sh; do
+    'make rdk-receive'; do
   grep -Fq "${required}" "${TUTORIAL_01}" || \
     Fail "Tutorial 01 omits RDK handoff step: ${required}"
 done
@@ -58,13 +60,21 @@ for required in 'tar -C' 'sha256sum' 'ssh --' 'scp --'; do
 done
 grep -Fq 'make flash-production' "${TUTORIAL_02}" || \
   Fail "Tutorial 02 omits newest-handoff production flashing"
-for required in 'docker load --input' "'{{.Os}}/{{.Architecture}}'" \
-    promote_host_release install_production_assets 'systemd-analyze verify' \
+for required in 'make production-install' \
     'systemctl enable --now mentor-pi-controller.target' \
     'Do not run `make host`' 'mentor-pi-production'; do
   grep -Fq "${required}" "${TUTORIAL_03}" || \
     Fail "Tutorial 03 omits production deployment step: ${required}"
 done
+for required in 'docker load --input' "'{{.Os}}/{{.Architecture}}'" \
+    promote_host_release install_production_assets 'systemd-analyze verify'; do
+  grep -Fq "${required}" "${SCRIPT_DIR}/install_rdk_production.sh" || \
+    Fail "compact production installer omits: ${required}"
+done
+if rg -q 'PLACEHOLDER: replace YYYYMMDDTHHMMSSZ|readonly (RDK_BUNDLE|HOST_HANDOFF|RUNTIME_IMAGE_ID)' \
+    "${TUTORIAL_01}" "${TUTORIAL_02}" "${TUTORIAL_03}"; then
+  Fail "Tutorials 01--03 still expose manual timestamp or handoff plumbing"
+fi
 grep -Fq 'RUN_ONBOARD_DOCKER_GATES' "${SCRIPT_DIR}/tutorial_action.sh" || \
   Fail "RDK Docker gates do not require their distinct acknowledgement"
 grep -Fq 'run_fuzz_smoke.sh' "${SCRIPT_DIR}/tutorial_action.sh" || \
