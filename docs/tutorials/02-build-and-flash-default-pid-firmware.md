@@ -26,11 +26,11 @@ provenance, and at least 20% headroom in every memory class. Stop on stale
 metadata, an invalid profile, or any build, hash, vector, or memory failure.
 
 For a production RDK bundle, skip `make firmware`: the exact verified PID image
-is already under `board-handoff/firmware-pid-release/`. The production flash
-helper selects the newest valid timestamp under `build/received-handoffs/` by
-default. If only the transferred `.tar` and `.tar.sha256` are present, it
-verifies and atomically extracts the archive first. It then rechecks the outer
-and board manifests before programming.
+is already under `board-handoff/firmware-pid-release/`. Tutorial 01's
+`make rdk-receive` selects the newest timestamp, verifies and atomically
+extracts a transferred archive when necessary, checks the complete outer
+manifest once, and records the verified timestamp. Flashing later checks that
+receipt and the much smaller board package without rehashing the host image.
 Tutorial 01's `make rdk-receive` performs the standalone receipt check; the
 flash target repeats the relevant selection and manifest verification.
 
@@ -70,8 +70,9 @@ cd "${HOME}/Mentor_Pi" && make flash
 cd "${HOME}/Mentor_Pi" && make flash-production
 ```
 
-`RDK_HANDOFF=/absolute/path/to/extracted-handoff` may select an older verified
-bundle explicitly. The helper refuses a non-RDK host, an unmanaged active
+To select an older bundle, first record it with
+`make rdk-receive RDK_HANDOFF=/absolute/path/to/extracted-handoff`; the later
+flash and install commands use that receipt. The helper refuses a non-RDK host, an unmanaged active
 production container, a malformed handoff name, or a failed checksum.
 
 Type the requested bootloader acknowledgement exactly:

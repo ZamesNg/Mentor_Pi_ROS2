@@ -372,6 +372,8 @@ previous complete handoff in upgrade mode, and start the target only after
 verification:
 
 ```sh
+make rdk-receive \
+  RDK_HANDOFF=/absolute/path/to/rdk-arm64-<previous-timestamp>
 make production-install INSTALL_MODE=upgrade \
   RDK_HANDOFF=/absolute/path/to/rdk-arm64-<previous-timestamp> \
   PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=37 \

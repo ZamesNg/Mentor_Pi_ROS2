@@ -47,5 +47,15 @@ else
     "${DEFAULT_SEARCH_ROOT}")"
 fi
 
+[[ "$(dirname "${handoff}")" == "${DEFAULT_SEARCH_ROOT}" ]] || \
+  Fail "verified handoff must be directly under ${DEFAULT_SEARCH_ROOT}"
+readonly receipt="${DEFAULT_SEARCH_ROOT}/VERIFIED-RDK-HANDOFF.txt"
+readonly manifest_sha="$(sha256sum "${handoff}/SHA256SUMS" | awk '{print $1}')"
+receipt_staging="$(mktemp "${DEFAULT_SEARCH_ROOT}/.verified-handoff.XXXXXX")"
+printf 'handoff_name=%s\nmanifest_sha256=%s\n' \
+  "$(basename "${handoff}")" "${manifest_sha}" >"${receipt_staging}"
+chmod 0644 "${receipt_staging}"
+mv -f "${receipt_staging}" "${receipt}"
+
 echo "Verified received RDK handoff: ${handoff}" >&2
 printf '%s\n' "${handoff}"

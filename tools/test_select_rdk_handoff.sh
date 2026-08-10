@@ -38,6 +38,14 @@ selected="$("${SELECTOR}" --latest-under "${TEST_ROOT}")"
 [[ "$("${SELECTOR}" --verify "${TEST_ROOT}/rdk-arm64-20260810T010203Z")" == \
   "${TEST_ROOT}/rdk-arm64-20260810T010203Z" ]] || \
   Fail "explicit older handoff verification failed"
+manifest_sha="$(sha256sum \
+  "${TEST_ROOT}/rdk-arm64-20260810T040506Z/SHA256SUMS" | awk '{print $1}')"
+printf 'handoff_name=%s\nmanifest_sha256=%s\n' \
+  rdk-arm64-20260810T040506Z "${manifest_sha}" > \
+  "${TEST_ROOT}/VERIFIED-RDK-HANDOFF.txt"
+[[ "$("${SELECTOR}" --recorded-under "${TEST_ROOT}")" == \
+  "${TEST_ROOT}/rdk-arm64-20260810T040506Z" ]] || \
+  Fail "recorded handoff selection failed"
 
 mkdir -p "${TEST_ROOT}/received"
 tar -C "${TEST_ROOT}" -cpf \

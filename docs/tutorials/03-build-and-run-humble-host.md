@@ -13,8 +13,8 @@ Next: [Tutorial 04: Run Passive Board Bring-Up](04-run-passive-board-bringup.md)
 
 On the RDK, use the exact bundle verified and flashed in Tutorials 01–02.
 Do not run `make host`: install its already-tested host and Agent prefixes while
-the controller target is inactive. The compact installer verifies both bundle
-manifests, loads and checks the arm64 image, installs and hashes the Agent,
+the controller target is inactive. The compact installer requires Tutorial
+01's recorded verified receipt, loads and checks the arm64 image, installs and hashes the Agent,
 promotes the host release, installs the site configuration and units, and runs
 the systemd unit verifier.
 

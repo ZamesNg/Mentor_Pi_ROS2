@@ -4,6 +4,7 @@ set -euo pipefail
 
 mode=""
 path=""
+skip_full_verification=0
 
 Fail() {
   echo "RDK handoff selection error: $*" >&2
@@ -11,16 +12,37 @@ Fail() {
 }
 
 Usage() {
-  echo "Usage: select_rdk_handoff.sh --latest-under ABSOLUTE_DIRECTORY | --latest-received-under ABSOLUTE_DIRECTORY | --verify ABSOLUTE_HANDOFF" >&2
+  echo "Usage: select_rdk_handoff.sh --latest-under ABSOLUTE_DIRECTORY | --latest-received-under ABSOLUTE_DIRECTORY | --recorded-under ABSOLUTE_DIRECTORY | --verify ABSOLUTE_HANDOFF" >&2
   exit 2
 }
 
 [[ "$#" == 2 ]] || Usage
 case "$1" in
-  --latest-under | --latest-received-under | --verify) mode="$1"; path="$2" ;;
+  --latest-under | --latest-received-under | --recorded-under | --verify) mode="$1"; path="$2" ;;
   *) Usage ;;
 esac
 [[ "${path}" == /* ]] || Fail "path must be absolute"
+
+if [[ "${mode}" == --recorded-under ]]; then
+  [[ -d "${path}" && ! -L "${path}" ]] || \
+    Fail "received-handoff directory is missing or symbolic: ${path}"
+  readonly receipt="${path}/VERIFIED-RDK-HANDOFF.txt"
+  [[ -f "${receipt}" && ! -L "${receipt}" ]] || \
+    Fail "verified handoff receipt is missing; run make rdk-receive"
+  handoff_name="$(sed -n 's/^handoff_name=//p' "${receipt}")"
+  recorded_manifest_sha="$(sed -n 's/^manifest_sha256=//p' "${receipt}")"
+  [[ "${handoff_name}" =~ ^rdk-arm64-[0-9]{8}T[0-9]{6}Z$ && \
+     "${recorded_manifest_sha}" =~ ^[0-9a-f]{64}$ && \
+     "$(grep -Ec '^(handoff_name|manifest_sha256)=' "${receipt}")" == 2 ]] || \
+    Fail "verified handoff receipt is malformed; rerun make rdk-receive"
+  path="${path}/${handoff_name}"
+  [[ -f "${path}/SHA256SUMS" && ! -L "${path}/SHA256SUMS" ]] || \
+    Fail "recorded handoff manifest is missing or symbolic"
+  current_manifest_sha="$(sha256sum "${path}/SHA256SUMS" | awk '{print $1}')"
+  [[ "${current_manifest_sha}" == "${recorded_manifest_sha}" ]] || \
+    Fail "recorded handoff manifest changed; rerun make rdk-receive"
+  skip_full_verification=1
+fi
 
 if [[ "${mode}" == --latest-under || "${mode}" == --latest-received-under ]]; then
   [[ -d "${path}" && ! -L "${path}" ]] || \
@@ -96,8 +118,10 @@ readonly manifest="${path}/SHA256SUMS"
 [[ -f "${metadata}" && ! -L "${metadata}" && \
    -f "${manifest}" && ! -L "${manifest}" ]] || \
   Fail "RDK handoff metadata or checksum manifest is missing or symbolic"
-(cd "${path}" && sha256sum --check SHA256SUMS >/dev/null) || \
-  Fail "RDK handoff checksum verification failed"
+if [[ "${skip_full_verification}" == 0 ]]; then
+  (cd "${path}" && sha256sum --check SHA256SUMS >/dev/null) || \
+    Fail "RDK handoff checksum verification failed"
+fi
 for expected in \
     'package_format=rrclite-rdk-handoff-v1' \
     "release_id=${name}" \

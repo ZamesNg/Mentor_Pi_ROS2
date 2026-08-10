@@ -49,7 +49,9 @@ only affected stages;
 unaffected checksummed stages and incremental colcon work are retained. The RDK loads and installs the
 bundle without rebuilding the host workspace. On the RDK, `make rdk-receive`,
 `make flash-production`, and `make production-install` replace manual archive,
-image, Agent, host-prefix, and systemd installation command sequences. Native
+image, Agent, host-prefix, and systemd installation command sequences. The
+full bundle checksum runs once during `make rdk-receive`; later commands use
+its recorded receipt. Native
 RDK compilation is optional diagnostics, not release evidence.
 
 The current board has a hardware-verified timing baseline, while the newest

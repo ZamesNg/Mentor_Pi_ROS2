@@ -13,6 +13,9 @@ if [[ -n "${MENTOR_PI_RDK_RECEIVER:-}" && -z "${TEST_ROOT}" ]]; then
   exit 2
 fi
 readonly RECEIVER="${MENTOR_PI_RDK_RECEIVER:-${SCRIPT_DIR}/receive_rdk_handoff.sh}"
+readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly SELECTOR="${SCRIPT_DIR}/select_rdk_handoff.sh"
+readonly RECEIVED_ROOT="${PROJECT_ROOT}/build/received-handoffs"
 readonly OPT_ROOT="${TEST_ROOT}/opt/mentor_pi"
 readonly ETC_SYSTEMD="${TEST_ROOT}/etc/systemd/system"
 
@@ -67,24 +70,33 @@ done
   ((ros_domain_id <= 232)) || Usage
 [[ "${identity_kind}" == serial || "${identity_kind}" == id-path ]] || Usage
 [[ "${identity_value}" =~ ^[A-Za-z0-9._:+/@-]+$ ]] || Usage
-[[ -x "${RECEIVER}" ]] || Fail "RDK handoff receiver is unavailable"
+[[ -x "${RECEIVER}" && -x "${SELECTOR}" ]] || \
+  Fail "RDK handoff selection helpers are unavailable"
 for command in docker realpath sha256sum sudo systemctl systemd-analyze; do
   command -v "${command}" >/dev/null 2>&1 || Fail "${command} is required"
 done
 
-receiver_args=()
-if [[ -n "${handoff}" ]]; then
-  receiver_args+=(--handoff "${handoff}")
+if [[ -n "${TEST_ROOT}" ]]; then
+  receiver_args=()
+  [[ -z "${handoff}" ]] || receiver_args+=(--handoff "${handoff}")
+  bundle="$("${RECEIVER}" "${receiver_args[@]}")"
+else
+  bundle="$("${SELECTOR}" --recorded-under "${RECEIVED_ROOT}")"
+  if [[ -n "${handoff}" ]]; then
+    [[ "${handoff}" == /* ]] || Usage
+    handoff="$(cd "${handoff}" 2>/dev/null && pwd -P)" || \
+      Fail "explicit RDK handoff is missing"
+    [[ "${handoff}" == "${bundle}" ]] || \
+      Fail "explicit handoff was not received; run make rdk-receive RDK_HANDOFF=${handoff}"
+  fi
 fi
-readonly bundle="$("${RECEIVER}" "${receiver_args[@]}")"
+readonly bundle
 readonly bundle_name="$(basename "${bundle}")"
 readonly host_handoff="${bundle}/host-handoff"
 readonly host_metadata="${host_handoff}/HOST-HANDOFF.txt"
 [[ -d "${host_handoff}" && ! -L "${host_handoff}" && \
    -f "${host_metadata}" && ! -L "${host_metadata}" ]] || \
   Fail "host handoff is missing or symbolic"
-(cd "${host_handoff}" && sha256sum --check --strict SHA256SUMS >/dev/null) || \
-  Fail "host handoff checksum verification failed"
 readonly symlink_manifest="${host_handoff}/SYMLINKS.txt"
 [[ -f "${symlink_manifest}" && ! -L "${symlink_manifest}" ]] || \
   Fail "host handoff symlink manifest is missing or symbolic"

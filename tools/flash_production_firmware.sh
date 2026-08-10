@@ -39,10 +39,15 @@ esac
 "${SCRIPT_DIR}/detect_host_profile.sh" | grep -Fqx 'profile=rdk-x5' || \
   Fail "make flash-production requires the detected RDK X5 profile"
 
+recorded_handoff="$("${SELECTOR}" --recorded-under "${DEFAULT_SEARCH_ROOT}")"
 if [[ -n "${handoff}" ]]; then
-  handoff="$("${SELECTOR}" --verify "${handoff}")"
+  [[ "${handoff}" == /* ]] || Usage
+  handoff="$(cd "${handoff}" 2>/dev/null && pwd -P)" || \
+    Fail "explicit RDK handoff is missing"
+  [[ "${handoff}" == "${recorded_handoff}" ]] || \
+    Fail "explicit handoff was not received; run make rdk-receive RDK_HANDOFF=${handoff}"
 else
-  handoff="$("${SELECTOR}" --latest-received-under "${DEFAULT_SEARCH_ROOT}")"
+  handoff="${recorded_handoff}"
 fi
 
 command -v systemctl >/dev/null 2>&1 || Fail "systemctl is unavailable"
