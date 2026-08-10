@@ -30,15 +30,22 @@ MakeRepository() {
   git -C "${destination}" remote add origin "${origin}"
 }
 
-readonly ORIGIN="https://github.com/example/micro-ros-source.git"
+readonly ORIGIN="https://github.com/ros2/rcl.git"
+readonly SECOND_ORIGIN="https://github.com/ros2/rclc.git"
 readonly DEFERRED_ORIGIN="https://github.com/example/deferred-source.git"
-readonly REPOSITORY="${TEST_ROOT}/workspace/source"
+readonly REPOSITORY="${TEST_ROOT}/workspace/rcl"
+readonly SECOND_REPOSITORY="${TEST_ROOT}/workspace/rclc"
 readonly SOURCE_LOCK="${TEST_ROOT}/source.lock"
 MakeRepository "${REPOSITORY}" "${ORIGIN}"
+MakeRepository "${SECOND_REPOSITORY}" "${SECOND_ORIGIN}"
 readonly COMMIT="$(git -C "${REPOSITORY}" rev-parse HEAD)"
+readonly SECOND_COMMIT="$(git -C "${SECOND_REPOSITORY}" rev-parse HEAD)"
+# Keep the checked repositories deliberately out of bytewise order so the
+# lock tool, not fixture order or the caller's locale, defines comparison.
 printf '%s %s\n' \
-  "${ORIGIN%.git}" "${COMMIT}" \
-  "${DEFERRED_ORIGIN%.git}" "${COMMIT}" >"${SOURCE_LOCK}"
+  "${SECOND_ORIGIN%.git}" "${SECOND_COMMIT}" \
+  "${DEFERRED_ORIGIN%.git}" "${COMMIT}" \
+  "${ORIGIN%.git}" "${COMMIT}" >"${SOURCE_LOCK}"
 
 ApplyLock() {
   "${LOCK_TOOL}" "${TEST_ROOT}/workspace" "${SOURCE_LOCK}" \
@@ -49,6 +56,8 @@ ExpectFailure "${LOCK_TOOL}" "${TEST_ROOT}/workspace" "${SOURCE_LOCK}"
 ApplyLock >/dev/null
 git -C "${REPOSITORY}" symbolic-ref -q HEAD >/dev/null 2>&1 &&
   Fail "locked repository remained attached to a branch"
+git -C "${SECOND_REPOSITORY}" symbolic-ref -q HEAD >/dev/null 2>&1 &&
+  Fail "second locked repository remained attached to a branch"
 
 ExpectFailure "${LOCK_TOOL}" "${TEST_ROOT}/workspace" "${SOURCE_LOCK}" \
   --deferred-repository https://github.com/example/not-locked.git

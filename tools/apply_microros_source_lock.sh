@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+# Repository completeness is a bytewise set comparison. Do not let the
+# caller's locale order prefix-related URLs such as ros2/rcl and ros2/rclc
+# differently during normalization and final verification.
+export LC_ALL=C
+
 if [[ "$#" -lt 2 ]]; then
   echo "Usage: $0 <micro-ROS workspace> <source lock> [--deferred-repository URL ...]" >&2
   exit 2
