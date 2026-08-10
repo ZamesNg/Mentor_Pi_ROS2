@@ -53,6 +53,7 @@ enum class Operation {
 
 constexpr std::array<std::int16_t, 4> kExpectedOffsets{-100, -50, 50, 100};
 constexpr std::uint16_t kExpectedBatteryThresholdMv = 9000;
+constexpr auto kNativeLaunchDeadline = 10s;
 
 int g_failures = 0;
 
@@ -279,6 +280,11 @@ bool SetEnvironment(const char* name, const std::string& value) {
   return false;
 }
 
+bool IsQemuEmulatedTest() {
+  const char* emulated = std::getenv("RRCLITE_QEMU_EMULATED_TESTS");
+  return emulated != nullptr && std::string{emulated} == "1";
+}
+
 bool WriteExecutable(const std::string& path, const std::string& content) {
   std::ofstream output{path};
   if (!output.is_open()) {
@@ -346,8 +352,12 @@ void RunLaunchTest(const std::string& fake_agent_path,
 
   bool configured = false;
   if (started) {
-    const auto deadline = std::chrono::steady_clock::now() + 10s;
-    while (std::chrono::steady_clock::now() < deadline && launch.IsRunning()) {
+    const bool qemu_emulated = IsQemuEmulatedTest();
+    const auto native_deadline =
+        std::chrono::steady_clock::now() + kNativeLaunchDeadline;
+    while (launch.IsRunning() &&
+           (qemu_emulated ||
+            std::chrono::steady_clock::now() < native_deadline)) {
       controller.PublishHeartbeat();
       executor.spin_some();
       if (controller.ready() && MarkerIsReady(marker_path)) {

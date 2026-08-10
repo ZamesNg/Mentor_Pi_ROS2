@@ -3,6 +3,7 @@
 set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly PACKAGED_FLASHER="${SCRIPT_DIR}/flash_packaged_firmware.sh"
 readonly FLASH_SOURCE="${SCRIPT_DIR}/flash_firmware.sh"
 readonly TEST_ROOT="$(mktemp -d)"
 
@@ -17,6 +18,19 @@ Fail() {
   echo "Direct firmware flash test failed: $*" >&2
   exit 1
 }
+
+[[ -x "${PACKAGED_FLASHER}" ]] || Fail "packaged firmware flasher is missing"
+grep -Fq 'sha256sum --check SHA256SUMS' "${PACKAGED_FLASHER}" || \
+  Fail "packaged firmware flasher does not verify manifests"
+grep -Fq 'NORMAL_CLOSED_LOOP_DEFAULT' "${PACKAGED_FLASHER}" || \
+  Fail "packaged firmware flasher does not require the PID release classification"
+grep -Fq 'RRCLITE_FLASH_FIRMWARE_DIRECTORY' "${PACKAGED_FLASHER}" || \
+  Fail "packaged firmware flasher does not select its verified release"
+grep -Fq 'RRCLITE_FLASH_FIRMWARE_DIRECTORY' "${SCRIPT_DIR}/flash_firmware.sh" || \
+  Fail "low-level flasher cannot use a verified packaged release"
+grep -Fq 'packaged firmware changed while the flash snapshot was prepared' \
+  "${SCRIPT_DIR}/flash_firmware.sh" || \
+  Fail "low-level flasher does not recheck the packaged manifest against races"
 
 Sha256() {
   if command -v sha256sum >/dev/null 2>&1; then

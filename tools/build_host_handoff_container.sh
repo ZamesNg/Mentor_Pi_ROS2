@@ -22,11 +22,14 @@ architecture=""
 output_directory=""
 release_id=""
 image=""
+resume=0
+mode=build-package
 
 Usage() {
   cat >&2 <<'EOF'
 Usage: build_host_handoff_container.sh --architecture amd64|arm64
   --release-id SAFE_ID --output-directory PATH [--image PREPARED_IMAGE]
+  [--resume] [--build-only|--package-only]
        build_host_handoff_container.sh --print-default-image \
          --architecture amd64|arm64
 
@@ -58,6 +61,9 @@ while (($# > 0)); do
     --release-id) release_id="${2:-}"; shift 2 ;;
     --output-directory) output_directory="${2:-}"; shift 2 ;;
     --image) image="${2:-}"; shift 2 ;;
+    --resume) resume=1; shift ;;
+    --build-only) mode=build-only; shift ;;
+    --package-only) mode=package-only; shift ;;
     *) Usage ;;
   esac
 done
@@ -85,7 +91,9 @@ if [[ -z "${image}" ]]; then
 fi
 [[ "${release_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] ||
   Fail "release ID must contain 1-64 safe filename characters"
-[[ -n "${output_directory}" ]] || Usage
+[[ "${mode}" == build-only || -n "${output_directory}" ]] || Usage
+[[ "${mode}" != package-only || "${resume}" == 0 ]] || \
+  Fail "--package-only does not accept --resume"
 command -v docker >/dev/null 2>&1 || Fail "docker is not installed"
 [[ -x "${OCI_EXPORTER}" ]] || Fail "OCI image exporter is unavailable"
 docker image inspect "${image}" >/dev/null 2>&1 ||
@@ -115,7 +123,9 @@ else
 fi
 readonly builder_identity
 
-if [[ "${output_directory}" == /* ]]; then
+if [[ "${mode}" == build-only ]]; then
+  output_candidate="${PROJECT_ROOT}/build/host-handoff/${release_id}"
+elif [[ "${output_directory}" == /* ]]; then
   output_candidate="${output_directory}"
 else
   output_candidate="${PROJECT_ROOT}/${output_directory}"
@@ -128,41 +138,61 @@ case "${OUTPUT_ROOT}/" in
   "${PROJECT_ROOT}/"*) ;;
   *) Fail "container output must remain inside the project workspace" ;;
 esac
-[[ ! -e "${OUTPUT_ROOT}" && ! -L "${OUTPUT_ROOT}" ]] ||
-  Fail "refusing to replace existing output ${OUTPUT_ROOT}"
+if [[ "${mode}" != build-only ]]; then
+  [[ ! -e "${OUTPUT_ROOT}" && ! -L "${OUTPUT_ROOT}" ]] ||
+    Fail "refusing to replace existing output ${OUTPUT_ROOT}"
+fi
 readonly OUTPUT_RELATIVE="${OUTPUT_ROOT#"${PROJECT_ROOT}/"}"
 
 readonly WORK_RELATIVE="build/host-handoff-work/${release_id}-${architecture}"
 readonly WORK_ROOT="${PROJECT_ROOT}/${WORK_RELATIVE}"
-[[ ! -e "${WORK_ROOT}" && ! -L "${WORK_ROOT}" ]] ||
-  Fail "refusing to replace existing work directory ${WORK_ROOT}"
+if [[ "${mode}" == package-only ]]; then
+  [[ -d "${WORK_ROOT}" && ! -L "${WORK_ROOT}" ]] || \
+    Fail "package-only handoff requires existing regular work at ${WORK_ROOT}"
+elif ((resume == 1)); then
+  [[ -d "${WORK_ROOT}" && ! -L "${WORK_ROOT}" ]] || \
+    Fail "resumed host handoff requires existing regular work at ${WORK_ROOT}"
+else
+  [[ ! -e "${WORK_ROOT}" && ! -L "${WORK_ROOT}" ]] || \
+    Fail "refusing to replace existing work directory ${WORK_ROOT}"
+fi
 readonly PREFIX_RELATIVE="${WORK_RELATIVE}/prefix"
 readonly BUILD_RELATIVE="${WORK_RELATIVE}/colcon"
 readonly CONTAINER_PLATFORM="linux/${architecture}"
 readonly CALLER_UID="$(id -u)"
 readonly CALLER_GID="$(id -g)"
 readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
-"${AGENT_BUILDER}"
-readonly AGENT_PREFIX="$(${AGENT_BUILDER} --print-output)"
-readonly AGENT_RELATIVE="${AGENT_PREFIX#"${PROJECT_ROOT}/"}"
-[[ "${AGENT_RELATIVE}" != "${AGENT_PREFIX}" && \
-   -x "${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent" ]] || \
-  Fail "verified Agent prefix is unavailable"
+readonly QEMU_EMULATED_TESTS="${RRCLITE_QEMU_EMULATED_TESTS:-0}"
+[[ "${QEMU_EMULATED_TESTS}" == 0 || "${QEMU_EMULATED_TESTS}" == 1 ]] || \
+  Fail "RRCLITE_QEMU_EMULATED_TESTS must be 0 or 1"
 readonly RUNTIME_IMAGE_SOURCE_ID="$(docker image inspect "${image}" --format '{{.Id}}')"
 readonly IMAGE_ARCHIVE_RELATIVE="build/host-handoff-images/${release_id}-${architecture}.tar"
 readonly IMAGE_ARCHIVE="${PROJECT_ROOT}/${IMAGE_ARCHIVE_RELATIVE}"
-mkdir -p "$(dirname "${IMAGE_ARCHIVE}")"
-[[ ! -e "${IMAGE_ARCHIVE}" && ! -L "${IMAGE_ARCHIVE}" ]] || \
-  Fail "runtime image archive path already exists"
-cleanup_archive=1
+agent_relative=unused
+runtime_image_id="${RUNTIME_IMAGE_SOURCE_ID}"
+cleanup_archive=0
 CleanupArchive() {
   if [[ "${cleanup_archive}" == 1 && -f "${IMAGE_ARCHIVE}" ]]; then
     rm -f -- "${IMAGE_ARCHIVE}"
   fi
 }
 trap CleanupArchive EXIT
-readonly RUNTIME_IMAGE_ID="$("${OCI_EXPORTER}" --print-runtime-id \
-  "${image}" "${IMAGE_ARCHIVE}")"
+if [[ "${mode}" != build-only ]]; then
+  "${AGENT_BUILDER}"
+  agent_prefix="$(${AGENT_BUILDER} --print-output)"
+  agent_relative="${agent_prefix#"${PROJECT_ROOT}/"}"
+  [[ "${agent_relative}" != "${agent_prefix}" && \
+     -x "${agent_prefix}/lib/micro_ros_agent/micro_ros_agent" ]] || \
+    Fail "verified Agent prefix is unavailable"
+  mkdir -p "$(dirname "${IMAGE_ARCHIVE}")"
+  [[ ! -e "${IMAGE_ARCHIVE}" && ! -L "${IMAGE_ARCHIVE}" ]] || \
+    Fail "runtime image archive path already exists"
+  cleanup_archive=1
+  runtime_image_id="$("${OCI_EXPORTER}" --print-runtime-id \
+    "${image}" "${IMAGE_ARCHIVE}")"
+fi
+readonly AGENT_RELATIVE="${agent_relative}"
+readonly RUNTIME_IMAGE_ID="${runtime_image_id}"
 
 docker run --rm --network=none \
   --platform "${CONTAINER_PLATFORM}" \
@@ -179,14 +209,21 @@ docker run --rm --network=none \
   --env MENTOR_PI_RUNTIME_IMAGE_ARCHIVE_RELATIVE="${IMAGE_ARCHIVE_RELATIVE}" \
   --env MENTOR_PI_RUNTIME_IMAGE_ID="${RUNTIME_IMAGE_ID}" \
   --env MENTOR_PI_RUNTIME_IMAGE_SOURCE_ID="${RUNTIME_IMAGE_SOURCE_ID}" \
+  --env MENTOR_PI_HANDOFF_MODE="${mode}" \
   --env "RRCLITE_BUILD_JOBS=${BUILD_JOBS}" \
+  --env "RRCLITE_QEMU_EMULATED_TESTS=${QEMU_EMULATED_TESTS}" \
+  --env "MENTOR_PI_RESUME=${resume}" \
   --volume "${PROJECT_ROOT}:/workspace" \
   --workdir /workspace \
   "${image}" \
   /workspace/tools/host_handoff_container_entrypoint.sh
 
-rm -f -- "${IMAGE_ARCHIVE}"
+[[ "${mode}" == build-only ]] || rm -f -- "${IMAGE_ARCHIVE}"
 cleanup_archive=0
 trap - EXIT
 
-echo "Host handoff completed without network or hardware access: ${OUTPUT_ROOT}"
+if [[ "${mode}" == build-only ]]; then
+  echo "Host build/tests completed without network or hardware access: ${WORK_ROOT}/prefix"
+else
+  echo "Host handoff packaging completed without network or hardware access: ${OUTPUT_ROOT}"
+fi

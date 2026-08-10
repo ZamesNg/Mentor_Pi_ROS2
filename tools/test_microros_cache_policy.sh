@@ -55,4 +55,7 @@ ExpectFailure "${VALIDATOR}" "${args[@]}"
 
 grep -Fq 'RemoveBuildRoot' "${SCRIPT_DIR}/build_microros_library.sh" || \
   Fail "invalid caches are not removed before regeneration"
+grep -Fq 'microros_static_library_ide/libmicroros/libmicroros.a' \
+  "${SCRIPT_DIR}/rdk_handoff.sh" || \
+  Fail "RDK checkpoint does not hash the validated micro-ROS archive layout"
 echo "micro-ROS cache reuse and invalidation tests passed."

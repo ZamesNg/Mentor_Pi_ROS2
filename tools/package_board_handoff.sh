@@ -17,10 +17,11 @@ readonly PID_RELEASE_DIRECTORY="firmware-pid-release"
 readonly -a ARTIFACT_EXTENSIONS=(elf hex bin map)
 
 STAGING_ROOT=""
+USE_VERIFIED_BUILD=0
 
 Usage() {
   cat <<'EOF'
-Usage: ./tools/package_board_handoff.sh [OUTPUT_DIRECTORY]
+Usage: ./tools/package_board_handoff.sh [--verified-build] [OUTPUT_DIRECTORY]
 
 Build and package the authoritative normal default PID firmware that is the
 default for make firmware/flash/start. The artifact directory and the package
@@ -29,6 +30,10 @@ root contain a SHA256SUMS manifest.
 If OUTPUT_DIRECTORY is relative, it is resolved from the repository root. If
 it is omitted, a UTC-stamped directory is created under build/board-handoff/.
 The destination must not already exist.
+
+--verified-build packages the existing authoritative PID build after complete
+metadata and artifact verification. It is intended for a checkpointed handoff
+that already ran build_firmware.sh under the same build lock.
 EOF
 }
 
@@ -296,6 +301,10 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   Usage
   exit 0
 fi
+if [[ "${1:-}" == "--verified-build" ]]; then
+  USE_VERIFIED_BUILD=1
+  shift
+fi
 [[ "$#" -le 1 ]] || {
   Usage >&2
   Fail "expected at most one output directory"
@@ -353,7 +362,11 @@ STAGING_ROOT="$(mktemp -d \
   "${OUTPUT_PARENT}/.rrclite-board-handoff.XXXXXX")"
 trap OnExit EXIT
 
-BuildMode || Fail "could not build the default PID firmware"
+if [[ "${USE_VERIFIED_BUILD}" == 1 ]]; then
+  VerifyBuildMode || Fail "existing default PID firmware is not verified"
+else
+  BuildMode || Fail "could not build the default PID firmware"
+fi
 PackageModeArtifacts
 
 VerifyBuildMode || Fail "authoritative build is not PID at handoff"

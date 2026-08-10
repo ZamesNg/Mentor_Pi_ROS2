@@ -17,7 +17,7 @@ supply, a reachable stop, and recorded HIL evidence.
 ## 1. Build and verify the host
 
 ```sh
-cd /home/zames/Mentor_Pi && make host
+cd "${HOME}/Mentor_Pi" && make host
 ```
 
 `make host-hardwares` is an alias for the same adaptive build and test path.
@@ -30,14 +30,14 @@ built in the same workspace and unified project image.
 For mecanum:
 
 ```sh
-cd /home/zames/Mentor_Pi && make start-mecanum \
+cd "${HOME}/Mentor_Pi" && make start-mecanum \
   PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0
 ```
 
 For Ackermann:
 
 ```sh
-cd /home/zames/Mentor_Pi && make start-ackermann \
+cd "${HOME}/Mentor_Pi" && make start-ackermann \
   PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0
 ```
 
@@ -75,7 +75,7 @@ Each convenience target selects its checked-in `hardware.yaml`. For another
 reviewed robot profile:
 
 ```sh
-cd /home/zames/Mentor_Pi && make start-hardware \
+cd "${HOME}/Mentor_Pi" && make start-hardware \
   PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=1 \
   VEHICLE_CONFIG=/absolute/robot_two.yaml
 ```
@@ -88,7 +88,7 @@ uses the fixed `/mentor_pi/*` endpoint namespace.
 Open a second terminal:
 
 ```sh
-cd /home/zames/Mentor_Pi && make shell ROS_DOMAIN_ID=0
+cd "${HOME}/Mentor_Pi" && make shell ROS_DOMAIN_ID=0
 ros2 control list_hardware_interfaces -c /mentor_pi/controller_manager
 ros2 control list_controllers -c /mentor_pi/controller_manager
 ros2 topic list | grep -E '^/mentor_pi/(motors|pwm_servos)'

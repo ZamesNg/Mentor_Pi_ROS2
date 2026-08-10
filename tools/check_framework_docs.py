@@ -424,7 +424,7 @@ def validate_tutorial_sequence(paths: list[Path]) -> list[str]:
                 errors.append(f"{path}: missing end-of-sequence marker")
         elif TUTORIAL_FILENAMES[index] not in text:
             errors.append(f"{path}: missing next-tutorial link")
-        if "cd /home/zames/Mentor_Pi" not in text:
+        if 'cd "${HOME}/Mentor_Pi"' not in text:
             errors.append(f"{path}: missing exact repository command")
         for description, pattern in {
             "replacement placeholder": r"REPLACE_WITH",

@@ -77,7 +77,7 @@ readonly architecture
 readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
 "${HOST_DEPENDENCY_BOOTSTRAP}" --verify-existing >/dev/null
 
-readonly source_sha="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"
+readonly source_sha="$(${FINGERPRINT_TOOL} --build "${PROJECT_ROOT}")"
 if ((runtime_build == 1)); then
   readonly build_key="${architecture}-${source_sha:0:16}-runtime"
 else

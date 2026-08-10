@@ -40,9 +40,10 @@ VerifyManifest() {
 SetUpFakeProject() {
   local project="$1"
   mkdir -p -- "${project}/tools"
-  cp -- "${PACKAGE_SCRIPT}" \
-    "${project}/tools/package_board_handoff.sh"
-  chmod +x "${project}/tools/package_board_handoff.sh"
+  cp -- "${PACKAGE_SCRIPT}" "${SCRIPT_DIR}/run_with_build_lock.sh" \
+    "${project}/tools/"
+  chmod +x "${project}/tools/package_board_handoff.sh" \
+    "${project}/tools/run_with_build_lock.sh"
 
   cat >"${project}/tools/build_firmware.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -143,6 +144,11 @@ VerifyManifest "${base_project}/handoff"
 AssertPidBuild "${base_project}"
 [[ "$(tr -d '\n' <"${base_project}/build-order.txt")" == "PID" ]] || \
   Fail "base build order was not PID only"
+"${base_project}/tools/package_board_handoff.sh" --verified-build \
+  verified-handoff >/dev/null
+AssertFile "${base_project}/verified-handoff/firmware-pid-release/mentor_pi_mcu-firmware-pid-release.elf"
+[[ "$(tr -d '\n' <"${base_project}/build-order.txt")" == "PID" ]] || \
+  Fail "verified-build packaging rebuilt PID firmware"
 
 failure_project="${TEST_ROOT}/metadata-mismatch"
 SetUpFakeProject "${failure_project}"

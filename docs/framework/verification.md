@@ -4,10 +4,12 @@
 
 `VER-IMG-UNIFIED-001` proves that RDK setup selects one project image and one
 unique Humble base pull, while a normal computer selects that project image
-plus one Noble quality image and two unique base pulls. It verifies native
-architecture enforcement, the 2026-08-07 per-architecture ROS lock, exact
-installed versions, one Arm GNU 13.2.1 installation, content identity, and
-micro-ROS cache reuse.
+plus one Noble quality image and two unique base pulls. It verifies the native
+default, the 2026-08-07 per-architecture ROS lock, exact installed versions,
+one Arm GNU 13.2.1 installation, content identity, and micro-ROS cache reuse.
+`VER-CROSS-HANDOFF-001` separately verifies the dedicated amd64-to-arm64
+`make rdk-handoff` workflow, target-only inputs and metadata, rejection outside
+that target, and the native-evidence boundary.
 
 `VER-TRACK-UNIT-001` covers polynomial evaluation and numerical derivatives,
 message bounds and validation, unwrapped yaw and shortest angle error, both
@@ -81,7 +83,8 @@ excerpt.
 | `VER-TRACE-001` | A documentation checker extracts every shall-level ID in `requirements.md` and every included audit ID in `legacy-audit.md`. Each maps to at least one defined `VER-*` case, every referenced case exists, all framework links resolve, and reviewer approval records no open safety/interface decision. |
 | `VER-REVIEW-001` | Review confirms the product is a clean micro-ROS client/Agent design for STM32F407VET6, contains no duplicate legacy packet runtime, and implements the ownership, C/C++ boundaries, timeout, safe-state, and source-of-truth rules in the framework documents. |
 | `VER-BUILD-HOST-001` | In architecture-native pinned Ubuntu 22.04/Humble containers on supported Ubuntu development hosts, debug, release, ASan/UBSan, and TSan jobs build and test all first-party host C++, generated interfaces, `mentor_pi_bringup`, and `mentor_pi_hardwares` with zero first-party warnings. Generated build metadata records `ubuntu=22.04`, `ros_distro=humble`, a content-addressed builder, and the automatically detected `amd64` or `arm64` architecture and rejects an OS, distribution, architecture, source-fingerprint, metadata-schema, or image-architecture mismatch. The hardened runtime passes only the reviewed CH9102F character device and never uses a privileged container. Project-owned production nodes and the control/data path contain no Python node, script, `rclpy` use, or serial translation bridge; ROS launch files may use the upstream Python launch framework. Pinned upstream ROS tools and their Python implementation/dependencies are permitted and reported separately. |
-| `VER-IMG-UNIFIED-001` | RDK setup selects one project image and one unique Humble base pull; normal-computer setup selects that project image plus one Noble quality image and two unique base pulls. Native-architecture enforcement, the signed 2026-08-07 architecture-specific ROS lock, exact installed versions, one verified Arm GNU 13.2.1 installation, complete content identity, and micro-ROS cache reuse all pass. |
+| `VER-IMG-UNIFIED-001` | RDK setup selects one project image and one unique Humble base pull; normal-computer setup selects that project image plus one Noble quality image and two unique base pulls. The native-architecture default, signed 2026-08-07 architecture-specific ROS lock, exact installed versions, one verified Arm GNU 13.2.1 installation, complete content identity, and micro-ROS cache reuse all pass. |
+| `VER-CROSS-HANDOFF-001` | On amd64, `make rdk-handoff` preflights QEMU/binfmt without requiring another authorization or target variable, uses only `linux/arm64` base images, package locks, tools, binaries, and OCI descriptors, and produces a handoff loadable on a native arm64 Docker host without rebuilding the host workspace. With eight or more CPUs it prints and uses eight package workers; smaller hosts scale down, a valid override is honored, and nested package builds remain single-worker. Each of the eight output-checksummed stages is skipped only after validation; interruption preserves its release ID and work, incremental host state and failed tests resume, and changed source/image/dependency/runner inputs refresh the private context while invalidating only affected or dependent stages. A packaging-only edit preserves compiled host, Agent, firmware, and micro-ROS stages; a host-source edit preserves independent firmware and Agent stages and resumes colcon incrementally. Malformed/symbolic/tampered state fails, an explicit fresh reset is precise, and success alone clears active disposable state. Firmware packaging and packaged runtime smoke do not rebuild firmware or host code. Ordinary `make host` remains amd64-native and generic cross-architecture requests remain rejected. Handoff evidence records `build_execution=qemu-emulated`, `build_host_architecture=amd64`, `target_architecture=arm64`, and `native_target_validated=0`. Missing emulation, mixed-architecture input, an amd64 output member, an implicit fallback, or any claim of native RDK validation fails. Native RDK image-load, runtime, memory, 30 Hz/25 ms tracker, serial, flash, peripheral, HIL, and release cases remain independently required; native RDK compilation is optional diagnostic evidence. |
 | `VER-TRACK-UNIT-001` | Unit tests cover polynomial evaluation and numerical derivatives, bounded message validation, unwrapped yaw and shortest angle error, both vehicle models, geometry/profile limits including every mecanum wheel bound, scheduling and cancellation, ROS-to-steady conversion, stale state, bounded feedback, solver failure/deadline handling, and all zero-output conditions. |
 | `VER-TRACK-INT-001` | Integration tests supply synthetic odometry, motor profile, authorization, and scheduled trajectories to each tracker; verify its stable trajectory, controller-reference, cancel, and diagnostic contracts; observe bounded nonzero output; and prove stale odometry and cancellation return output to zero. |
 | `VER-TRACK-RDK-001` | A native RDK X5 benchmark records project-image identity, memory, sustained 30 Hz operation, solve duration and every 25 ms miss/failure for both models. It must pass before hardware tracking is enabled and does not replace guarded HIL evidence. |
@@ -259,6 +262,7 @@ Each shall-level requirement has an explicit verification mapping below.
 | `PLAT-003` | `VER-ANALYSIS-001`, `VER-RESOURCE-001` |
 | `PLAT-004` | `VER-BUILD-FW-001` |
 | `PLAT-005` | `VER-IMG-UNIFIED-001` |
+| `PLAT-006` | `VER-CROSS-HANDOFF-001` |
 | `HW-001` | `VER-HIL-MOT-001` |
 | `HW-002` | `VER-HIL-PWM-001` |
 | `HW-003` | `VER-HIL-BUS-001` |

@@ -12,6 +12,7 @@ import unittest
 
 
 SCRIPT = pathlib.Path(__file__).with_name("export_oci_image_archive.py")
+VERIFIER = pathlib.Path(__file__).with_name("verify_oci_image_archive.py")
 
 
 def add_bytes(archive: tarfile.TarFile, name: str, data: bytes) -> None:
@@ -124,6 +125,15 @@ class OciArchiveConverterTest(unittest.TestCase):
             self.assertEqual(
                 completed.stdout, f"sha256:{image_manifest_digest}\n"
             )
+            verified = subprocess.run([
+                str(VERIFIER), "--archive", str(output), "--image-id",
+                f"sha256:{image_manifest_digest}", "--os", "linux",
+                "--architecture", "amd64",
+            ], check=True, capture_output=True, text=True)
+            self.assertEqual(
+                verified.stdout,
+                f"sha256:{image_manifest_digest} linux/amd64\n",
+            )
 
             with tarfile.open(output) as archive:
                 index = json.loads(archive.extractfile("index.json").read())
@@ -169,6 +179,26 @@ class OciArchiveConverterTest(unittest.TestCase):
             ), capture_output=True, text=True)
             self.assertNotEqual(failed.returncode, 0)
             self.assertIn("does not match the OCI root descriptor", failed.stderr)
+
+    def test_verifier_rejects_packaged_manifest_id_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            source = root / "docker-modern.tar"
+            output = root / "oci.tar"
+            root_digest, _, _ = self.write_modern_oci_save(source)
+            subprocess.run(
+                self.modern_command(source, output, f"sha256:{root_digest}"),
+                check=True, capture_output=True, text=True,
+            )
+            failed = subprocess.run([
+                str(VERIFIER), "--archive", str(output), "--image-id",
+                "sha256:" + "0" * 64, "--os", "linux",
+                "--architecture", "amd64",
+            ], capture_output=True, text=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn(
+                "does not match the OCI root descriptor", failed.stderr
+            )
 
     def test_modern_oci_rejects_wrong_platform(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

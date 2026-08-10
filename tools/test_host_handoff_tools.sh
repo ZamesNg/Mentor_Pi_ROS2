@@ -125,7 +125,7 @@ printf 'shared library\n' >"${AGENT_PREFIX}/lib/libfixture.so.1"
 ln -s libfixture.so.1 "${AGENT_PREFIX}/lib/libfixture.so"
 printf '%s\n' 'oci-layout fixture' >"${IMAGE_ARCHIVE}"
 
-readonly SOURCE_SHA="$("${FINGERPRINT}" "${PROJECT_ROOT}")"
+readonly SOURCE_SHA="$("${FINGERPRINT}" --compile "${PROJECT_ROOT}")"
 cat >"${HOST_PREFIX}/HOST-BUILD-METADATA.txt" <<EOF
 format=rrclite-host-build-v2
 ubuntu=22.04
@@ -174,6 +174,12 @@ grep -Eq '^runtime_image_archive_sha256=[0-9a-f]{64}$' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "runtime archive hash is missing"
 grep -Fqx 'runtime_image_archive_format=oci-v1' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "OCI archive format is missing"
+grep -Fq 'docker load --input runtime-image/mentor-pi-runtime.tar' \
+  "${HANDOFF}/INSTALL.txt" || Fail "handoff installer omits OCI load"
+grep -Fq -- "--format '{{.Id}}'" "${HANDOFF}/INSTALL.txt" || \
+  Fail "handoff installer omits the exact loaded image ID check"
+grep -Fq 'promote_host_release' "${HANDOFF}/INSTALL.txt" || \
+  Fail "handoff installer omits host promotion"
 grep -Fqx $'agent/lib/libfixture.so\tlibfixture.so.1' \
   "${HANDOFF}/SYMLINKS.txt" || Fail "Agent symlink manifest is missing"
 [[ "$(readlink "${HANDOFF}/agent/lib/libfixture.so")" == libfixture.so.1 ]] || \
@@ -228,16 +234,47 @@ ExpectFailure 'builder image ID is not content-addressed' "${PACKAGER}" \
   --output-directory "${TEST_ROOT}/bad-image-id-output" \
   --release-id bad-image-id
 
-for tracked in tools/select_build_jobs.sh tools/detect_host_profile.sh \
+for tracked in tools/select_build_jobs.sh tools/select_rdk_handoff_jobs.sh \
+    tools/detect_host_profile.sh \
     tools/validate_docker_host.sh \
     tools/prepare_build_images.sh tools/docker/host-runtime.zshrc \
+    tools/rdk_handoff.sh tools/test_rdk_handoff_resume.sh \
+    tools/flash_packaged_firmware.sh \
+    tools/flash_production_firmware.sh tools/select_rdk_handoff.sh \
+    tools/flash_firmware.sh \
     tools/build_host_handoff_container.sh tools/export_oci_image_archive.py \
-    tools/export_oci_image_archive.sh tools/run_with_build_lock.sh; do
+    tools/export_oci_image_archive.sh tools/verify_oci_image_archive.py \
+    tools/run_with_build_lock.sh; do
   grep -Fq "${tracked}" "${FINGERPRINT}" || \
     Fail "host fingerprint omits ${tracked}"
 done
 grep -Fq 'AppendDirectory "${PROJECT_ROOT}/docs/tutorials"' "${FINGERPRINT}" || \
   Fail "host fingerprint omits the tutorial sequence"
+build_manifest="$(${FINGERPRINT} --build --manifest "${PROJECT_ROOT}")"
+compile_manifest="$(${FINGERPRINT} --compile --manifest "${PROJECT_ROOT}")"
+package_manifest="$(${FINGERPRINT} --manifest "${PROJECT_ROOT}")"
+package_content_manifest="$(${FINGERPRINT} --package-content --manifest \
+  "${PROJECT_ROOT}")"
+package_payload_manifest="$(${FINGERPRINT} --package-payload --manifest \
+  "${PROJECT_ROOT}")"
+[[ "${build_manifest}" != *'docs/tutorials/'* && \
+   "${build_manifest}" != *'tools/rdk_handoff.sh'* ]] || \
+  Fail "host compilation fingerprint includes packaging-only inputs"
+[[ "${package_manifest}" == *'docs/tutorials/'* && \
+   "${package_manifest}" == *'tools/rdk_handoff.sh'* ]] || \
+  Fail "handoff packaging fingerprint omits deployment inputs"
+[[ "${package_content_manifest}" == *'docs/tutorials/'* && \
+   "${package_content_manifest}" == *'tools/package_host_handoff.sh'* && \
+   "${package_content_manifest}" != *'tools/rdk_handoff.sh'* && \
+   "${package_content_manifest}" != *'tools/verify_oci_image_archive.py'* ]] || \
+  Fail "package-content fingerprint includes post-package orchestration"
+[[ "${package_payload_manifest}" != *'docs/tutorials/'* && \
+   "${package_payload_manifest}" == *'tools/package_host_handoff.sh'* ]] || \
+  Fail "package-payload fingerprint does not isolate tutorial-only changes"
+[[ "${compile_manifest}" == *'mentor_pi_ros2/src/mentor_pi_bringup/'* && \
+   "${compile_manifest}" != *'tools/rdk_handoff.sh'* && \
+   "${compile_manifest}" != *'tools/build_host_release.sh'* ]] || \
+  Fail "host compile fingerprint includes handoff orchestration inputs"
 grep -Fq 'AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup"' \
   "${FINGERPRINT}" || Fail "host fingerprint omits production runtime assets"
 for obsolete in setup_onboard_ros_environment install_onboard_microros_setup \
@@ -259,5 +296,33 @@ grep -Fq 'MENTOR_PI_RUNTIME_IMAGE_SOURCE_ID' \
   Fail "container handoff does not propagate runtime image source provenance"
 grep -Fq 'RRCLITE_BUILD_JOBS' "${SCRIPT_DIR}/host_handoff_container_entrypoint.sh" || \
   Fail "container handoff does not propagate the shared build budget"
+grep -Fq 'RRCLITE_QEMU_EMULATED_TESTS' \
+  "${SCRIPT_DIR}/build_host_handoff_container.sh" || \
+  Fail "container handoff does not propagate the emulated-test timing context"
+grep -Fq 'RRCLITE_QEMU_EMULATED_TESTS' \
+  "${SCRIPT_DIR}/host_handoff_container_entrypoint.sh" || \
+  Fail "container entrypoint drops the emulated-test timing context"
+for mode in --build-only --package-only; do
+  grep -Fq -- "${mode}" "${SCRIPT_DIR}/build_host_handoff_container.sh" || \
+    Fail "container handoff omits the ${mode} resumable stage"
+done
+grep -Fq 'MENTOR_PI_HANDOFF_MODE' \
+  "${SCRIPT_DIR}/host_handoff_container_entrypoint.sh" || \
+  Fail "container entrypoint does not separate host build from packaging"
+grep -Fq 'MAKEFLAGS="-j1 -l1"' \
+  "${SCRIPT_DIR}/host_handoff_container_entrypoint.sh" || \
+  Fail "nested host package builds are not constrained to one worker"
+grep -Fq 'if ((prepared == 0)); then' \
+  "${SCRIPT_DIR}/test_host_runtime_image.sh" || \
+  Fail "runtime smoke cannot consume already packaged prefixes"
+grep -Fq 'QEMU handoff excludes native-only test:' \
+  "${SCRIPT_DIR}/build_host_release.sh" || \
+  Fail "QEMU handoff does not exclude the native-only launch test"
+grep -Fq 'qemu-passed-native-launch-deferred' \
+  "${SCRIPT_DIR}/build_host_release.sh" || \
+  Fail "QEMU host metadata does not record the native launch deferral"
+grep -Fq 'tests=qemu-passed-native-launch-deferred' \
+  "${SCRIPT_DIR}/rdk_handoff.sh" || \
+  Fail "outer handoff cannot adopt the QEMU host test result"
 
 echo "Docker host handoff contract tests passed."

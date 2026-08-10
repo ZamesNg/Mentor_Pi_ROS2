@@ -21,8 +21,10 @@ The active host policy is Docker-only:
 - `make setup` detects the RDK X5 from device-tree identity, prepares only its
   one required project image, pulls each unique base once, and omits the
   normal-computer quality/fuzzing image;
-- one memory-aware job budget is shared by colcon, CMake, Ninja, Agent, and
-  micro-ROS generation; `RRCLITE_BUILD_JOBS` provides a validated override;
+- ordinary native commands retain the memory-aware job budget; the dedicated
+  QEMU handoff uses `min(8, online CPUs)` package workers, constrains nested
+  CMake/Ninja work to one worker, and accepts `RRCLITE_BUILD_JOBS` as a
+  validated per-command override;
 - generated micro-ROS libraries are reused only with matching image, source,
   interface, generator, helper, archive, and header-tree identities;
 - `make start` uses the hardened Docker runtime on every host, and `make shell`
@@ -62,34 +64,92 @@ make shell
 Do not set the runtime acknowledgement until the passive checks and guarded
 fixture requirements in Tutorials 01--06 are actually satisfied.
 
+## Authorized cross-architecture handoff migration
+
+`make rdk-handoff` is implemented as the standard amd64-to-arm64 QEMU/binfmt
+route. It builds in a private copied context, so architecture-unsuffixed
+firmware and micro-ROS outputs cannot affect native outputs. Ordinary commands
+such as `make host` retain their native-only rejection.
+
+The dedicated command is itself the explicit selection of emulation; it does
+not accept or require `ALLOW_EMULATION`, `TARGET_ARCH`, or another
+acknowledgement. Its target is always arm64. It:
+
+- prepare and execute only `linux/arm64` pinned images and the arm64 ROS package
+  lock on an amd64 host, failing if binfmt/QEMU support is unavailable;
+- route unified-image, firmware, micro-ROS, Agent, host, runtime smoke, and OCI
+  handoff stages through the selected arm64 image without restoring separate
+  image roles;
+- print and use up to eight package-level QEMU workers while keeping each
+  package build single-worker, with a conservative explicit override;
+- atomically checkpoint each verified image, micro-ROS, PID/board, Agent,
+  incremental host/test, OCI, runtime-smoke, and final-bundle stage; resume the
+  newest compatible incomplete release automatically, retain its timestamp and
+  work after failure, refresh changed source inputs while retaining unaffected
+  stage checksums and incremental colcon state, invalidate only dependent
+  stages, remove active state after bundle success, reuse the newest compatible
+  completed bundle on an unchanged rerun, and remove a redundant incomplete
+  duplicate instead of compiling it; `RDK_HANDOFF_FRESH=1` explicitly forces a
+  new release;
+- preserve the verified arm64 micro-ROS output under
+  `build/rdk-handoff-cache/arm64/microros/`, restoring it into each isolated
+  build and revalidating every existing cache identity before reuse;
+- label handoff evidence with `build_execution=qemu-emulated`,
+  `build_host_architecture=amd64`, `target_architecture=arm64`, and
+  `native_target_validated=0`;
+- keep the handoff loadable on the RDK without rebuilding its host workspace;
+- treat native compilation on the RDK as optional diagnostic work rather than
+  release evidence or a prerequisite; and
+- keep native RDK runtime, memory, 30 Hz/25 ms tracker benchmarking, serial,
+  flash, peripheral, HIL, and release gates mandatory.
+
+Generic cross-architecture requests remain rejected. The outer
+`rrclite-rdk-handoff-v1` manifest covers the unchanged checksummed host and
+board subbundles and explicitly prevents an emulated build from claiming
+native arm64 validation.
+
 ## Verification evidence
 
-Focused policy fixtures validate the memory-aware job algorithm, invalid job
-overrides, normal-host routing, RDK device-tree detection, native-architecture
-image selection, strict per-architecture ROS locks, unique base pulls, and
-rejection of cross-architecture builds. On native amd64, a network-isolated
-cached Humble container built and passed the tracking-interface and tracking
-package tests, including both model contracts and safe zero output. The new
-unified image itself has not yet completed a native build, and the prior
-three-package Docker evidence predates this consolidation; it must be repeated
-before release. No QEMU or cross-architecture execution was used.
+Focused policy, handoff, packaged-flash, tutorial, framework, systemd, unified
+image-lock, and source-fingerprint fixtures pass. They prove that ordinary
+opposite-architecture image preparation still fails, the dedicated Make target
+selects arm64 without a generic flag, the required provenance is emitted, and
+the deployment instructions retain the exact host/Agent/image and single-PID
+contracts. On native amd64, a network-isolated cached Humble container also
+built and passed the tracking-interface and tracking package tests, including
+both model contracts and safe zero output. The new unified image itself has not
+yet completed a native build. A real QEMU handoff reached the complete host
+test suite twice but the launch integration exceeded first its native-sized
+deadline and then the interim 60-second emulation deadline. The QEMU path now
+has no functional discovery deadline and retains only a 600-second dead-launch
+watchdog; the complete handoff has not yet been rerun. This is not release
+evidence until the complete bundle succeeds and the RDK gates are recorded.
 RDK X5 serial, flash, runtime, memory, and performance gates remain to be
 recorded; mocks never establish hardware behavior.
 
 ## Next agent: do these in order
 
-1. Run the focused Docker host, tutorial, runtime/systemd, micro-ROS cache, and
-   host-handoff contract tests for any subsequent edits.
-2. Build and smoke the unified image natively on amd64, recording its identity
+1. Build and smoke the unified image natively on amd64, recording its identity
    and firmware, micro-ROS, Agent, host, zsh, runtime, handoff, and cache-reuse
    results.
-3. On the RDK X5, follow Tutorials 01--03 and record image identity, memory use,
-   build duration, micro-ROS cache reuse, and runtime behavior. Benchmark both
-   trackers at 30 Hz with the 25 ms solve deadline before hardware use.
-4. With actuator power disconnected, flash that exact artifact and complete
-   Tutorials 01--05. Verify the graph, supervisor `READY`, heartbeat,
+2. On the amd64 computer, run `make rdk-handoff` (or rerun it to resume its
+   newest compatible incomplete release), verify its checksums,
+   provenance, and OCI platform, then archive and transfer it to the RDK. It
+   defaults to up to eight package workers. Use `RRCLITE_BUILD_JOBS=1` only
+   as a conservative per-command limit for this
+   emulated arm64 build; it is not an RDK setting. Do not treat the build as
+   native performance evidence.
+3. On the RDK X5, verify and extract the bundle, load its OCI image without
+   rebuilding the host workspace, and follow Tutorials 01--02 to flash the
+   exact packaged PID artifact with actuator power disconnected.
+4. Follow Tutorial 03 to install the versioned Agent and host prefixes, bind
+   the reviewed CH9102F identity, verify the units, and start the production
+   target. Record image identity, load/install duration, memory use, and runtime
+   behavior. Benchmark both trackers at 30 Hz with the 25 ms solve deadline
+   before hardware use. A native RDK host build is optional diagnostics only.
+5. Complete Tutorials 04--05. Verify the graph, supervisor `READY`, heartbeat,
    diagnostics, passive encoder signs, IMU samples, and Agent restart recovery.
-5. Only after every passive gate passes, follow Tutorial 06 with guarded wheels,
+6. Only after every passive gate passes, follow Tutorial 06 with guarded wheels,
    a current-limited supply, and a reachable stop. Use Tutorial 07 for campaign
    evidence and Tutorial 08 only after hardware checkout is complete.
 

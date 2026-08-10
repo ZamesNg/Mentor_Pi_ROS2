@@ -22,10 +22,10 @@ before normal Linux workloads.
 Firmware cross-compilation, micro-ROS library generation, the compiled Agent,
 ROS host packages, lightweight GCC sanitizer checks, interactive development,
 handoff, and production runtime shall use one pinned, content-identified,
-architecture-native Ubuntu 22.04/ROS 2 Humble project image per architecture
-on both the RDK X5 and normal computers. The image is based on the matching
-pinned `micro_ros_static_library_builder` architecture child. It installs the
-Arm GNU 13.2.1 toolchain once and verifies its architecture-specific checksum.
+target-architecture Ubuntu 22.04/ROS 2 Humble project image per architecture.
+The image is based on the matching pinned
+`micro_ros_static_library_builder` architecture child. It installs the Arm GNU
+13.2.1 toolchain once and verifies its target-specific checksum.
 Normal computers additionally use one pinned, architecture-native Ubuntu 24.04
 Clang 18 quality image for formatting, tidy, coverage, and fuzzing. The RDK X5
 never pulls that image. Existing host ROS installations are not installed,
@@ -48,9 +48,38 @@ The host retains only operations that require direct host integration:
 - flashing through STM32CubeProgrammer, including the checked arm64 package.
 
 The RDK X5 is detected from device-tree identity. Its setup omits the quality
-and fuzzing image. A shared build-job budget is bounded by CPU count, four jobs,
-and one job per 2 GiB of available memory; a validated explicit override may be
-used. Cross-architecture emulation is prohibited.
+and fuzzing image. Ordinary native builds use a budget bounded by CPU count,
+four jobs, and one job per 2 GiB of available memory. The dedicated QEMU
+handoff instead uses up to eight package workers while constraining each nested
+package build to one; both policies accept a validated explicit override.
+
+Ordinary development commands, including `make host`, remain native to the
+current computer. The standard way to produce RDK artifacts on an amd64
+development computer is the dedicated `make rdk-handoff` target. That target
+uses QEMU/binfmt to build the arm64 project image, firmware inputs, micro-ROS
+library, Agent, ROS host prefix, and arm64 OCI handoff; selecting the dedicated
+target is sufficient authorization and no additional emulation flag is
+required. It must use the arm64 base digest and package lock throughout and
+must fail rather than silently fall back to amd64 content. Its handoff records
+the amd64 build host, arm64 target, emulated execution, and absence of native
+target validation.
+
+The handoff records atomic input and output checkpoints for eight stages. A
+retry resumes the release ID, reuses verified stage output and incremental
+colcon state, and reruns unfinished or failed tests. Changed inputs refresh the
+private source context and invalidate only stages that depend on those inputs;
+unaffected firmware, Agent, host-build, or packaging stages retain their
+checksummed evidence. Failed work is retained; an explicitly fresh state is
+removed only after strict generated-path and metadata validation, and
+successful disposable state is removed only after the final bundle checksum
+succeeds.
+
+The RDK loads and installs this handoff without rebuilding the host workspace.
+Native compilation on the RDK is optional and reserved for diagnosis, not a
+release prerequisite. Native RDK image-load, runtime, memory,
+tracker-deadline, peripheral, HIL, and release evidence remain mandatory. This
+separation offloads expensive compilation without presenting QEMU execution as
+RDK execution.
 
 Production uses one systemd-managed Docker service. The container runs the
 fail-coupled compiled Agent and configuration-supervisor launch with host
@@ -71,10 +100,12 @@ settings, ROS interfaces, firmware safety behavior, or HIL evidence boundary.
 
 One project image replaces the former firmware-builder, micro-ROS-builder, and
 host-runtime image roles and makes the exact Humble environment transferable.
-The RDK has one project image; a normal computer has that project image plus the
-quality image. Ephemeral build containers and the single persistent production
-container reuse that image and its parent layers. Image storage and Docker
-Engine remain host requirements. RDK memory use must be controlled through the
-shared job budget and lightweight release gate. Mocks may validate routing and
-build behavior, but serial, flash, tracker timing, performance, and hardware
-claims still require native RDK X5 evidence.
+The RDK has one arm64 project image; a normal computer has its native project
+image plus the quality image and builds/exports the arm64 project image when
+`make rdk-handoff` is requested. Ephemeral build containers and the single
+persistent production container reuse those image layers. Image storage and
+Docker Engine remain host requirements. The RDK normally spends resources on
+runtime and lightweight release gates rather than host compilation. Emulated
+builds and mocks may validate build and packaging behavior, but image loading,
+serial, flash, tracker timing, performance, and hardware claims still require
+native RDK X5 evidence.

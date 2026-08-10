@@ -7,6 +7,9 @@ SYSTEM_ARCH := $(shell uname -m | sed \
 AGENT_EVIDENCE_ID ?=
 
 PORT ?= /dev/mentor_pi_mcu
+RDK_HANDOFF ?=
+RDK_LOGIN ?=
+RDK_DEST ?= /home/sunrise/Mentor_Pi/build/received-handoffs
 VEHICLE_CONFIG ?=
 TRACKING_CONTROLLER ?= none
 SERIAL_USER ?=
@@ -30,7 +33,8 @@ CAMPAIGN_BUS_TORQUE ?=
 RECOVERY_MODE ?=
 
 .PHONY: help doctor setup firmware host host-hardwares agent \
-	agent-check run start shell test serial-access serial-setup flash \
+	rdk-handoff rdk-transfer \
+	agent-check run start shell test serial-access serial-setup flash flash-production \
 	start-hardware start-mecanum start-ackermann \
 	passive-check peripheral-smoke characterize-board \
 	release-software-gates release-onboard-gates \
@@ -49,6 +53,11 @@ help:
 		'      Generate micro-ROS and build PID in architecture-native Docker.' \
 		'  make host' \
 		'      Build/test Humble in architecture-native Docker.' \
+		'  make rdk-handoff' \
+		'      On amd64, QEMU-build/resume an arm64 bundle with up to eight package workers.' \
+		'  make rdk-transfer RDK_LOGIN=sunrise@rdk-hostname' \
+		'      Archive, checksum, and transfer the newest completed RDK bundle.' \
+		'      Set RDK_HANDOFF=/absolute/path or RDK_DEST=/absolute/remote/path to override.' \
 		'  make host-hardwares' \
 		'      Alias for the same Docker build/test path as make host.' \
 		'  make agent' \
@@ -77,6 +86,8 @@ help:
 		'  make flash PORT=/dev/mentor_pi_mcu' \
 		'      FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED' \
 		'      Low-level manual-boot flash of the default PID firmware.' \
+		'  make flash-production PORT=/dev/mentor_pi_mcu' \
+		'      Flash the newest received RDK production handoff; set RDK_HANDOFF=/absolute/path to override.' \
 		'  make passive-check | peripheral-smoke' \
 		'      Run the guided passive board operations from the tutorials.' \
 		'' \
@@ -114,6 +125,16 @@ host:
 	@./tools/build_host.sh
 
 host-hardwares: host
+
+rdk-handoff:
+	@./tools/rdk_handoff.sh
+
+rdk-transfer:
+	@args=(--login "$(RDK_LOGIN)" --remote-directory "$(RDK_DEST)"); \
+		if [[ -n "$(RDK_HANDOFF)" ]]; then \
+			args+=(--handoff "$(RDK_HANDOFF)"); \
+		fi; \
+		./tools/transfer_rdk_handoff.sh "$${args[@]}"
 
 agent:
 	@./tools/build_agent.sh
@@ -181,6 +202,14 @@ serial-setup:
 flash:
 	@RRCLITE_UART_BOOTLOADER_ACK="$(FLASH_ACK)" \
 		./tools/guided_flash.sh "$(PORT)"
+
+flash-production:
+	@args=(--device "$(PORT)"); \
+		if [[ -n "$(RDK_HANDOFF)" ]]; then \
+			args+=(--handoff "$(RDK_HANDOFF)"); \
+		fi; \
+		RRCLITE_UART_BOOTLOADER_ACK="$(FLASH_ACK)" \
+			./tools/flash_production_firmware.sh "$${args[@]}"
 
 passive-check:
 	@ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" PASSIVE_CHECK_ACK="$(PASSIVE_CHECK_ACK)" \

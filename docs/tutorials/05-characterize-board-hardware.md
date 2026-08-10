@@ -18,7 +18,7 @@ Leave the encoder connectors attached and keep every wheel raised. The PID
 firmware must remain installed.
 
 ```sh
-cd /home/zames/Mentor_Pi && make characterize-board
+cd "${HOME}/Mentor_Pi" && make characterize-board
 ```
 
 Type `ACTUATORS_DISCONNECTED_WHEELS_RAISED`. The helper then asks for four

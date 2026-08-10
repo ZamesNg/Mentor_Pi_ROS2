@@ -32,12 +32,38 @@ grep -Fqx 'PORT ?= /dev/mentor_pi_mcu' "${PROJECT_ROOT}/Makefile" || \
   Fail "Makefile does not default to the stable MCU alias"
 grep -Fqx 'ROS_DOMAIN_ID ?= 0' "${PROJECT_ROOT}/Makefile" || \
   Fail "Makefile does not default to ROS domain 0"
+grep -Fqx 'RDK_DEST ?= /home/sunrise/Mentor_Pi/build/received-handoffs' \
+  "${PROJECT_ROOT}/Makefile" || \
+  Fail "Makefile does not default to the sunrise RDK handoff directory"
 
-for target in serial-setup flash start start-hardware start-mecanum start-ackermann \
+for target in rdk-handoff rdk-transfer serial-setup flash flash-production start start-hardware start-mecanum start-ackermann \
     passive-check peripheral-smoke characterize-board \
     release-software-gates release-onboard-gates; do
   grep -Eq "^[^:#]*\\b${target}([ :]|$)" "${PROJECT_ROOT}/Makefile" || \
     Fail "Makefile target is missing: ${target}"
+done
+
+readonly TUTORIAL_01="${PROJECT_ROOT}/docs/tutorials/01-prepare-ubuntu-development-host.md"
+readonly TUTORIAL_02="${PROJECT_ROOT}/docs/tutorials/02-build-and-flash-default-pid-firmware.md"
+readonly TUTORIAL_03="${PROJECT_ROOT}/docs/tutorials/03-build-and-run-humble-host.md"
+for required in qemu-user-static 'make rdk-handoff' \
+    'make rdk-transfer RDK_LOGIN=sunrise@rdk-hostname' \
+    'sha256sum --check' 'test "$(uname -m)" = aarch64' detect_host_profile.sh; do
+  grep -Fq "${required}" "${TUTORIAL_01}" || \
+    Fail "Tutorial 01 omits RDK handoff step: ${required}"
+done
+for required in 'tar -C' 'sha256sum' 'ssh --' 'scp --'; do
+  grep -Fq "${required}" "${SCRIPT_DIR}/transfer_rdk_handoff.sh" || \
+    Fail "compact RDK transfer helper omits: ${required}"
+done
+grep -Fq 'make flash-production' "${TUTORIAL_02}" || \
+  Fail "Tutorial 02 omits newest-handoff production flashing"
+for required in 'docker load --input' "'{{.Os}}/{{.Architecture}}'" \
+    promote_host_release install_production_assets 'systemd-analyze verify' \
+    'systemctl enable --now mentor-pi-controller.target' \
+    'Do not run `make host`' 'mentor-pi-production'; do
+  grep -Fq "${required}" "${TUTORIAL_03}" || \
+    Fail "Tutorial 03 omits production deployment step: ${required}"
 done
 grep -Fq 'RUN_ONBOARD_DOCKER_GATES' "${SCRIPT_DIR}/tutorial_action.sh" || \
   Fail "RDK Docker gates do not require their distinct acknowledgement"
@@ -88,6 +114,36 @@ if grep -ERq 'source [^`]*setup[.](bash|zsh)|setup_onboard_ros_environment' \
 fi
 grep -Fq '/usr/bin/zsh -d -i' "${SCRIPT_DIR}/open_runtime_shell.sh" || \
   Fail "make shell no longer opens the runtime zsh configuration"
+grep -Fq 'mentor-pi-production' "${SCRIPT_DIR}/open_runtime_shell.sh" || \
+  Fail "make shell does not recognize the RDK production container"
+
+mkdir -p "${TEST_ROOT}/shell-bin"
+cat >"${TEST_ROOT}/shell-bin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == container && "${2:-}" == inspect ]]; then
+  name="${3:-}"
+  [[ "${name}" == mentor-pi-production ]] || exit 1
+  if [[ "${4:-}" == --format && "${5:-}" == *State.Running* ]]; then
+    printf '%s\n' true
+  elif [[ "${4:-}" == --format && "${5:-}" == *Config.Env* ]]; then
+    printf '%s\n' ROS_DOMAIN_ID=0 MENTOR_PI_DEVELOPMENT_RUNTIME=0
+  fi
+  exit 0
+fi
+if [[ "${1:-}" == exec ]]; then
+  printf '%s\n' "$*" >"${FAKE_SHELL_DOCKER_LOG:?}"
+  exit 0
+fi
+exit 2
+EOF
+chmod +x "${TEST_ROOT}/shell-bin/docker"
+FAKE_SHELL_DOCKER_LOG="${TEST_ROOT}/shell-docker.log" \
+PATH="${TEST_ROOT}/shell-bin:${PATH}" \
+  "${SCRIPT_DIR}/open_runtime_shell.sh" --ros-domain-id 0 >/dev/null
+grep -Fq 'exec --interactive --tty mentor-pi-production' \
+  "${TEST_ROOT}/shell-docker.log" || \
+  Fail "make shell did not attach to the running RDK production container"
 
 readonly CONTROLLER_LAUNCH="${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.py"
 [[ -f "${CONTROLLER_LAUNCH}" ]] || Fail "Python controller launch is missing"

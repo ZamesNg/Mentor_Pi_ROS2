@@ -9,10 +9,81 @@ connected to the MCU. Host ROS installations are neither required nor sourced.
 Previous: [Tutorial 02: Build and Flash the Default PID Firmware](02-build-and-flash-default-pid-firmware.md)
 Next: [Tutorial 04: Run Passive Board Bring-Up](04-run-passive-board-bringup.md)
 
-## 1. Build the host
+## Production RDK installation from a transferred bundle
+
+On the RDK, use the exact bundle verified and flashed in Tutorials 01–02.
+Do not run `make host`: install its already-tested host and Agent prefixes while
+the controller target is inactive.
 
 ```sh
-cd /home/zames/Mentor_Pi && make host
+# PLACEHOLDER: replace YYYYMMDDTHHMMSSZ with the transferred bundle timestamp.
+readonly RDK_BUNDLE="${HOME}/Mentor_Pi/build/received-handoffs/rdk-arm64-YYYYMMDDTHHMMSSZ"
+readonly HOST_HANDOFF="${RDK_BUNDLE}/host-handoff"
+(cd "${RDK_BUNDLE}" && sha256sum --check SHA256SUMS)
+(cd "${HOST_HANDOFF}" && sha256sum --check SHA256SUMS)
+readonly RELEASE_ID="$(sed -n 's/^release_id=//p' "${HOST_HANDOFF}/HOST-HANDOFF.txt")"
+readonly RUNTIME_IMAGE_ID="$(sed -n 's/^runtime_image_id=//p' "${HOST_HANDOFF}/HOST-HANDOFF.txt")"
+docker load --input "${HOST_HANDOFF}/runtime-image/mentor-pi-runtime.tar"
+test "$(docker image inspect "${RUNTIME_IMAGE_ID}" --format '{{.Id}}')" = "${RUNTIME_IMAGE_ID}"
+test "$(docker image inspect "${RUNTIME_IMAGE_ID}" --format '{{.Os}}/{{.Architecture}}')" = linux/arm64
+if systemctl cat mentor-pi-controller.target >/dev/null 2>&1; then
+  sudo systemctl stop mentor-pi-controller.target
+fi
+sudo install -d "/opt/mentor_pi/releases/agent/${RELEASE_ID}"
+sudo cp -a "${HOST_HANDOFF}/agent/." "/opt/mentor_pi/releases/agent/${RELEASE_ID}/"
+readonly AGENT_SHA="$(sed -n 's/^executable_sha256=//p' \
+  "${HOST_HANDOFF}/agent/AGENT-BUILD-METADATA.txt")"
+printf '%s  %s\n' "${AGENT_SHA}" \
+  "/opt/mentor_pi/releases/agent/${RELEASE_ID}/lib/micro_ros_agent/micro_ros_agent" | \
+  sudo sha256sum --check --strict -
+sudo ln -sfn "/opt/mentor_pi/releases/agent/${RELEASE_ID}" \
+  /opt/mentor_pi/micro_ros_agent
+sudo "${HOST_HANDOFF}/host/lib/mentor_pi_bringup/promote_host_release" \
+  --staged-prefix "${HOST_HANDOFF}/host" --release-id "${RELEASE_ID}"
+```
+
+Connect exactly one `1a86:55d4` CH9102F. Inspect its current tty and select its
+nonempty unique `ID_SERIAL_SHORT`; use the exact `ID_PATH` with
+`--identity-kind id-path` only when no unique serial exists.
+
+```sh
+readonly DEVICE=/dev/ttyUSB0
+udevadm info --query=property --name="${DEVICE}" | \
+  grep -E '^(ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL_SHORT|ID_PATH)='
+readonly IDENTITY_KIND=serial
+readonly IDENTITY_VALUE=RRCLITE_A1B2C3
+readonly ROS_DOMAIN=0
+sudo /opt/mentor_pi/host/lib/mentor_pi_bringup/install_production_assets \
+  --mode first-install --ros-domain-id "${ROS_DOMAIN}" \
+  --identity-kind "${IDENTITY_KIND}" --identity-value "${IDENTITY_VALUE}" \
+  --device "${DEVICE}" --runtime-image "${RUNTIME_IMAGE_ID}"
+sudo systemd-analyze verify \
+  /etc/systemd/system/mentor-pi-runtime.service \
+  /etc/systemd/system/mentor-pi-controller.target
+```
+
+Replace the identity example with the value just observed. Tutorial 02's
+packaged flash and read-back verification must already have succeeded with all
+actuators disconnected. Only then start production and inspect its logs:
+
+```sh
+sudo systemctl enable --now mentor-pi-controller.target
+systemctl status mentor-pi-controller.target mentor-pi-runtime.service
+journalctl -u mentor-pi-runtime.service
+```
+
+Stop on an image-ID/platform mismatch, install failure, unexpected serial
+identity, unit verification error, repeated reset, transport failure, or absent
+controller. Native RDK compilation remains optional diagnostics; image load,
+runtime, memory, tracker timing, serial, peripheral, and HIL gates remain
+native work.
+
+## 1. Build the host for connected development
+
+Skip this section when deploying the production RDK bundle.
+
+```sh
+cd "${HOME}/Mentor_Pi" && make host
 ```
 
 Expected result: the architecture-matched Humble host passes its tests and is
@@ -27,7 +98,7 @@ Contain every wheel; the PID firmware accepts guarded nonzero motor commands
 and still emits neutral PWM-servo pulses.
 
 ```sh
-cd /home/zames/Mentor_Pi && make start
+cd "${HOME}/Mentor_Pi" && make start
 ```
 
 Type `PID_FIRMWARE_ACTUATORS_PREPARED` when prompted. The command
@@ -56,13 +127,16 @@ trajectories continue locally through later planner/network loss.
 ## 3. Open a second ROS terminal
 
 ```sh
-cd /home/zames/Mentor_Pi && make shell
+cd "${HOME}/Mentor_Pi" && make shell
 ```
 
 Expected result: an enhanced zsh Humble shell using domain 0, with Oh My Zsh,
 Tab completion, autosuggestions, and syntax highlighting. `ros2 node list`
 must contain `/mentor_pi/controller` and `/mentor_pi/configuration_supervisor`.
-Keep the `make start` terminal open until the connected checks are finished.
+For connected development, keep the `make start` terminal open until the
+checks finish. On a production RDK, the same command attaches to the running
+`mentor-pi-production` container managed by `mentor-pi-controller.target`; it
+does not require a separate `make start` process.
 
 The launch inside `make start` validates the development artifact and serial
 device and shuts down if either the Agent or supervisor exits. Use `make shell`

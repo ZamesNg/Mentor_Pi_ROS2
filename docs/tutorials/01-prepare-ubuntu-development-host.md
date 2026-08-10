@@ -12,7 +12,7 @@ There is no previous tutorial.
 ## 1. Open the repository
 
 ```sh
-cd /home/zames/Mentor_Pi
+cd "${HOME}/Mentor_Pi"
 ```
 
 All later commands use this exact checkout. Do not set `HOST_ARCH`, install ROS
@@ -23,6 +23,15 @@ Jazzy, restore PlatformIO, or run `git clean -fdX`.
 ```sh
 sudo apt-get update && sudo apt-get install -y \
   ca-certificates docker.io git make libusb-1.0-0-dev unzip zsh
+```
+
+An amd64 computer that will produce the RDK handoff also needs the host-side
+emulator and copy tool. Installing these packages does not register or repair
+binfmt silently; `make rdk-handoff` performs an arm64 execution probe and stops
+if the registration is unusable.
+
+```sh
+sudo apt-get install -y binfmt-support qemu-user-static rsync
 ```
 
 Enable Docker and grant the current login access:
@@ -67,7 +76,8 @@ Require supported Ubuntu, `amd64` or `arm64`, at least 10 GiB free, and a workin
 Docker engine. CubeProgrammer is optional until `make flash`. The RDK X5 profile is
 detected from its device tree and receives the lighter image set. The reported
 build-job count is bounded from available memory; set `RRCLITE_BUILD_JOBS` only
-when intentionally overriding it.
+when intentionally overriding it. The variable is a general per-command build
+override; it is not an RDK runtime setting.
 
 ```sh
 make setup
@@ -81,5 +91,79 @@ image. Firmware, micro-ROS, Agent, host, shell, runtime, and handoff reuse the
 project image; Docker may retain shared parent layers and obsolete images.
 Stop on any OS, architecture, Docker, programmer, checksum, network, or
 dependency error. Generated dependencies and build outputs remain ignored.
+
+## 5. Build and transfer the production RDK bundle
+
+This is the production primary flow when an amd64 computer prepares the RDK.
+After setup, run `make rdk-handoff`. On a host with at least eight online CPUs,
+the handoff uses eight package-level QEMU workers; smaller hosts use their
+available CPU count. Each package's CMake/Ninja build stays at one worker to
+avoid nested `8 x 8` oversubscription. The command prints the selected count,
+performs an actual `linux/arm64` QEMU/binfmt execution preflight (and never
+registers binfmt), then creates a UTC-named
+`build/rdk-handoff/rdk-arm64-*/` bundle with unchanged, checksummed
+`host-handoff/` and `board-handoff/` subbundles.
+
+An interrupted command preserves its ignored work and original UTC release ID.
+Running `make rdk-handoff` again automatically resumes the compatible build,
+revalidates completed stage checksums, and reruns unfinished or failed host
+tests incrementally. When source, dependency, runner, image, or worker inputs
+change, the same release refreshes its private source context, preserves every
+completed stage whose own inputs and output checksum still match, and
+invalidates only affected stages. For example, a tutorial or packaging-runner
+edit does not rebuild micro-ROS, firmware, the Agent, or the host binaries; a
+host source edit preserves the earlier firmware and Agent stages and resumes
+the existing colcon build incrementally. Use
+`RDK_HANDOFF_FRESH=1 make rdk-handoff` only to deliberately discard the entire
+active generated checkpoint. If the amd64 host becomes memory-constrained,
+`RRCLITE_BUILD_JOBS=1 make rdk-handoff` is an explicit override for this QEMU
+command only; it does not configure compilation or runtime on the RDK.
+
+```sh
+cd "${HOME}/Mentor_Pi"
+make rdk-handoff
+# PLACEHOLDER: replace YYYYMMDDTHHMMSSZ with the timestamp printed above.
+readonly RDK_BUNDLE="${HOME}/Mentor_Pi/build/rdk-handoff/rdk-arm64-YYYYMMDDTHHMMSSZ"
+(cd "${RDK_BUNDLE}" && sha256sum --check SHA256SUMS)
+grep -E '^(build_execution|build_host_architecture|target_architecture|native_target_validated)=' \
+  "${RDK_BUNDLE}/RDK-HANDOFF.txt"
+```
+
+The values must be `qemu-emulated`, `amd64`, `arm64`, and `0`. This is not
+native RDK runtime, memory, tracker, peripheral, HIL, or release evidence.
+Replace the timestamp above with the exact path printed by the Make command.
+Archive, checksum, and transfer the newest completed bundle with one command:
+
+```sh
+make rdk-transfer RDK_LOGIN=sunrise@rdk-hostname
+```
+
+The command verifies the newest bundle under `build/rdk-handoff/`, preserves
+modes and symlinks in a tar archive, writes and verifies its SHA-256 sidecar,
+creates the remote directory, and transfers both files. To select an older
+completed bundle or a different remote directory, pass
+`RDK_HANDOFF=/absolute/path/to/rdk-arm64-<actual-timestamp>` or
+`RDK_DEST=/absolute/remote/path`. Configure non-default ports or jump hosts in
+SSH config so the compact command remains unchanged.
+
+A trusted removable drive may replace `scp`. On the RDK, verify the computer
+and archive before extracting anything:
+
+```sh
+cd "${HOME}/Mentor_Pi"
+test "$(uname -m)" = aarch64
+test "$(. /etc/os-release && printf '%s/%s' "${ID}" "${VERSION_ID}")" = ubuntu/22.04
+./tools/detect_host_profile.sh | grep -Fqx 'profile=rdk-x5'
+docker info >/dev/null
+cd build/received-handoffs
+# PLACEHOLDER: replace YYYYMMDDTHHMMSSZ with the transferred bundle timestamp.
+sha256sum --check rdk-arm64-YYYYMMDDTHHMMSSZ.tar.sha256
+tar -xpf rdk-arm64-YYYYMMDDTHHMMSSZ.tar
+readonly RDK_BUNDLE="${HOME}/Mentor_Pi/build/received-handoffs/rdk-arm64-YYYYMMDDTHHMMSSZ"
+(cd "${RDK_BUNDLE}" && sha256sum --check SHA256SUMS)
+```
+
+Stop if the native architecture, OS, device-tree profile, Docker engine, or
+either checksum differs. Do not run `make host` on the RDK deployment path.
 
 Next: [Tutorial 02: Build and Flash the Default PID Firmware](02-build-and-flash-default-pid-firmware.md).

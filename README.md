@@ -39,6 +39,17 @@ Every complex operation is a one-line Make action. The helper prompts for
 hardware-specific values and exact safety acknowledgements, so operators do
 not copy long ROS command blocks or edit placeholder text.
 
+For RDK production deployment from an amd64 computer, `make rdk-handoff`
+QEMU-builds a checksummed arm64 bundle for offline transfer. It defaults to up
+to eight package workers and automatically resumes the active incomplete
+release after an interruption. An unchanged rerun reuses the newest compatible
+completed bundle and removes a redundant incomplete duplicate;
+`RDK_HANDOFF_FRESH=1` explicitly forces a new release. Changed inputs rebuild
+only affected stages;
+unaffected checksummed stages and incremental colcon work are retained. The RDK loads and installs the
+bundle without rebuilding the host workspace; native RDK compilation is
+optional diagnostics, not release evidence.
+
 The current board has a hardware-verified timing baseline, while the newest
 complete default PID candidate is prepared but not yet flashed. Its practical
 resume point is Tutorial 02 for that PID default flash, followed by Tutorial

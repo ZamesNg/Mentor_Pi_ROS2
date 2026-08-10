@@ -156,11 +156,12 @@ readonly BUILDER_IMAGE_ID="$(ReadMetadataValue \
 [[ "${BUILDER_IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
   Fail "host builder image ID is not content-addressed"
 readonly RECORDED_SOURCE="$(ReadMetadataValue "${BUILD_METADATA}" source_sha256)"
-readonly CURRENT_SOURCE="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"
+readonly CURRENT_BUILD_SOURCE="$(${FINGERPRINT_TOOL} --compile "${PROJECT_ROOT}")"
+readonly CURRENT_PACKAGE_SOURCE="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"
 [[ "${RECORDED_SOURCE}" =~ ^[0-9a-f]{64}$ ]] ||
   Fail "host build source fingerprint is malformed"
-[[ "${RECORDED_SOURCE}" == "${CURRENT_SOURCE}" ]] ||
-  Fail "host release source ${RECORDED_SOURCE} does not match current ${CURRENT_SOURCE}"
+[[ "${RECORDED_SOURCE}" == "${CURRENT_BUILD_SOURCE}" ]] ||
+  Fail "host release source ${RECORDED_SOURCE} does not match current ${CURRENT_BUILD_SOURCE}"
 
 readonly REQUIRED_EXECUTABLES=(
   configuration_supervisor
@@ -304,7 +305,7 @@ target_version=22.04
 architecture=${ARCHITECTURE}
 ros_distro=humble
 build_type=Release
-source_sha256=${CURRENT_SOURCE}
+source_sha256=${CURRENT_PACKAGE_SOURCE}
 builder_image=${BUILDER_IMAGE}
 builder_image_id=${BUILDER_IMAGE_ID}
 host_prefix_directory=host
@@ -338,14 +339,21 @@ On Ubuntu 22.04 ${ARCHITECTURE}, with mentor-pi-controller.target inactive:
   sudo ./host/lib/mentor_pi_bringup/promote_host_release \\
     --staged-prefix "\${PWD}/host" --release-id ${release_id}
 
-Connect exactly one CH9102F, identify its tty/serial or ID_PATH, then follow
-docs/tutorials/03-build-and-run-humble-host.md before installing udev/systemd
-site assets with --runtime-image ${runtime_image_id}. Do not enable the target
-before review.
+Confirm the loaded image platform:
+  test "\$(docker image inspect ${runtime_image_id} --format '{{.Id}}')" = ${runtime_image_id}
+  test "\$(docker image inspect ${runtime_image_id} --format '{{.Os}}/{{.Architecture}}')" = linux/${ARCHITECTURE}
+
+Connect exactly one 1a86:55d4 CH9102F, identify its unique serial or ID_PATH
+(not a changing tty number), then follow docs/tutorials/03-build-and-run-humble-host.md
+to run install_production_assets with --runtime-image ${runtime_image_id}.
+Run systemd-analyze verify for both units. Do not enable or start the controller
+until the exact packaged PID firmware is flashed; afterward use
+systemctl enable --now mentor-pi-controller.target and inspect the target,
+runtime service, and journal.
 EOF
 
 readonly POST_STAGING_SOURCE="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"
-[[ "${POST_STAGING_SOURCE}" == "${CURRENT_SOURCE}" ]] ||
+[[ "${POST_STAGING_SOURCE}" == "${CURRENT_PACKAGE_SOURCE}" ]] ||
   Fail "project-owned host source changed while staging the handoff"
 
 manifest="${staging_root}/SHA256SUMS"

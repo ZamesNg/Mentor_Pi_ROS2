@@ -104,10 +104,32 @@ readonly SERIAL_PORT="$1"
   Fail "firmware artifact verifier is missing or not executable"
 
 readonly BUILD_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32"
-readonly AUTHORITATIVE_ELF="${BUILD_ROOT}/mentor_pi_mcu.elf"
-readonly METADATA="${BUILD_ROOT}/rrclite-build-metadata.txt"
+if [[ -n "${RRCLITE_FLASH_FIRMWARE_DIRECTORY:-}" ]]; then
+  readonly FLASH_DIRECTORY="${RRCLITE_FLASH_FIRMWARE_DIRECTORY}"
+  [[ "${FLASH_DIRECTORY}" == /* && -d "${FLASH_DIRECTORY}" && ! -L "${FLASH_DIRECTORY}" ]] || \
+    Fail "packaged firmware directory must be an absolute non-symbolic directory"
+  readonly AUTHORITATIVE_ELF="${FLASH_DIRECTORY}/mentor_pi_mcu-firmware-pid-release.elf"
+  readonly METADATA="${FLASH_DIRECTORY}/BUILD-METADATA.txt"
+  readonly BUILD_MODE="${FLASH_DIRECTORY}/BUILD-MODE.txt"
+  readonly PACKAGE_MANIFEST="${FLASH_DIRECTORY}/SHA256SUMS"
+  [[ -f "${BUILD_MODE}" && ! -L "${BUILD_MODE}" && \
+     -f "${PACKAGE_MANIFEST}" && ! -L "${PACKAGE_MANIFEST}" ]] || \
+    Fail "packaged firmware mode or checksum manifest is missing or symbolic"
+  grep -Fqx 'target=STM32F407VET6' "${BUILD_MODE}" && \
+    grep -Fqx 'motor_mode=PID' "${BUILD_MODE}" && \
+    grep -Fqx 'control_mode=CLOSED_LOOP' "${BUILD_MODE}" && \
+    grep -Fqx 'classification=NORMAL_CLOSED_LOOP_DEFAULT' "${BUILD_MODE}" || \
+    Fail "packaged firmware is not the normal closed-loop PID release"
+  (cd "${FLASH_DIRECTORY}" && sha256sum --check SHA256SUMS >/dev/null) || \
+    Fail "packaged firmware checksum verification failed"
+  packaged_firmware=1
+else
+  readonly AUTHORITATIVE_ELF="${BUILD_ROOT}/mentor_pi_mcu.elf"
+  readonly METADATA="${BUILD_ROOT}/rrclite-build-metadata.txt"
+  packaged_firmware=0
+fi
 
-if ! "${ARTIFACT_VERIFIER}" "${MODE}" "${PROJECT_ROOT}" >/dev/null; then
+if ((packaged_firmware == 0)) && ! "${ARTIFACT_VERIFIER}" "${MODE}" "${PROJECT_ROOT}" >/dev/null; then
   Fail "firmware artifact verification failed; rebuild before flashing"
 fi
 [[ -s "${AUTHORITATIVE_ELF}" && ! -L "${AUTHORITATIVE_ELF}" ]] || \
@@ -139,8 +161,12 @@ readonly EXPECTED_ELF_SHA256="$(
 [[ "$(Sha256 "${SNAPSHOT_TEMP}")" == "${EXPECTED_ELF_SHA256}" ]] || \
   Fail "firmware ELF changed while the flash snapshot was copied"
 
-if ! "${ARTIFACT_VERIFIER}" "${MODE}" "${PROJECT_ROOT}" >/dev/null; then
+if ((packaged_firmware == 0)) && ! "${ARTIFACT_VERIFIER}" "${MODE}" "${PROJECT_ROOT}" >/dev/null; then
   Fail "firmware changed while the flash snapshot was prepared"
+fi
+if ((packaged_firmware == 1)); then
+  (cd "${FLASH_DIRECTORY}" && sha256sum --check SHA256SUMS >/dev/null) || \
+    Fail "packaged firmware changed while the flash snapshot was prepared"
 fi
 cmp "${SNAPSHOT_METADATA}" "${METADATA}" >/dev/null || \
   Fail "firmware metadata changed while the flash snapshot was prepared"

@@ -23,7 +23,7 @@ Next: [Tutorial 08: Run the `mentor_pi_hardwares` Integration](08-run-mentor-pi-
 On a normal development computer, run the complete suite:
 
 ```sh
-cd /home/zames/Mentor_Pi && make release-software-gates
+cd "${HOME}/Mentor_Pi" && make release-software-gates
 ```
 
 Type `RUN_RELEASE_SOFTWARE_GATES`. The helper runs documentation, container
@@ -34,7 +34,7 @@ artifact provenance.
 On the RDK X5 onboard computer, run the memory-conscious gate instead:
 
 ```sh
-cd /home/zames/Mentor_Pi && make release-onboard-gates
+cd "${HOME}/Mentor_Pi" && make release-onboard-gates
 ```
 
 Type `RUN_ONBOARD_DOCKER_GATES`. It runs the relevant documentation,
@@ -50,8 +50,11 @@ vectors; and at least 20% headroom in every memory class. The verified artifact
 classification is `NORMAL_CLOSED_LOOP_DEFAULT`, with `motor_mode=PID`,
 `control_mode=CLOSED_LOOP`, and `release_qualified=0` pending HIL evidence.
 
-Run architecture gates in Docker on native `amd64` and native `arm64`; do not
-substitute cross-architecture emulation.
+The standard `make rdk-handoff` workflow may produce the deployable arm64 image
+and handoff on amd64, but it does not satisfy this release gate. Native RDK
+compilation is optional; image loading, runtime, memory, tracker-deadline, and
+applicable hardware gates still run on the native RDK before release or
+performance claims.
 
 ## 2. Run the connected zero-command preflight
 
@@ -62,7 +65,7 @@ accept valid nonzero motor targets, so electrical disconnection is mandatory
 for this zero-only preflight.
 
 ```sh
-cd /home/zames/Mentor_Pi && make qualification-preflight
+cd "${HOME}/Mentor_Pi" && make qualification-preflight
 ```
 
 Type `ACTUATORS_DISCONNECTED`. The helper runs a strict 60-second read-only
@@ -80,7 +83,7 @@ and optional OLED outputs. A wrong bus ID or hold position can move or unload a
 servo. Campaign motor targets remain hard-coded to zero.
 
 ```sh
-cd /home/zames/Mentor_Pi && make campaign-load
+cd "${HOME}/Mentor_Pi" && make campaign-load
 ```
 
 Type `PERIPHERALS_DISCONNECTED_OR_GUARDED`, then enter the fixture revision,
@@ -98,7 +101,7 @@ reset/reconnect/resource growth, and traffic below 70,000 bytes/s.
 the physical stop immediately before the uninterrupted run.
 
 ```sh
-cd /home/zames/Mentor_Pi && make campaign-soak
+cd "${HOME}/Mentor_Pi" && make campaign-soak
 ```
 
 Mode `soak` runs exactly 24 hours. Require zero crash, reset, deadlock,
@@ -112,7 +115,7 @@ physical USB disconnect, Agent interruption, or MCU reset. Actuators remain
 disconnected or equivalently guarded throughout.
 
 ```sh
-cd /home/zames/Mentor_Pi && make campaign-recovery
+cd "${HOME}/Mentor_Pi" && make campaign-recovery
 ```
 
 Run the command three times and select `reconnect_usb`, `reconnect_agent`, and

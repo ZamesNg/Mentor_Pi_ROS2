@@ -23,7 +23,7 @@ Physically disconnect motor power and every servo mechanism. Only
 high-impedance scope or logic-analyzer probes may touch actuator outputs.
 
 ```sh
-cd /home/zames/Mentor_Pi && make passive-check
+cd "${HOME}/Mentor_Pi" && make passive-check
 ```
 
 Type `ACTUATORS_DISCONNECTED`, then answer whether the 128x32 OLED is
@@ -59,7 +59,7 @@ buzzer, host-owned RGB1, optional OLED text, and unloaded PWM pins. LED3 and
 RGB2 remain firmware status indicators.
 
 ```sh
-cd /home/zames/Mentor_Pi && make peripheral-smoke
+cd "${HOME}/Mentor_Pi" && make peripheral-smoke
 ```
 
 Type `PASSIVE_OUTPUTS_GUARDED` and answer the OLED-presence question. The

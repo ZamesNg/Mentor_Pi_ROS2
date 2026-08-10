@@ -9,10 +9,12 @@ closed-loop PID firmware. No firmware handoff is needed for a local board.
 Previous: [Tutorial 01: Prepare the Ubuntu Development Host](01-prepare-ubuntu-development-host.md)
 Next: [Tutorial 03: Build and Run the Humble Host](03-build-and-run-humble-host.md)
 
-## 1. Build the default PID image
+## 1. Select the verified default PID image
+
+For a local build, generate the default image now:
 
 ```sh
-cd /home/zames/Mentor_Pi && make firmware
+cd "${HOME}/Mentor_Pi" && make firmware
 ```
 
 This generates the Humble micro-ROS library and builds with the pinned Arm GNU
@@ -23,12 +25,22 @@ Expected result: the artifact verifier reports `motor_mode=PID`,
 provenance, and at least 20% headroom in every memory class. Stop on stale
 metadata, an invalid profile, or any build, hash, vector, or memory failure.
 
+For a production RDK bundle, skip `make firmware`: the exact verified PID image
+is already under `board-handoff/firmware-pid-release/`. The production flash
+helper selects the newest valid timestamp under `build/received-handoffs/` by
+default and rechecks both manifests before programming.
+
+```sh
+./tools/select_rdk_handoff.sh --latest-under \
+  "${HOME}/Mentor_Pi/build/received-handoffs"
+```
+
 ## 2. Configure the stable serial alias once
 
 Connect only the USB-C connector labelled UART1/download.
 
 ```sh
-cd /home/zames/Mentor_Pi && make serial-setup
+cd "${HOME}/Mentor_Pi" && make serial-setup
 ```
 
 The helper requires exactly one `1a86:55d4` CH9102F and asks for
@@ -47,9 +59,30 @@ PID image remains unqualified (`release_qualified=0`) until its HIL evidence is
 complete. Passive checks (Tutorial 04) and characterization (Tutorial 05) MUST
 be completed before any guarded powered work.
 
+For a locally built image, run `make flash`. For the production bundle, stop
+`mentor-pi-controller.target` and run the one-line production target; it
+selects and reports the newest timestamp, then flashes its packaged ELF without
+rebuilding it:
+
 ```sh
-cd /home/zames/Mentor_Pi && make flash
+# Local build:
+cd "${HOME}/Mentor_Pi" && make flash
+
+# Production RDK handoff instead:
+sudo systemctl stop mentor-pi-controller.target
+cd "${HOME}/Mentor_Pi" && make flash-production
 ```
+
+To deliberately flash an older verified bundle, specify it explicitly:
+
+```sh
+make flash-production \
+  RDK_HANDOFF="${HOME}/Mentor_Pi/build/received-handoffs/rdk-arm64-YYYYMMDDTHHMMSSZ"
+```
+
+`YYYYMMDDTHHMMSSZ` is a placeholder in the override example; replace it with
+the exact transferred timestamp. The helper refuses a non-RDK host, an active
+production service/container, a malformed timestamp, or a failed checksum.
 
 Type the requested bootloader acknowledgement exactly:
 
@@ -78,5 +111,7 @@ automatically resets into a possibly incomplete image.
 Stop on unexpected current, heat, actuator output, device disappearance, hash
 change, activation failure after the fallback, or missing read-back success.
 Do not run CubeProgrammer or `stm32flash` directly.
+Keep the production controller stopped until this packaged flash and read-back
+verification succeed.
 
 Next: [Tutorial 03: Build and Run the Humble Host](03-build-and-run-humble-host.md).

@@ -2,11 +2,7 @@
 
 set -euo pipefail
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-readonly HOST_BUILDER="${SCRIPT_DIR}/build_host.sh"
-readonly AGENT_BUILDER="${SCRIPT_DIR}/build_agent.sh"
-readonly CONTAINER_NAME="mentor-pi-runtime"
+readonly -a CONTAINER_NAMES=(mentor-pi-runtime mentor-pi-production)
 
 ros_domain_id=""
 
@@ -24,14 +20,29 @@ fi
 [[ "${ros_domain_id}" =~ ^(0|[1-9][0-9]{0,2})$ ]] && \
   ((ros_domain_id <= 232)) || Fail "ROS domain ID must be in [0, 232]"
 
-if [[ "$(docker container inspect "${CONTAINER_NAME}" \
-    --format '{{.State.Running}}' 2>/dev/null || true)" == "true" ]]; then
-  runtime_domain="$(docker container inspect "${CONTAINER_NAME}" \
+command -v docker >/dev/null 2>&1 || Fail "Docker is unavailable"
+
+running_container=""
+stopped_container=""
+for container_name in "${CONTAINER_NAMES[@]}"; do
+  container_state="$(docker container inspect "${container_name}" \
+    --format '{{.State.Running}}' 2>/dev/null || true)"
+  if [[ "${container_state}" == true ]]; then
+    [[ -z "${running_container}" ]] || \
+      Fail "both ${running_container} and ${container_name} are running; stop one runtime"
+    running_container="${container_name}"
+  elif docker container inspect "${container_name}" >/dev/null 2>&1; then
+    stopped_container="${container_name}"
+  fi
+done
+
+if [[ -n "${running_container}" ]]; then
+  runtime_domain="$(docker container inspect "${running_container}" \
     --format '{{range .Config.Env}}{{println .}}{{end}}' | \
     sed -n 's/^ROS_DOMAIN_ID=//p')"
   [[ "${runtime_domain}" == "${ros_domain_id}" ]] || \
     Fail "running container uses ROS_DOMAIN_ID=${runtime_domain}, not ${ros_domain_id}"
-  exec docker exec --interactive --tty "${CONTAINER_NAME}" \
+  exec docker exec --interactive --tty "${running_container}" \
     /bin/bash -lc \
     'set -e
      source /opt/ros/humble/setup.bash
@@ -42,8 +53,7 @@ if [[ "$(docker container inspect "${CONTAINER_NAME}" \
      exec /usr/bin/zsh -d -i'
 fi
 
-if command -v docker >/dev/null 2>&1 && \
-    docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
-  Fail "runtime container exists but is not running; remove that exact stopped container"
+if [[ -n "${stopped_container}" ]]; then
+  Fail "container ${stopped_container} exists but is not running; remove that exact stopped container"
 fi
-Fail "start make start in another terminal before opening the Docker ROS shell"
+Fail "start make start or the RDK production target before opening the Docker ROS shell"

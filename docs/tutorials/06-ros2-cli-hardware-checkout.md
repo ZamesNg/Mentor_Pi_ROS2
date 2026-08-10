@@ -19,7 +19,7 @@ Next: [Tutorial 07: Run Stress, Soak, and Release Gates](07-run-stress-soak-and-
 The adaptive entry point remains the simplest supported command:
 
 ```sh
-cd /home/zames/Mentor_Pi && make start
+cd "${HOME}/Mentor_Pi" && make start
 ```
 
 It validates the PID artifact, CH9102F identity, serial ownership, build
@@ -31,7 +31,7 @@ types. The target runs the validated `controller.launch.py` there.
 Open a second terminal for the commands below:
 
 ```sh
-cd /home/zames/Mentor_Pi && make shell
+cd "${HOME}/Mentor_Pi" && make shell
 ```
 
 The command opens the runtime container's enhanced zsh environment. ROS 2 Tab

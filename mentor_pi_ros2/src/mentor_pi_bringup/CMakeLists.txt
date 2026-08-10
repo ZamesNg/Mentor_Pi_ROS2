@@ -293,8 +293,16 @@ if(MENTOR_PI_BUILD_ROS2)
         $<TARGET_FILE:fake_micro_ros_agent>
         ${CMAKE_CURRENT_SOURCE_DIR}/test/configuration_supervisor_launch.yaml
     )
+    if("$ENV{RRCLITE_QEMU_EMULATED_TESTS}" STREQUAL "1")
+      # QEMU has no functional discovery deadline in the test. Retain only a
+      # generous infrastructure watchdog so a dead launch cannot block a
+      # resumable handoff forever.
+      set(configuration_supervisor_launch_test_timeout 600)
+    else()
+      set(configuration_supervisor_launch_test_timeout 20)
+    endif()
     set_tests_properties(configuration_supervisor_launch_test PROPERTIES
-      TIMEOUT 20
+      TIMEOUT ${configuration_supervisor_launch_test_timeout}
     )
   endif()
 

@@ -297,20 +297,28 @@ configuration supervisor.
 
 Production uses immutable versioned host and Agent releases below
 `/opt/mentor_pi`, plus the exact runtime image ID recorded in
-`/etc/mentor-pi/runtime-image`. Build a Docker handoff containing both release
-prefixes and a checksummed OCI runtime-image archive. The installed host path
-is an atomically replaced symlink; never build into it.
+`/etc/mentor-pi/runtime-image`. On amd64, `make rdk-handoff` is the production
+route for the RDK: verify the complete arm64 bundle, `docker load` its OCI
+archive, confirm the recorded image ID and `linux/arm64` platform, install its
+versioned Agent, and promote its host prefix without rebuilding the workspace.
+The amd64 builder uses up to eight package workers and automatically resumes an
+interrupted handoff. Changed inputs invalidate only affected stages while
+unaffected checksummed outputs and incremental colcon state remain;
+`RDK_HANDOFF_FRESH=1 make rdk-handoff` is the explicit full reset.
+Identify one CH9102F by stable serial or `ID_PATH`; install/verify systemd while
+the controller is stopped and enable it only after flashing the packaged PID
+firmware. Native RDK compilation is optional diagnostics, not release evidence.
+The bundle contains both release prefixes, the PID firmware release, and a
+checksummed OCI runtime-image archive. The installed host path is an atomically
+replaced symlink; never build into it.
 
 For connected development, follow
 [Tutorial 03](../../../docs/tutorials/03-build-and-run-humble-host.md). For a
-production handoff, use the repository packaging target and verify its manifest
-before transfer.
+production handoff, use the dedicated target and the transfer/install commands
+in Tutorials 01--03.
 
 ```sh
-./tools/build_host_handoff_container.sh \
-  --architecture arm64 \
-  --release-id 2026-08-10.1 \
-  --output-directory "${PWD}/artifacts"
+make rdk-handoff
 ```
 
 Load the pinned runtime image, install the packaged Agent prefix, then promote
@@ -326,14 +334,18 @@ rollback. The release promoter and production-asset installer require an exact
 loaded-or-not-found/inactive target state before mutation:
 
 ```sh
-readonly RELEASE_ID="2026-08-10.1"
-readonly STAGED_PREFIX="${PWD}/host"
-readonly RUNTIME_IMAGE_ID="$(sed -n 's/^runtime_image_id=//p' HOST-HANDOFF.txt)"
-docker load --input runtime-image/mentor-pi-runtime.tar
-sudo install -d -m 0755 /opt/mentor_pi/micro_ros_agent
-sudo cp -a agent/. /opt/mentor_pi/micro_ros_agent/
-sudo "${STAGED_PREFIX}/lib/mentor_pi_bringup/promote_host_release" \
-  --staged-prefix "${STAGED_PREFIX}" \
+# PLACEHOLDER: replace YYYYMMDDTHHMMSSZ with the transferred bundle timestamp.
+readonly RDK_BUNDLE=/absolute/path/to/rdk-arm64-YYYYMMDDTHHMMSSZ
+readonly HOST_HANDOFF="${RDK_BUNDLE}/host-handoff"
+readonly RELEASE_ID="$(sed -n 's/^release_id=//p' "${HOST_HANDOFF}/HOST-HANDOFF.txt")"
+readonly RUNTIME_IMAGE_ID="$(sed -n 's/^runtime_image_id=//p' "${HOST_HANDOFF}/HOST-HANDOFF.txt")"
+docker load --input "${HOST_HANDOFF}/runtime-image/mentor-pi-runtime.tar"
+sudo install -d "/opt/mentor_pi/releases/agent/${RELEASE_ID}"
+sudo cp -a "${HOST_HANDOFF}/agent/." "/opt/mentor_pi/releases/agent/${RELEASE_ID}/"
+sudo ln -sfn "/opt/mentor_pi/releases/agent/${RELEASE_ID}" \
+  /opt/mentor_pi/micro_ros_agent
+sudo "${HOST_HANDOFF}/host/lib/mentor_pi_bringup/promote_host_release" \
+  --staged-prefix "${HOST_HANDOFF}/host" \
   --release-id "${RELEASE_ID}"
 ```
 
