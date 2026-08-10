@@ -149,7 +149,9 @@ cmake -E remove_directory "${BUILD_ROOT}"
 cmake -S "${TARGET_ROOT}" -B "${BUILD_ROOT}" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="/workspace/${TOOLCHAIN_FILE}" \
   -DCMAKE_BUILD_TYPE=Debug
-cmake --build "${BUILD_ROOT}" --parallel
+[[ "${RRCLITE_BUILD_JOBS:-}" =~ ^[1-9][0-9]*$ ]] || \
+  Fail "RRCLITE_BUILD_JOBS must be a positive integer"
+cmake --build "${BUILD_ROOT}" --parallel "${RRCLITE_BUILD_JOBS}"
 
 grep -Fqx "CMAKE_BUILD_TYPE:STRING=Debug" "${BUILD_ROOT}/CMakeCache.txt"
 [[ -s "${BUILD_ROOT}/mentor_pi_mcu.elf" ]] || Fail "Debug ELF is missing"

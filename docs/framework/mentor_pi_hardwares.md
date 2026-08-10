@@ -83,8 +83,8 @@ independent 198 ms leases, and session-loss disarming.
 
 ## Developer entry points
 
-On Ubuntu 22.04 these use native ROS 2 Humble. Other supported Ubuntu releases
-use the pinned 22.04/Humble runtime container.
+These use the pinned architecture-native Ubuntu 22.04/Humble runtime container
+on every supported Ubuntu host.
 
 ```sh
 make host

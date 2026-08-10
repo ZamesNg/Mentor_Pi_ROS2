@@ -1,6 +1,6 @@
 # ADR-0001: MCU ROS Transport
 
-Status: Accepted  
+Status: Accepted; host build and deployment portions superseded by ADR-0002
 Date: 2026-08-06  
 Decision owners: RRCLite v2 maintainers
 
@@ -49,7 +49,9 @@ Linux device must be selected through a stable udev symlink, nominally
 deployment with multiple identical adapters must match a unique USB serial
 number or a documented physical USB path.
 
-The production Agent shall run natively, not through Docker or Snap. Upstream
+The following native deployment decision is historical and is superseded by
+[ADR-0002](0002-docker-everywhere-host-runtime.md): the production Agent was
+originally required to run natively, not through Docker or Snap. Upstream
 can expose serial devices to a privileged container, but this project requires
 direct udev ownership by a dedicated `mentor-pi-serial` group, a closed systemd
 device policy, and host-visible logs without a container isolation layer. The Agent
@@ -70,7 +72,8 @@ the dedicated serial group, require a unique measured adapter identity, hold an
 exclusive wrapper lock, restart it after failure, and preserve its logs and exit
 status.
 
-Ubuntu 22.04 development builds and runs ROS 2 Humble natively. A development
+The following native-development rule is also superseded by ADR-0002. Ubuntu
+22.04 development originally built and ran ROS 2 Humble natively. A development
 host on any other Ubuntu release shall have no native ROS installation;
 ROS-dependent builds, micro-ROS generation, the Agent, and host nodes run
 inside pinned Ubuntu 22.04/ROS 2 Humble containers with the automatically

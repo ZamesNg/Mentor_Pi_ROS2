@@ -1,42 +1,55 @@
-# Onboard Computer Tutorial 07: Run Native and Physical Gates
+# Tutorial 07: Run Software, Stress, Soak, and Release Gates
 
-Run Docker-free arm64 software checks plus performance, endurance, and recovery
-gates for one exact default PID candidate. This track does not run fuzzing or
-claim complete pinned-container software qualification.
+Run software, performance, endurance, and recovery gates for one exact default
+PID candidate. Software-gate qualification does not by itself prove powered
+motion, PID performance, peripheral timing, or physical recovery behavior.
 
-**Run on:** the RDK X5 onboard computer for native arm64 and physical campaigns
+**Run on:** either computer; the RDK X5 uses the lightweight Docker gate and a
+normal computer uses the complete Docker software suite
 **Fixture:** guarded peripherals, current limiting, independent wire/resource
 measurement, and a reachable physical stop
 
 Previous: [Tutorial 06: ROS 2 CLI Hardware Checkout](06-ros2-cli-hardware-checkout.md)
 Next: [Tutorial 08: Run the `mentor_pi_hardwares` Integration](08-run-mentor-pi-hardwares.md)
 
-## 1. Run the onboard native gates
+## 1. Run the software gate for this computer
+
+On a normal development computer, run the complete suite:
+
+```sh
+cd /home/zames/Mentor_Pi && make release-software-gates
+```
+
+Type `RUN_RELEASE_SOFTWARE_GATES`. The helper runs documentation, container
+Debug/Release tests, sanitizers, coverage, formatting, static analysis, fuzz
+smoke, firmware reproducibility, target integrity, memory headroom, and PID
+artifact provenance.
+
+On the RDK X5 onboard computer, run the memory-conscious gate instead:
 
 ```sh
 cd /home/zames/Mentor_Pi && make release-onboard-gates
 ```
 
-Type `RUN_ONBOARD_NATIVE_GATES`. The helper runs documentation checks, the
-native arm64 Humble host build/tests, Debug/Release firmware-domain tests,
-sanitizers, TSan, two clean firmware builds for reproducibility, memory
-headroom, and PID artifact provenance.
+Type `RUN_ONBOARD_DOCKER_GATES`. It runs the relevant documentation,
+Debug/Release, sanitizer, host, firmware-reproducibility, target-integrity,
+memory-headroom, and artifact-provenance checks in architecture-native Docker.
+It intentionally omits fuzzing, coverage, formatting, and the full Clang
+analysis suite. Those remain normal-computer evidence and are not implied by
+an RDK pass.
 
-Expected: zero test, sanitizer, race, reproducibility, memory, or provenance
-failure. The verified artifact classification is
-`NORMAL_CLOSED_LOOP_DEFAULT`, with `motor_mode=PID`,
+Expected: zero test, sanitizer, race, format, static-analysis, or provenance
+failure; required coverage; reproducible loadable bytes; complete fault
+vectors; and at least 20% headroom in every memory class. The verified artifact
+classification is `NORMAL_CLOSED_LOOP_DEFAULT`, with `motor_mode=PID`,
 `control_mode=CLOSED_LOOP`, and `release_qualified=0` pending HIL evidence.
 
-Clang 18 fuzzing, coverage, cross-target static analysis, formatting parity,
-amd64, and pinned-container evidence belong to the normal-computer Tutorial
-07. An onboard pass must never be reported as the complete software release
-suite.
+Run architecture gates in Docker on native `amd64` and native `arm64`; do not
+substitute cross-architecture emulation.
 
 ## 2. Run the connected zero-command preflight
 
-Keep the direct `ros2 launch mentor_pi_bringup controller.launch.py` from
-Tutorial 06 running with the same verified PID candidate. Do not start a
-second runtime while it owns the serial device.
+Leave `make start` running with the same verified PID candidate.
 
 **Warning:** Motor and servo power remain disconnected. The PID firmware can
 accept valid nonzero motor targets, so electrical disconnection is mandatory

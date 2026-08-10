@@ -8,6 +8,9 @@ readonly FINGERPRINT_TOOL="${SCRIPT_DIR}/host_source_fingerprint.sh"
 readonly AGENT_SOURCE_LOCK="${SCRIPT_DIR}/microros_agent_source.lock"
 
 host_prefix=""
+agent_prefix=""
+runtime_image_archive=""
+runtime_image_id=""
 output_directory=""
 release_id=""
 staging_root=""
@@ -16,7 +19,8 @@ validation_root=""
 Usage() {
   cat >&2 <<'EOF'
 Usage: package_host_handoff.sh --host-prefix ABSOLUTE_PATH
-  --output-directory PATH --release-id SAFE_ID
+  --agent-prefix ABSOLUTE_PATH --runtime-image-archive ABSOLUTE_PATH
+  --runtime-image-id sha256:HEX --output-directory PATH --release-id SAFE_ID
 EOF
   exit 2
 }
@@ -46,6 +50,25 @@ ReadMetadataValue() {
   printf '%s' "${line#*=}"
 }
 
+ValidateRelativeSymlinks() {
+  local root="$1"
+  local link=""
+  local target=""
+  local resolved=""
+  while IFS= read -r -d '' link; do
+    target="$(readlink -- "${link}")"
+    [[ -n "${target}" && "${target}" != /* && \
+       "${target}" != *$'\n'* && "${target}" != *$'\t'* ]] || \
+      Fail "handoff symlink has an unsafe target: ${link}"
+    resolved="$(realpath -m "$(dirname "${link}")/${target}")"
+    case "${resolved}" in
+      "${root}"/*) ;;
+      *) Fail "handoff symlink escapes its prefix: ${link}" ;;
+    esac
+    [[ -e "${resolved}" ]] || Fail "handoff symlink is dangling: ${link}"
+  done < <(find "${root}" -type l -print0)
+}
+
 Cleanup() {
   if [[ -n "${validation_root}" && -d "${validation_root}" ]]; then
     rm -rf -- "${validation_root}"
@@ -59,6 +82,9 @@ trap Cleanup EXIT
 while (($# > 0)); do
   case "$1" in
     --host-prefix) host_prefix="${2:-}"; shift 2 ;;
+    --agent-prefix) agent_prefix="${2:-}"; shift 2 ;;
+    --runtime-image-archive) runtime_image_archive="${2:-}"; shift 2 ;;
+    --runtime-image-id) runtime_image_id="${2:-}"; shift 2 ;;
     --output-directory) output_directory="${2:-}"; shift 2 ;;
     --release-id) release_id="${2:-}"; shift 2 ;;
     *) Usage ;;
@@ -66,6 +92,9 @@ while (($# > 0)); do
 done
 
 [[ "${host_prefix}" == /* && -d "${host_prefix}" ]] || Usage
+[[ "${agent_prefix}" == /* && -d "${agent_prefix}" ]] || Usage
+[[ "${runtime_image_archive}" == /* && -s "${runtime_image_archive}" ]] || Usage
+[[ "${runtime_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]] || Usage
 [[ -n "${output_directory}" ]] || Usage
 [[ "${release_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] ||
   Fail "release ID must contain 1-64 safe filename characters"
@@ -97,10 +126,13 @@ readonly ARCHITECTURE="$(ReadMetadataValue "${BUILD_METADATA}" architecture)"
 [[ "$(ReadMetadataValue "${BUILD_METADATA}" build_type)" == "Release" ]] ||
   Fail "host release is not a Release build"
 readonly BUILDER_IMAGE="$(ReadMetadataValue "${BUILD_METADATA}" builder_image)"
-if [[ "${BUILDER_IMAGE}" != "native-ubuntu-22.04" &&
-      ! "${BUILDER_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
+if [[ ! "${BUILDER_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
   Fail "host build metadata has an unpinned builder identity"
 fi
+readonly BUILDER_IMAGE_ID="$(ReadMetadataValue \
+  "${BUILD_METADATA}" builder_image_id)"
+[[ "${BUILDER_IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+  Fail "host builder image ID is not content-addressed"
 readonly RECORDED_SOURCE="$(ReadMetadataValue "${BUILD_METADATA}" source_sha256)"
 readonly CURRENT_SOURCE="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"
 [[ "${RECORDED_SOURCE}" =~ ^[0-9a-f]{64}$ ]] ||
@@ -117,12 +149,30 @@ readonly REQUIRED_EXECUTABLES=(
   install_production_assets
   promote_host_release
   require_controller_target_inactive
-  run_configuration_supervisor
+  run_production_container
 )
 for executable in "${REQUIRED_EXECUTABLES[@]}"; do
   [[ -x "${host_prefix}/lib/mentor_pi_bringup/${executable}" ]] ||
     Fail "host release is missing executable ${executable}"
 done
+readonly AGENT_METADATA="${agent_prefix}/AGENT-BUILD-METADATA.txt"
+readonly AGENT_EXECUTABLE="${agent_prefix}/lib/micro_ros_agent/micro_ros_agent"
+[[ -f "${AGENT_METADATA}" && ! -L "${AGENT_METADATA}" && \
+   -x "${AGENT_EXECUTABLE}" && ! -L "${AGENT_EXECUTABLE}" ]] || \
+  Fail "verified Agent release is incomplete"
+[[ "$(ReadMetadataValue "${AGENT_METADATA}" architecture)" == \
+  "${ARCHITECTURE}" ]] || Fail "Agent architecture differs from the host release"
+[[ "$(ReadMetadataValue "${AGENT_METADATA}" format)" == \
+  "rrclite-adaptive-agent-v1" ]] || Fail "unsupported Agent build metadata"
+[[ "$(ReadMetadataValue "${AGENT_METADATA}" ros_distro)" == humble ]] || \
+  Fail "Agent targets the wrong ROS distribution"
+[[ "$(ReadMetadataValue "${AGENT_METADATA}" source_lock_sha256)" == \
+  "$(Sha256 "${AGENT_SOURCE_LOCK}")" ]] || Fail "Agent source lock is stale"
+[[ "$(ReadMetadataValue "${AGENT_METADATA}" builder_identity)" =~ \
+  ^sha256:[0-9a-f]{64}$ ]] || Fail "Agent builder identity is not content-addressed"
+[[ "$(ReadMetadataValue "${AGENT_METADATA}" executable_sha256)" == \
+  "$(Sha256 "${AGENT_EXECUTABLE}")" ]] || Fail "Agent executable hash is stale"
+ValidateRelativeSymlinks "${agent_prefix}"
 first_link="$(find "${host_prefix}" -type l -print -quit)"
 [[ -z "${first_link}" ]] || Fail "host release contains symlink ${first_link}"
 
@@ -146,14 +196,9 @@ cat >"${validation_root}/environment/os-release" <<'EOF'
 ID=ubuntu
 VERSION_ID="22.04"
 EOF
-cat >"${validation_root}/environment/humble-setup.bash" <<'EOF'
-: "${AMENT_TRACE_SETUP_FILES:=}"
-export ROS_DISTRO=humble
-EOF
 MENTOR_PI_DEPLOYMENT_TEST_ROOT="${validation_root}" \
 MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE="${validation_root}/environment/os-release" \
 MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE="${ARCHITECTURE}" \
-MENTOR_PI_DEPLOYMENT_TEST_ROS_SETUP="${validation_root}/environment/humble-setup.bash" \
   "${host_prefix}/lib/mentor_pi_bringup/promote_host_release" \
     --staged-prefix "${host_prefix}" --release-id package-layout-check \
     >/dev/null
@@ -162,44 +207,28 @@ validation_root=""
 
 staging_root="$(mktemp -d "${output_parent}/.mentor-pi-host-handoff.XXXXXX")"
 mkdir -p "${staging_root}/host" \
-  "${staging_root}/agent-installer/tools" \
-  "${staging_root}/agent-installer/tools/patches" \
-  "${staging_root}/agent-installer/mentor_pi_ros2/src/mentor_pi_bringup/scripts" \
+  "${staging_root}/agent" \
+  "${staging_root}/runtime-image" \
   "${staging_root}/docs/tutorials"
 cp -a "${host_prefix}/." "${staging_root}/host/"
-install -m 0755 \
-  "${SCRIPT_DIR}/install_microros_agent.sh" \
-  "${SCRIPT_DIR}/build_microros_agent_from_lock.sh" \
-  "${SCRIPT_DIR}/require_microros_agent_install_idle.sh" \
-  "${SCRIPT_DIR}/verify_microros_agent_install_state.sh" \
-  "${staging_root}/agent-installer/tools/"
-install -m 0644 "${AGENT_SOURCE_LOCK}" \
-  "${staging_root}/agent-installer/tools/microros_agent_source.lock"
-install -m 0644 \
-  "${SCRIPT_DIR}/patches/micro_xrce_agent_rrclite_modem_lines.patch" \
-  "${staging_root}/agent-installer/tools/patches/"
-install -m 0755 \
-  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/scripts/run_micro_ros_agent" \
-  "${staging_root}/agent-installer/mentor_pi_ros2/src/mentor_pi_bringup/scripts/"
+cp -a "${agent_prefix}/." "${staging_root}/agent/"
+install -m 0644 "${runtime_image_archive}" \
+  "${staging_root}/runtime-image/mentor-pi-runtime.tar"
 cp -a "${PROJECT_ROOT}/docs/tutorials/." \
   "${staging_root}/docs/tutorials/"
 
+symlink_manifest="${staging_root}/SYMLINKS.txt"
+: >"${symlink_manifest}"
+while IFS= read -r -d '' link; do
+  relative="${link#"${staging_root}/"}"
+  target="$(readlink -- "${link}")"
+  printf '%s\t%s\n' "${relative}" "${target}" >>"${symlink_manifest}"
+done < <(find "${staging_root}/host" "${staging_root}/agent" \
+  -type l -print0 | LC_ALL=C sort -z)
+
 readonly CREATED_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-readonly PACKAGED_AGENT_SOURCE_LOCK="${staging_root}/agent-installer/tools/microros_agent_source.lock"
-readonly AGENT_LOCK_SHA="$(Sha256 "${PACKAGED_AGENT_SOURCE_LOCK}")"
-readonly PACKAGED_AGENT_PATCH="${staging_root}/agent-installer/tools/patches/micro_xrce_agent_rrclite_modem_lines.patch"
-readonly AGENT_PATCH_SHA="$(Sha256 "${PACKAGED_AGENT_PATCH}")"
-cat >"${staging_root}/AGENT-METADATA.txt" <<EOF
-format=rrclite-agent-handoff-v2
-ros_distro=humble
-installation=pinned-source-build
-source_lock=agent-installer/tools/microros_agent_source.lock
-source_lock_sha256=${AGENT_LOCK_SHA}
-rrclite_patch=agent-installer/tools/patches/micro_xrce_agent_rrclite_modem_lines.patch
-rrclite_patch_sha256=${AGENT_PATCH_SHA}
-installer=agent-installer/tools/install_microros_agent.sh
-runtime_executable=/opt/mentor_pi/bin/mentor_pi_micro_ros_agent
-EOF
+readonly RUNTIME_ARCHIVE_SHA="$(Sha256 \
+  "${staging_root}/runtime-image/mentor-pi-runtime.tar")"
 cat >"${staging_root}/HOST-HANDOFF.txt" <<EOF
 package_format=rrclite-host-handoff-v2
 release_id=${release_id}
@@ -212,22 +241,36 @@ ros_distro=humble
 build_type=Release
 source_sha256=${CURRENT_SOURCE}
 builder_image=${BUILDER_IMAGE}
+builder_image_id=${BUILDER_IMAGE_ID}
 host_prefix_directory=host
-agent_installer_directory=agent-installer
-agent_metadata=AGENT-METADATA.txt
+agent_prefix_directory=agent
+runtime_image_archive=runtime-image/mentor-pi-runtime.tar
+runtime_image_archive_format=oci-v1
+runtime_image_archive_sha256=${RUNTIME_ARCHIVE_SHA}
+runtime_image_id=${runtime_image_id}
+symlink_manifest=SYMLINKS.txt
 EOF
 cat >"${staging_root}/INSTALL.txt" <<EOF
 Verify from this directory:
   sha256sum --check SHA256SUMS
+  while IFS=$'\t' read -r path target; do
+    test -L "\${path}" && test "\$(readlink -- "\${path}")" = "\${target}"
+  done < SYMLINKS.txt
 
 On Ubuntu 22.04 ${ARCHITECTURE}, with mentor-pi-controller.target inactive:
-  sudo ./agent-installer/tools/install_microros_agent.sh
+  docker load --input runtime-image/mentor-pi-runtime.tar
+  sudo install -d /opt/mentor_pi/releases/agent/${release_id}
+  sudo cp -a agent/. /opt/mentor_pi/releases/agent/${release_id}/
+  agent_sha=\$(sed -n 's/^executable_sha256=//p' agent/AGENT-BUILD-METADATA.txt)
+  echo "\${agent_sha}  /opt/mentor_pi/releases/agent/${release_id}/lib/micro_ros_agent/micro_ros_agent" | sudo sha256sum --check --strict -
+  sudo ln -sfn /opt/mentor_pi/releases/agent/${release_id} /opt/mentor_pi/micro_ros_agent
   sudo ./host/lib/mentor_pi_bringup/promote_host_release \\
     --staged-prefix "\${PWD}/host" --release-id ${release_id}
 
 Connect exactly one CH9102F, identify its tty/serial or ID_PATH, then follow
-docs/tutorials/onboard-computer/03-build-and-run-humble-host.md before installing
-udev/systemd site assets. Do not enable the target before review.
+docs/tutorials/03-build-and-run-humble-host.md before installing udev/systemd
+site assets with --runtime-image ${runtime_image_id}. Do not enable the target
+before review.
 EOF
 
 readonly POST_STAGING_SOURCE="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"

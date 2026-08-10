@@ -192,7 +192,8 @@ cmake -S "${SOURCE_ROOT}/Micro-XRCE-DDS-Agent" \
   -DUAGENT_P2P_PROFILE=OFF \
   -DUAGENT_BUILD_EXECUTABLE=OFF \
   -DUAGENT_ISOLATED_INSTALL=OFF
-cmake --build "${work_root}/build-xrce-agent" --parallel \
+cmake --build "${work_root}/build-xrce-agent" \
+  --parallel "${RRCLITE_BUILD_JOBS:-1}" \
   --target install
 
 colcon --log-base "${work_root}/log" build \

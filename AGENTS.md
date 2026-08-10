@@ -4,38 +4,30 @@ Read `README.md` and `docs/NEXT_STEPS.md` before changing this repository.
 Treat the framework documents as the detailed contract when a task needs exact
 interface, hardware, or safety requirements.
 
-## Current implementation handoff (2026-08-09)
+## Current implementation handoff (2026-08-10)
 
 - The ROS workspace/schema migration, single-default-PID firmware migration,
-  two complete eight-tutorial host tracks, and Python-only launch migration are
+  single eight-tutorial Docker host track, and Python-only launch migration are
   implemented in the current worktree. Preserve them as the current contract.
 - `mentor_pi_bringup controller.launch.py` starts the compiled micro-ROS Agent
-  and configuration supervisor as one fail-coupled launch. Direct native use
-  performs the acknowledgement, serial identity/ownership, executable, and
-  development-artifact preflight; `make start` remains the adaptive
-  native-or-Docker entry point.
+  and configuration supervisor as one fail-coupled launch inside the hardened
+  runtime container; `make start` is the Docker-only entry point.
 - The firmware domain has one PID control configuration. Do not restore the
   removed locked/direction-check enum, factories, constants, or control-step
   branches. Invalid configuration values still fail closed.
-- Focused documentation, tutorial/runtime, artifact, flash, handoff, domain,
-  and controller tests pass. The pinned quality-container rerun now reaches
-  three pre-existing formatting failures in unchanged C++ sources; the new
-  native RDK X5 build/runtime path still requires arm64 Ubuntu 22.04 evidence.
-  See `docs/NEXT_STEPS.md` for exact evidence and remaining native/HIL gates.
-- The RDK X5 onboard-computer path is Ubuntu 22.04 arm64, Docker-free, and uses
-  native Humble, conventional colcon, direct ros2 commands, native micro-ROS
-  generation, and the pinned local Arm GNU 13.2.1 toolchain. The normal-computer
-  path is Ubuntu 24.04 and uses the pinned Humble containers. Fuzzing remains a
-  normal-computer release gate and is intentionally not an onboard gate.
-- The onboard Humble arm64 repository does not supply
-  `ros-humble-micro-ros-setup`; preserve the source-locked 3.1.3 installer and
-  its verified `/opt/mentor_pi` overlay instead of restoring that apt package.
-  Its unused `clang-tidy` rosdep is deliberately skipped because RDK's Jammy
-  package set cannot resolve it and analysis is not an onboard gate.
-- User-facing ROS shells use zsh. Preserve the RDK X5 user's existing zsh
-  configuration unchanged; only the host-runtime image supplies pinned Oh My
-  Zsh, completion, autosuggestions, and syntax highlighting. Keep Make recipes,
-  scripts, CI, builders, and the non-interactive runtime launch on Bash.
+- Focused documentation, tutorial/runtime, artifact, cache, handoff, and
+  deployment tests pass. The native amd64 Docker mock builds micro-ROS,
+  firmware, host, and Agent, smokes the enhanced-zsh runtime, and proves
+  micro-ROS cache reuse. The RDK X5 path still requires native arm64 and
+  hardware evidence. See `docs/NEXT_STEPS.md` for exact evidence and remaining
+  Docker/HIL gates.
+- Both computer types use architecture-native pinned Docker images for
+  firmware, micro-ROS, Agent, host, shell, development, and production. Only
+  udev configuration and STM32CubeProgrammer flashing run on the host. Fuzzing
+  remains a normal-computer release gate and is intentionally not an RDK gate.
+- User-facing ROS shells use the runtime image's pinned Oh My Zsh, completion,
+  autosuggestions, and syntax highlighting. Keep Make recipes, scripts, CI,
+  builders, and the non-interactive runtime launch on Bash.
 
 ## Next-version migration mandate
 
@@ -77,18 +69,15 @@ the current required layout and behavior and must remain enforced.
 - Do not add a root compatibility symlink, duplicate package tree, or stale
   root-source fallback. Package-internal `src/` directories containing C++
   implementation files remain unchanged.
-- On Ubuntu 22.04 with ROS 2 Humble, support conventional direct use from
-  `mentor_pi_ros2` with `rosdep`, `colcon build`, and `colcon test`. Keep the
-  root Makefile as the verified convenience interface and keep the pinned
-  Ubuntu 22.04/Humble Docker path for every other supported Ubuntu release.
+- Use the root Makefile as the Docker-only developer interface. Do not install
+  or source host ROS; the pinned Ubuntu 22.04/Humble images provide it.
 - Update all project-owned CMake paths, firmware interface includes, Docker
   inputs, source fingerprints, installers, packaging, CI filters, tests,
   launch/runtime tools, and documentation atomically to use
   `mentor_pi_ros2/src`.
-- Keep the two complete ordered tutorial trees under
-  `docs/tutorials/{onboard-computer,normal-computer}`. The onboard tree uses
-  native commands and the normal-computer tree uses Docker; preserve identical
-  safety ordering and hardware gates in both.
+- Keep one complete ordered 01--08 sequence directly under `docs/tutorials/`.
+  Tutorial 01 may branch for the arm64 CubeProgrammer package and Tutorial 07
+  for the lightweight RDK versus complete normal-computer software gate.
 
 ### Manifest validation
 
@@ -101,10 +90,9 @@ the current required layout and behavior and must remain enforced.
 
 ### Migration acceptance
 
-- Run focused tests while migrating, then run the complete regression target
-  once after every focused group passes.
-- Verify direct native Humble colcon use and the root adaptive Make/Docker
-  path. Verify the single PID release artifact and its handoff layout.
+- Run the smallest focused tests covering changed code. Do not run unrelated
+  regression suites merely because they exist.
+- Verify the Docker-only Make path and single PID release artifact/handoff.
 - Keep path-contract tests rejecting a root package tree or a dependency on
   the removed schema snapshot. Distinguish package-internal, ignored
   legacy-evidence, and upstream third-party `src/` paths.
@@ -116,10 +104,9 @@ the current required layout and behavior and must remain enforced.
 
 ## Supported stack
 
-- Support only Ubuntu 22.04 and ROS 2 Humble for production. Development may
-  use any Ubuntu release on amd64 or arm64: Ubuntu 22.04 uses native Humble;
-  every other release uses the pinned Ubuntu 22.04/Humble Docker runtime and
-  must not receive a native ROS installation.
+- Support Ubuntu 22.04 and ROS 2 Humble inside the production image.
+  Development hosts may use supported Ubuntu releases on amd64 or arm64, but
+  all ROS/build/runtime paths use architecture-native pinned Docker images.
 - Use the root `Makefile` as the developer interface. CMake/Ninja is
   authoritative for firmware and `colcon` is authoritative for host packages.
 - Do not restore PlatformIO or add a second IDE build graph. Do not introduce

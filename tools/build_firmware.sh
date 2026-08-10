@@ -19,23 +19,13 @@ readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fing
 readonly ARTIFACT_VERIFIER="${PROJECT_ROOT}/tools/verify_firmware_artifact.sh"
 readonly MEMORY_CHECKER="${PROJECT_ROOT}/tools/check_firmware_memory.sh"
 readonly DEPENDENCY_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
-readonly NATIVE_TOOLCHAIN_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_native_arm_toolchain.sh"
-readonly IMAGE="mentor-pi/rrclite-firmware-builder:gcc-13.2.1"
+readonly BUILD_IMAGE_PREPARER="${PROJECT_ROOT}/tools/prepare_build_images.sh"
+readonly JOB_SELECTOR="${PROJECT_ROOT}/tools/select_build_jobs.sh"
 readonly CUBE_REPOSITORY="https://github.com/STMicroelectronics/STM32CubeF4.git"
 readonly MICROROS_REPOSITORY="https://github.com/micro-ROS/micro_ros_stm32cubemx_utils.git"
 readonly EXPECTED_CUBE_COMMIT="52757b5e33259a088509a777a9e3a5b971194c7d"
 readonly EXPECTED_MICROROS_COMMIT="bd531b273c1bcd070b3143c5642128ec75a6f04e"
-
-declare -a docker_build_command=(docker build)
-for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
-    http_proxy https_proxy no_proxy; do
-  if [[ -n "${!proxy_variable:-}" ]]; then
-    docker_build_command+=(
-      --build-arg "${proxy_variable}=${!proxy_variable}"
-    )
-  fi
-done
-readonly -a docker_build_command
+readonly BUILD_LOCK="${PROJECT_ROOT}/tools/run_with_build_lock.sh"
 
 Fail() {
   echo "Firmware build error: $*" >&2
@@ -92,6 +82,10 @@ if [[ "${1:-}" == "--print-motor-profile" ]]; then
   exit 0
 fi
 
+if [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "$@"
+fi
+
 VerifyDependency "${CUBE_ROOT}" "${CUBE_REPOSITORY}" \
   "${EXPECTED_CUBE_COMMIT}"
 VerifyDependency "${FIRMWARE_ROOT}/third_party/micro_ros_stm32cubemx_utils" \
@@ -119,6 +113,8 @@ RequireFile \
 RequireFile "${TARGET_ROOT}/main.cc" \
   "Restore the STM32 target entry point."
 RequireFile "${DOCKERFILE}" "Restore the reproducible builder definition."
+[[ -x "${BUILD_IMAGE_PREPARER}" && -x "${JOB_SELECTOR}" ]] || \
+  Fail "Docker build-image or job-selection tooling is unavailable"
 
 readonly EXPECTED_MICROROS_ARCHIVE_FINGERPRINT="$(tr -d '[:space:]' \
   <"${MICROROS_ARCHIVE_HASH}")"
@@ -148,60 +144,39 @@ readonly SOURCE_FINGERPRINT_BEFORE="$(
   "${FINGERPRINT_TOOL}" firmware "${PROJECT_ROOT}"
 )"
 
-native_build=0
-builder_mode="docker-pinned"
-if [[ -r /etc/os-release ]] && \
-    grep -Eq '^ID=ubuntu$' /etc/os-release && \
-    grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release; then
-  native_build=1
-  builder_mode="native-ubuntu-22.04"
-fi
-readonly builder_mode
-
-if ((native_build == 1)); then
-  if [[ -x "${NATIVE_TOOLCHAIN_BOOTSTRAP}" ]] && \
-      grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release 2>/dev/null; then
-    readonly NATIVE_TOOLCHAIN_BIN="$("${NATIVE_TOOLCHAIN_BOOTSTRAP}" --print-bin)"
-    export PATH="${NATIVE_TOOLCHAIN_BIN}:${PATH}"
-  fi
-  export SOURCE_DATE_EPOCH=0
-  command -v cmake >/dev/null || Fail "cmake is not installed"
-  command -v ninja >/dev/null || Fail "ninja is not installed"
-  command -v arm-none-eabi-gcc >/dev/null || \
-    Fail "arm-none-eabi-gcc is not installed"
-  command -v arm-none-eabi-g++ >/dev/null || \
-    Fail "arm-none-eabi-g++ is not installed"
-  [[ "$(arm-none-eabi-gcc -dumpfullversion)" == "13.2.1" ]] || \
-    Fail "local arm-none-eabi-gcc must be the pinned 13.2.1 release"
-  [[ "$(arm-none-eabi-g++ -dumpfullversion)" == "13.2.1" ]] || \
-    Fail "local arm-none-eabi-g++ must be the pinned 13.2.1 release"
-  RemoveBuildRoot
-  cmake -S "${TARGET_ROOT}" -B "${BUILD_ROOT}" -G Ninja \
-    -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_FILE}" \
-    -DCMAKE_BUILD_TYPE=MinSizeRel
-  cmake --build "${BUILD_ROOT}" --parallel
-else
-  command -v docker >/dev/null || Fail "Docker is not installed"
-  docker info >/dev/null 2>&1 || Fail "Docker Desktop/Engine is not running"
-  "${docker_build_command[@]}" \
-    --file "${DOCKERFILE}" --tag "${IMAGE}" \
-    "${PROJECT_ROOT}/tools/docker"
-  RemoveBuildRoot
-  docker run --rm \
-    --user "$(id -u):$(id -g)" \
-    --env SOURCE_DATE_EPOCH=0 \
-    --volume "${PROJECT_ROOT}:/workspace" \
-    --workdir /workspace \
-    "${IMAGE}" \
-    bash -euc '
+case "$(uname -m)" in
+  x86_64 | amd64) readonly architecture=amd64 ;;
+  aarch64 | arm64) readonly architecture=arm64 ;;
+  *) Fail "the host architecture must be amd64 or arm64" ;;
+esac
+readonly IMAGE="$("${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" --print firmware)"
+readonly IMAGE_ID="$(docker image inspect "${IMAGE}" --format '{{.Id}}' \
+  2>/dev/null || true)"
+[[ "${IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+  Fail "the firmware builder image identity is invalid; run make setup"
+readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
+command -v docker >/dev/null || Fail "Docker is not installed"
+docker info >/dev/null 2>&1 || Fail "Docker Engine is not running"
+"${BUILD_IMAGE_PREPARER}" --architecture "${architecture}"
+RemoveBuildRoot
+docker run --rm \
+  --platform "linux/${architecture}" \
+  --user "$(id -u):$(id -g)" \
+  --env SOURCE_DATE_EPOCH=0 \
+  --env "CMAKE_BUILD_PARALLEL_LEVEL=${BUILD_JOBS}" \
+  --env "RRCLITE_BUILD_JOBS=${BUILD_JOBS}" \
+  --volume "${PROJECT_ROOT}:/workspace" \
+  --workdir /workspace \
+  "${IMAGE}" \
+  bash -euc '
       cmake -S firmware/mentor_pi_mcu/target/stm32 \
         -B firmware/mentor_pi_mcu/build/stm32 \
         -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/workspace/firmware/mentor_pi_mcu/target/stm32/arm-none-eabi-toolchain.cmake \
         -DCMAKE_BUILD_TYPE=MinSizeRel
-      cmake --build firmware/mentor_pi_mcu/build/stm32 --parallel
+      cmake --build firmware/mentor_pi_mcu/build/stm32 \
+        --parallel "${RRCLITE_BUILD_JOBS}"
     '
-fi
 
 for artifact in mentor_pi_mcu.elf mentor_pi_mcu.hex mentor_pi_mcu.bin \
     mentor_pi_mcu.map; do
@@ -244,7 +219,8 @@ printf '%s\n' \
   'schema=rrclite-firmware-build-v2' \
   'target=STM32F407VET6' \
   'ros_distro=humble' \
-  "builder_mode=${builder_mode}" \
+  'builder_mode=docker-pinned' \
+  "builder_image_id=${IMAGE_ID}" \
   "motor_mode=${MOTOR_MODE}" \
   "control_mode=${CONTROL_MODE}" \
   "artifact_mode=${ARTIFACT_MODE}" \

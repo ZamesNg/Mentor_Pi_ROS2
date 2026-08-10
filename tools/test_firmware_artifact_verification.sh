@@ -54,21 +54,17 @@ MakeBaseFixture() {
   printf 'firmware cmake\n' \
     >"${root}/firmware/mentor_pi_mcu/CMakeLists.txt"
   printf 'build script\n' >"${root}/tools/build_firmware.sh"
+  printf 'build lock\n' >"${root}/tools/run_with_build_lock.sh"
   printf 'memory checker\n' >"${root}/tools/check_firmware_memory.sh"
   printf 'micro-ROS source-lock script\n' \
     >"${root}/tools/apply_microros_source_lock.sh"
   printf 'bootstrap script\n' \
     >"${root}/tools/bootstrap_firmware_dependencies.sh"
-  printf 'native toolchain bootstrap script\n' \
-    >"${root}/tools/bootstrap_native_arm_toolchain.sh"
   printf 'micro-ROS build script\n' \
     >"${root}/tools/build_microros_library.sh"
-  printf 'micro-ROS setup installer\n' \
-    >"${root}/tools/install_onboard_microros_setup.sh"
-  printf 'micro-ROS setup source lock\n' \
-    >"${root}/tools/microros_setup_source.lock"
-  printf 'native micro-ROS launcher preparer\n' \
-    >"${root}/tools/prepare_native_microros_setup_launcher.sh"
+  printf 'build image preparer\n' >"${root}/tools/prepare_build_images.sh"
+  printf 'build job selector\n' >"${root}/tools/select_build_jobs.sh"
+  printf 'micro-ROS cache validator\n' >"${root}/tools/verify_microros_cache.sh"
   printf 'dockerfile\n' >"${root}/tools/docker/firmware-builder.Dockerfile"
   printf 'micro-ROS dockerfile\n' \
     >"${root}/tools/docker/microros-builder.Dockerfile"
@@ -112,6 +108,7 @@ MakeBaseFixture() {
     'target=STM32F407VET6' \
     'ros_distro=humble' \
     'builder_mode=docker-pinned' \
+    'builder_image_id=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
     'artifact_mode=NORMAL' \
     'release_qualified=0' \
     "source_sha256=${source_sha256}" \
@@ -176,8 +173,15 @@ readonly INVALID_BUILDER_MODE="${TEST_ROOT}/invalid-builder-mode"
 cp -R "${PID_VALID}" "${INVALID_BUILDER_MODE}"
 sed -i 's/^builder_mode=docker-pinned$/builder_mode=native-explicit/' \
   "${INVALID_BUILDER_MODE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt"
-ExpectFailure 'unsupported builder mode' \
+ExpectFailure 'not built by the pinned Docker path' \
   "${SCRIPT_DIR}/verify_firmware_artifact.sh" PID "${INVALID_BUILDER_MODE}"
+
+readonly INVALID_BUILDER_IMAGE="${TEST_ROOT}/invalid-builder-image"
+cp -R "${PID_VALID}" "${INVALID_BUILDER_IMAGE}"
+sed -i 's/^builder_image_id=.*/builder_image_id=mutable-tag/' \
+  "${INVALID_BUILDER_IMAGE}/firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt"
+ExpectFailure 'builder image identity is not content-addressed' \
+  "${SCRIPT_DIR}/verify_firmware_artifact.sh" PID "${INVALID_BUILDER_IMAGE}"
 
 readonly STALE_ELF="${TEST_ROOT}/stale-elf"
 cp -R "${PID_VALID}" "${STALE_ELF}"

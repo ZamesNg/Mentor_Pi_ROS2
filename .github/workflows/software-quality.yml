@@ -1,7 +1,7 @@
 name: Software quality
 
 # Automatic push and pull-request runs are intentionally disabled. Start the
-# complete quality suite explicitly from the GitHub Actions UI.
+# complete Docker-pinned quality suite explicitly from the GitHub Actions UI.
 on:
   workflow_dispatch:
 
@@ -13,205 +13,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  documentation:
-    name: Documentation and traceability
+  pinned-quality-container:
+    name: Pinned full software and firmware gates
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 120
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Validate shell and Python tooling syntax
+      - name: Verify native Docker architecture
         run: |
-          bash -n tools/*.sh
-          python3 -m py_compile tools/check_framework_docs.py
-      - name: Validate links and traceability
-        run: ./tools/check_framework_docs.py
-      - name: Test firmware artifact and handoff gates
-        run: |
-          ./tools/test_active_build_policy.sh
-          ./tools/test_firmware_dependency_provenance.sh
-          ./tools/test_firmware_artifact_verification.sh
-          ./tools/test_gitignore_contract.sh
-          ./tools/test_host_handoff_tools.sh
-          ./tools/test_microros_agent_install_state.sh
-          ./tools/test_microros_source_lock.sh
-          ./tools/test_package_board_handoff.sh
-          ./tools/test_flash_firmware.sh
-          ./tools/test_pull_pinned_build_images.sh
-          ./tools/test_ros_workspace_layout.sh
-          ./tools/test_run_fuzz_smoke.sh
-
-  format:
-    name: clang-format 18
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install formatter
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends clang-format-18
-      - name: Check Google C++ formatting
+          test "$(dpkg --print-architecture)" = amd64
+          docker version
+          docker info
+      - name: Prepare content-identified build images
+        run: make setup
+      - name: Run the complete normal-computer release gate
         env:
-          CLANG_FORMAT: clang-format-18
-        run: ./tools/check_cpp_format.sh
-
-  native-debug-sanitizers:
-    name: Native Debug with ASan and UBSan
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          RELEASE_GATES_ACK: RUN_RELEASE_SOFTWARE_GATES
+        run: make release-software-gates
+      - name: Upload bounded quality evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          persist-credentials: false
-      - name: Install native build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            build-essential cmake ninja-build
-      - name: Run native sanitizer suites
-        env:
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ./tools/run_native_ci_tests.sh --build-type Debug --sanitizers on
-
-  native-release:
-    name: Native Release
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install native build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            build-essential cmake ninja-build
-      - name: Run optimized native suites
-        run: ./tools/run_native_ci_tests.sh --build-type Release --sanitizers off
-
-  thread-sanitizer:
-    name: Native ThreadSanitizer
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install native build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            build-essential cmake ninja-build
-      - name: Run concurrent container tests under TSan
-        env:
-          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
-        run: ./tools/run_tsan_tests.sh
-
-  portable-coverage:
-    name: Portable coverage gate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install LLVM coverage tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            clang-18 cmake ninja-build llvm-18
-      - name: Enforce first-party line and branch coverage
-        env:
-          CLANG_CXX: clang++-18
-          LLVM_COV: llvm-cov-18
-          LLVM_PROFDATA: llvm-profdata-18
-        run: ./tools/run_coverage_tests.sh
-
-  fuzz-smoke:
-    name: Deterministic libFuzzer smoke
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install Clang and native build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            clang-18 cmake libclang-rt-18-dev llvm-18 ninja-build
-      - name: Build and run bounded fuzz smoke campaigns
-        run: |
-          cmake \
-            -S firmware/mentor_pi_mcu \
-            -B build/fuzz-smoke \
-            -G Ninja \
-            -DBUILD_TESTING=OFF \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_CXX_COMPILER=clang++-18 \
-            -DMENTOR_PI_MCU_ENABLE_SANITIZERS=OFF \
-            -DMENTOR_PI_MCU_ENABLE_FUZZING=ON \
-            -DMENTOR_PI_MCU_FUZZ_SMOKE_RUNS=10000
-          cmake --build build/fuzz-smoke --target mentor_pi_mcu_fuzz_smoke
-
-  xrce-framing-conformance:
-    name: Pinned XRCE framing conformance
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install Clang and native build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            clang-18 cmake libclang-rt-18-dev ninja-build
-      - name: Build and run exact pinned framing conformance
-        env:
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: |
-          cmake \
-            -S firmware/mentor_pi_mcu/tests/xrce_conformance \
-            -B build/xrce-conformance \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_COMPILER=clang-18 \
-            -DCMAKE_CXX_COMPILER=clang++-18 \
-            -DMENTOR_PI_XRCE_CONFORMANCE_SANITIZERS=ON
-          cmake --build build/xrce-conformance
-          ctest --test-dir build/xrce-conformance --output-on-failure
-
-  static-analysis:
-    name: clang-tidy 18
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install analysis tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            build-essential clang-tidy-18 cmake ninja-build
-      - name: Analyze native translation units
-        env:
-          CLANG_TIDY: clang-tidy-18
-          RUN_CLANG_TIDY: run-clang-tidy-18
-        run: ./tools/run_clang_tidy.sh
+          name: mentor-pi-software-quality-${{ github.run_id }}
+          path: |
+            build/coverage/coverage-summary.txt
+            build/firmware-target-debug/firmware-target-analysis.txt
+            build/firmware-reproducibility
+            build/fuzz-evidence
+          if-no-files-found: warn
+          retention-days: 14

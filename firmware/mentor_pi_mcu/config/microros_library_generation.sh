@@ -19,15 +19,13 @@ set -euo pipefail
 : "${MICROROS_TOOLS_ROOT:=/rrclite_tools}"
 : "${MICROROS_RESTORE_OWNERSHIP:=1}"
 : "${MICROROS_SETUP_OVERLAY:=/uros_ws/install/local_setup.bash}"
-: "${MICROROS_NATIVE_COLCON_EXECUTABLE:=}"
 [[ "${MICROROS_CALLER_UID}" =~ ^[0-9]+$ ]]
 [[ "${MICROROS_CALLER_GID}" =~ ^[0-9]+$ ]]
 [[ "${MICROROS_PROJECT_ROOT}" == /* ]]
 [[ "${MICROROS_GENERATOR_WORKSPACE}" == /* ]]
 [[ "${MICROROS_TOOLCHAIN_ROOT}" == /* ]]
 [[ "${MICROROS_TOOLS_ROOT}" == /* ]]
-[[ "${MICROROS_RESTORE_OWNERSHIP}" == "0" || \
-   "${MICROROS_RESTORE_OWNERSHIP}" == "1" ]]
+[[ "${MICROROS_RESTORE_OWNERSHIP}" == "1" ]]
 
 readonly BASE_PATH="${MICROROS_PROJECT_ROOT}/${MICROROS_LIBRARY_FOLDER}"
 export BASE_PATH
@@ -41,9 +39,6 @@ RestoreHostBuildTree() {
   local original_status=$?
   trap - EXIT
   local restoration_failed=0
-  if [[ "${MICROROS_RESTORE_OWNERSHIP}" == "0" ]]; then
-    exit "${original_status}"
-  fi
   if [[ -d "${MICROROS_PROJECT_ROOT}/build/microros" ]]; then
     chown -R -- "${MICROROS_CALLER_UID}:${MICROROS_CALLER_GID}" \
       "${MICROROS_PROJECT_ROOT}/build/microros" || restoration_failed=1
@@ -116,37 +111,11 @@ readonly CREATE_WORKSPACE_SCRIPT="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup/c
   echo "Pinned micro-ROS workspace scripts are missing under ${MICROROS_SETUP_PREFIX}." >&2
   exit 1
 }
-create_firmware_workspace_command="${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
-declare -a build_firmware_command=(ros2 run micro_ros_setup build_firmware.sh)
-# The container overlay is disposable, so improve its import diagnostics in
-# place. The native root-owned overlay remains read-only; use a private copy of
-# its pinned launcher so upstream clean_env.sh cannot hide the verified colcon
-# executable when it removes ROS prefixes from PATH.
-if [[ "${MICROROS_RESTORE_OWNERSHIP}" == "1" ]]; then
-  sed -i \
-    "s#ros2 run micro_ros_setup create_ws.sh#${CREATE_WORKSPACE_SCRIPT}#g" \
-    "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
-else
-  [[ "${MICROROS_NATIVE_COLCON_EXECUTABLE}" =~ ^/[A-Za-z0-9._/+:-]+$ &&
-    -x "${MICROROS_NATIVE_COLCON_EXECUTABLE}" ]] || {
-    echo "Native micro-ROS generation requires an absolute colcon executable." >&2
-    exit 1
-  }
-  readonly NATIVE_LAUNCHER_PREPARER="${MICROROS_TOOLS_ROOT}/prepare_native_microros_setup_launcher.sh"
-  [[ -x "${NATIVE_LAUNCHER_PREPARER}" ]] || {
-    echo "Native micro-ROS launcher preparer is missing." >&2
-    exit 1
-  }
-  create_firmware_workspace_command="$("${NATIVE_LAUNCHER_PREPARER}" \
-    "${MICROROS_SETUP_PREFIX}" \
-    "${MICROROS_GENERATOR_WORKSPACE}/mentor-pi-micro-ros-setup-scripts" \
-    "${MICROROS_NATIVE_COLCON_EXECUTABLE}")"
-  build_firmware_command=(
-    "${MICROROS_GENERATOR_WORKSPACE}/mentor-pi-micro-ros-setup-scripts/build_firmware.sh"
-  )
-fi
-readonly create_firmware_workspace_command
-readonly -a build_firmware_command
+sed -i \
+  "s#ros2 run micro_ros_setup create_ws.sh#${CREATE_WORKSPACE_SCRIPT}#g" \
+  "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
+readonly create_firmware_workspace_command="${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
+readonly -a build_firmware_command=(ros2 run micro_ros_setup build_firmware.sh)
 if ! "${create_firmware_workspace_command}" generate_lib; then
   echo "Pinned micro-ROS workspace creation failed; see the repository import error above." >&2
   exit 1

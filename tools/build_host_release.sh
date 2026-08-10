@@ -75,6 +75,8 @@ else
 fi
 
 colcon --log-base "${LOG_ROOT}" build \
+  --executor parallel \
+  --parallel-workers "${RRCLITE_BUILD_JOBS:-1}" \
   --merge-install \
   --base-paths \
     "${project_root}/mentor_pi_ros2/src" \
@@ -89,6 +91,8 @@ if ((skip_tests == 0)); then
   source "${output_prefix}/setup.bash"
   set -u
   colcon --log-base "${LOG_ROOT}" test \
+    --executor parallel \
+    --parallel-workers "${RRCLITE_BUILD_JOBS:-1}" \
     --merge-install \
     --build-base "${BUILD_ROOT}" \
     --install-base "${output_prefix}" \
@@ -104,11 +108,12 @@ readonly POST_TEST_SOURCE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${project_root}")"
 readonly ARCHITECTURE="$(dpkg --print-architecture)"
 readonly CREATED_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 readonly COMPILER_VERSION="$(c++ --version | head -n 1 | tr ' ' '_')"
-readonly BUILDER_IMAGE="${MENTOR_PI_HOST_BUILDER_IMAGE:-native-ubuntu-22.04}"
-if [[ "${BUILDER_IMAGE}" != "native-ubuntu-22.04" &&
-      ! "${BUILDER_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
-  Fail "builder image must be a pinned digest or native-ubuntu-22.04"
-fi
+readonly BUILDER_IMAGE="${MENTOR_PI_HOST_BUILDER_IMAGE:-}"
+readonly BUILDER_IMAGE_ID="${MENTOR_PI_HOST_BUILDER_IMAGE_ID:-}"
+[[ "${BUILDER_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]] || \
+  Fail "builder image must be pinned by a sha256 manifest digest"
+[[ "${BUILDER_IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+  Fail "builder image ID must be content-addressed"
 cat >"${output_prefix}/HOST-BUILD-METADATA.txt" <<EOF
 format=rrclite-host-build-v2
 ubuntu=22.04
@@ -121,6 +126,7 @@ source_sha256=${INITIAL_SOURCE_FINGERPRINT}
 created_utc=${CREATED_UTC}
 compiler=${COMPILER_VERSION}
 builder_image=${BUILDER_IMAGE}
+builder_image_id=${BUILDER_IMAGE_ID}
 tests=$([[ "${skip_tests}" == 1 ]] && echo skipped || echo passed)
 EOF
 
@@ -134,10 +140,11 @@ required_paths=(
   lib/mentor_pi_bringup/install_production_assets
   lib/mentor_pi_bringup/promote_host_release
   lib/mentor_pi_bringup/require_controller_target_inactive
-  lib/mentor_pi_bringup/run_configuration_supervisor
+  lib/mentor_pi_bringup/run_production_container
   share/mentor_pi_bringup/config/controller.yaml
   share/mentor_pi_bringup/launch/controller.launch.py
-  share/mentor_pi_bringup/systemd/mentor-pi-agent.service
+  share/mentor_pi_bringup/systemd/mentor-pi-runtime.service
+  share/mentor_pi_bringup/systemd/mentor-pi-controller.target
   share/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in
   lib/libmentor_pi_hardwares.so
   share/mentor_pi_hardwares/ros2_control_plugins.xml

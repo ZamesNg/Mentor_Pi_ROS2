@@ -6,6 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly PROJECT_ROOT
+readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
+if [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "$@"
+fi
 readonly BUILD_SCRIPT="${PROJECT_ROOT}/tools/build_firmware.sh"
 readonly BUILD_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32"
 readonly BUILD_ROOT_RELATIVE="firmware/mentor_pi_mcu/build/stm32"
@@ -106,13 +110,11 @@ VerifyBuildMode() {
     echo "Build metadata targets a different ROS distribution." >&2
     return 1
   }
-  case "$(ReadMetadataValue "${metadata}" builder_mode)" in
-    docker-pinned | native-ubuntu-22.04) ;;
-    *)
-      echo "Build metadata has an unsupported builder mode." >&2
-      return 1
-      ;;
-  esac
+  [[ "$(ReadMetadataValue "${metadata}" builder_mode)" == \
+    "docker-pinned" ]] || {
+    echo "Build metadata has an unsupported builder mode." >&2
+    return 1
+  }
   [[ "$(ReadMetadataValue "${metadata}" release_qualified)" == "0" ]] || {
     echo "Build metadata must leave release qualification pending HIL." >&2
     return 1

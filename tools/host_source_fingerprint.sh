@@ -55,8 +55,10 @@ AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_hardwares"
 AppendDirectory "${PROJECT_ROOT}/docs/tutorials"
 for file in \
     Makefile \
-    tools/bootstrap_native_arm_toolchain.sh \
     tools/build_agent.sh \
+    tools/detect_host_profile.sh \
+    tools/export_oci_image_archive.py \
+    tools/export_oci_image_archive.sh \
     tools/build_host_handoff_container.sh \
     tools/build_microros_agent_from_lock.sh \
     tools/build_host.sh \
@@ -67,29 +69,24 @@ for file in \
     tools/host_source_fingerprint.sh \
     tools/docker/host-runtime.Dockerfile \
     tools/docker/host-runtime.zshrc \
-    tools/install_microros_agent.sh \
-    tools/install_onboard_microros_setup.sh \
     tools/install_onboard_stm32cubeprogrammer.sh \
-    tools/microros_setup_source.lock \
     tools/microros_agent_source.lock \
     tools/open_runtime_shell.sh \
-    tools/onboard_colcon_state.sh \
     tools/package_host_handoff.sh \
     tools/patches/micro_xrce_agent_rrclite_modem_lines.patch \
-    tools/prepare_host_build_dependencies.sh \
-    tools/require_microros_agent_install_idle.sh \
+    tools/prepare_build_images.sh \
     tools/run_runtime.sh \
+    tools/run_with_build_lock.sh \
     tools/select_pinned_build_image.sh \
-    tools/setup_onboard_ros_environment.sh \
-    tools/setup_onboard_ros_environment.zsh \
+    tools/select_build_jobs.sh \
+    tools/validate_docker_host.sh \
     tools/verify_host_build_environment.sh \
     tools/verify_host_release_relocation.sh \
     tools/verify_microros_agent_build_container.sh \
     tools/verify_microros_agent_build_in_container.sh \
     tools/test_active_build_policy.sh \
     tools/test_ros_workspace_layout.sh \
-    tools/verify_microros_agent_install_state.sh \
-    tools/zsh/native/.zshrc; do
+    tools/verify_microros_agent_install_state.sh; do
   AppendFile "${PROJECT_ROOT}/${file}"
 done
 

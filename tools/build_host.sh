@@ -9,6 +9,9 @@ readonly CONTAINER_ENTRYPOINT="${SCRIPT_DIR}/host_build_container_entrypoint.sh"
 readonly FINGERPRINT_TOOL="${SCRIPT_DIR}/host_source_fingerprint.sh"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
 readonly HOST_RUNTIME_BUILDER="${SCRIPT_DIR}/build_host_runtime_image.sh"
+readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
+readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
+readonly -a ORIGINAL_ARGUMENTS=("$@")
 
 print_output=0
 runtime_build=0
@@ -57,6 +60,10 @@ while (($# > 0)); do
   esac
 done
 
+if ((print_output == 0)) && [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "${ORIGINAL_ARGUMENTS[@]}"
+fi
+
 [[ -r /etc/os-release ]] || Fail "/etc/os-release is unavailable"
 [[ "$(ReadOsValue ID)" == "ubuntu" ]] || Fail "the host must be Ubuntu"
 readonly ubuntu_version="$(ReadOsValue VERSION_ID)"
@@ -66,6 +73,7 @@ case "$(uname -m)" in
   *) Fail "the host architecture must be amd64 or arm64" ;;
 esac
 readonly architecture
+readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
 
 readonly source_sha="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"
 if ((runtime_build == 1)); then
@@ -83,11 +91,27 @@ if ((print_output == 1)); then
   exit 0
 fi
 
+command -v docker >/dev/null 2>&1 || \
+  Fail "Docker is required on Ubuntu ${ubuntu_version}"
+docker info >/dev/null 2>&1 || \
+  Fail "Docker is not running or accessible"
+"${HOST_RUNTIME_BUILDER}" --architecture "${architecture}"
+readonly image="$(${HOST_RUNTIME_BUILDER} --architecture "${architecture}" --print-output)"
+readonly base_image="$(${IMAGE_SELECTOR} host "${architecture}")"
+readonly image_id="$(docker image inspect "${image}" \
+  --format '{{.Id}}' 2>/dev/null || true)"
+readonly image_platform="$(docker image inspect "${image}" \
+  --format '{{.Os}}/{{.Architecture}}' 2>/dev/null || true)"
+[[ "${image_id}" =~ ^sha256:[0-9a-f]{64}$ && \
+   "${image_platform}" == "linux/${architecture}" ]] || \
+  Fail "the pinned Humble host image identity or platform is invalid; run make setup"
+
 if [[ -f "${metadata}" && ! -L "${metadata}" ]]; then
   [[ "$(ReadSingleValue "${metadata}" source_sha256)" == "${source_sha}" && \
     "$(ReadSingleValue "${metadata}" architecture)" == "${architecture}" && \
     "$(ReadSingleValue "${metadata}" ubuntu)" == "22.04" && \
     "$(ReadSingleValue "${metadata}" ros_distro)" == "humble" && \
+    "$(ReadSingleValue "${metadata}" builder_image_id)" == "${image_id}" && \
     -r "${output_prefix}/setup.bash" ]] || \
     Fail "cached host build metadata is inconsistent: ${output_prefix}"
   echo "Reusing verified Humble host build: ${output_prefix}"
@@ -96,29 +120,6 @@ fi
 [[ ! -e "${output_prefix}" && ! -L "${output_prefix}" && \
   ! -e "${work_directory}" && ! -L "${work_directory}" ]] || \
   Fail "incomplete build cache exists at ${runtime_root}; move that exact generated directory aside and retry"
-
-if [[ "${ubuntu_version}" == "22.04" ]]; then
-  echo "Building the host natively on Ubuntu 22.04/ROS 2 Humble."
-  build_arguments=(
-    --project-root "${PROJECT_ROOT}" \
-    --output-prefix "${output_prefix}" \
-    --work-directory "${work_directory}"
-  )
-  ((runtime_build == 0)) || build_arguments+=(--skip-tests)
-  exec "${BUILD_TOOL}" "${build_arguments[@]}"
-fi
-
-command -v docker >/dev/null 2>&1 || \
-  Fail "Docker is required on Ubuntu ${ubuntu_version}"
-docker info >/dev/null 2>&1 || \
-  Fail "Docker is not running or accessible"
-"${HOST_RUNTIME_BUILDER}" --architecture "${architecture}"
-readonly image="$(${HOST_RUNTIME_BUILDER} --architecture "${architecture}" --print-output)"
-readonly base_image="$(${IMAGE_SELECTOR} host "${architecture}")"
-readonly image_architecture="$(docker image inspect "${image}" \
-  --format '{{.Architecture}}' 2>/dev/null || true)"
-[[ "${image_architecture}" == "${architecture}" ]] || \
-  Fail "the pinned Humble host image is not local; run make setup"
 
 readonly output_relative="${output_prefix#"${PROJECT_ROOT}/"}"
 readonly work_relative="${work_directory#"${PROJECT_ROOT}/"}"
@@ -132,9 +133,11 @@ docker run --rm --network=none \
   --env MENTOR_PI_CALLER_UID="$(id -u)" \
   --env MENTOR_PI_CALLER_GID="$(id -g)" \
   --env MENTOR_PI_HOST_BUILDER_IMAGE="${base_image}" \
+  --env MENTOR_PI_HOST_BUILDER_IMAGE_ID="${image_id}" \
   --env MENTOR_PI_OUTPUT_RELATIVE="${output_relative}" \
   --env MENTOR_PI_WORK_RELATIVE="${work_relative}" \
   --env MENTOR_PI_SKIP_TESTS="${runtime_build}" \
+  --env "RRCLITE_BUILD_JOBS=${BUILD_JOBS}" \
   --volume "${PROJECT_ROOT}:/workspace" \
   --workdir /workspace \
   --entrypoint /workspace/tools/host_build_container_entrypoint.sh \

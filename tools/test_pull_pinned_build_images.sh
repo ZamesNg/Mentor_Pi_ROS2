@@ -21,7 +21,7 @@ ExpectFailure() {
 [[ -x "${IMAGE_SELECTOR}" ]] || Fail "pinned-image selector is missing"
 
 for architecture in amd64 arm64; do
-  output="$(${PULL_TOOL} --dry-run --architecture "${architecture}")"
+  output="$(${PULL_TOOL} --dry-run --profile normal --architecture "${architecture}")"
   pull_count="$(grep -Fc "docker pull --platform linux/${architecture}" \
     <<<"${output}")"
   [[ "${pull_count}" == "4" ]] || \
@@ -34,6 +34,8 @@ for architecture in amd64 arm64; do
     Fail "amd64 plan contains an arm64 pull"
   [[ "${output}" == *"ros:humble-ros-base@sha256:"* ]] || \
     Fail "${architecture} plan omits the pinned Humble host image"
+  [[ "${output}" == *"prepare_build_images.sh --architecture ${architecture} --include-quality"* ]] || \
+    Fail "${architecture} normal-computer setup does not prepare the quality image"
   [[ "${output}" == *"image pull plan is valid for linux/${architecture}"* ]] || \
     Fail "${architecture} dry-run completion message is missing"
   [[ "${output}" != *'sha256:7bea3d9aa2483d3ca34c8e30d921b79273b0913bd7dc64bebf51d082b5d107e4'* && \
@@ -41,6 +43,14 @@ for architecture in amd64 arm64; do
      "${output}" != *'sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea'* ]] || \
     Fail "${architecture} pull plan uses a multi-platform index digest"
 done
+
+rdk_output="$(${PULL_TOOL} --dry-run --profile rdk-x5 --architecture arm64)"
+[[ "$(grep -Fc 'docker pull --platform linux/arm64' <<<"${rdk_output}")" == 3 ]] || \
+  Fail "RDK setup must omit the normal-computer quality image"
+[[ "${rdk_output}" != *'--include-quality'* ]] || \
+  Fail "RDK setup unexpectedly prepares the full quality image"
+[[ "${rdk_output}" == *'Pinned RRCLite rdk-x5 image pull plan is valid'* ]] || \
+  Fail "RDK dry-run completion message is missing"
 
 readonly AMD64_HOST_IMAGE="$("${IMAGE_SELECTOR}" host amd64)"
 readonly ARM64_HOST_IMAGE="$("${IMAGE_SELECTOR}" host arm64)"
@@ -71,6 +81,8 @@ ExpectFailure "${IMAGE_SELECTOR}" host
 ExpectFailure "${PULL_TOOL}" --dry-run
 ExpectFailure "${PULL_TOOL}" --architecture
 ExpectFailure "${PULL_TOOL}" --architecture riscv64 --dry-run
+ExpectFailure "${PULL_TOOL}" --architecture amd64 --profile rdk-x5 --dry-run
+ExpectFailure "${PULL_TOOL}" --architecture arm64 --profile invalid --dry-run
 ExpectFailure "${PULL_TOOL}" --architecture amd64 --unknown
 
 echo "Pinned-image architecture and dry-run tests passed."

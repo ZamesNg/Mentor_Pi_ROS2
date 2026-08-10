@@ -5,14 +5,17 @@ ARG TARGETARCH
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       ca-certificates \
-       clang-18 \
-       cmake \
-       curl \
-       libclang-rt-18-dev \
-       ninja-build \
-       llvm-18 \
-       xz-utils \
+       build-essential=12.10ubuntu1 \
+       ca-certificates=20260601~24.04.1 \
+       clang-18=1:18.1.3-1ubuntu1 \
+       clang-tidy-18=1:18.1.3-1ubuntu1 \
+       cmake=3.28.3-1build7 \
+       curl=8.5.0-2ubuntu10.11 \
+       libclang-rt-18-dev=1:18.1.3-1ubuntu1 \
+       ninja-build=1.11.1-2 \
+       llvm-18=1:18.1.3-1ubuntu1 \
+       python3=3.12.3-0ubuntu2.1 \
+       xz-utils=5.6.1+really5.4.5-1ubuntu0.3 \
     && clang++-18 --version | grep -F "version 18." \
     && rm -rf /var/lib/apt/lists/*
 
@@ -44,7 +47,8 @@ RUN case "${TARGETARCH}" in \
 # Keep this gate in a layer after the large cross-toolchain download. CMake
 # uses Git at configure time to re-verify the two detached dependency commits.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
+    && apt-get install -y --no-install-recommends \
+       git=1:2.43.0-1ubuntu7.3 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/opt/arm-gnu-toolchain/bin:${PATH}"

@@ -1,22 +1,28 @@
 [Unit]
-Description=Mentor Pi shared runtime and ROS logging directories
+Description=Mentor Pi pinned Docker controller runtime
 PartOf=mentor-pi-controller.target
-Before=mentor-pi-agent.service mentor-pi-configuration-supervisor.service
+After=docker.service network.target
+Requires=docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
-Type=oneshot
-User=mentor-pi
+Type=simple
+User=root
 RuntimeDirectory=mentor-pi
 RuntimeDirectoryMode=0700
 LogsDirectory=mentor-pi
 LogsDirectoryMode=0750
-ExecStart=/usr/bin/test -w /run/mentor-pi
-ExecStart=/usr/bin/test -w /var/log/mentor-pi
-RemainAfterExit=yes
+ExecStartPre=/usr/bin/test -S /var/run/docker.sock
+ExecStartPre=/usr/bin/test -c /dev/mentor_pi_mcu
+ExecStart=/opt/mentor_pi/host/lib/mentor_pi_bringup/run_production_container
+ExecStop=-/usr/bin/docker stop --time 5 mentor-pi-production
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+KillSignal=SIGINT
 UMask=0027
-NoNewPrivileges=true
-PrivateTmp=true
-PrivateDevices=true
+ReadWritePaths=/run/mentor-pi /var/log/mentor-pi /var/run/docker.sock
 ProtectHome=true
 ProtectSystem=strict
 ProtectKernelTunables=true
@@ -26,9 +32,11 @@ ProtectKernelLogs=true
 ProtectClock=true
 RestrictSUIDSGID=true
 LockPersonality=true
-CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX
 SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mentor-pi-runtime
 
 [Install]
 WantedBy=mentor-pi-controller.target

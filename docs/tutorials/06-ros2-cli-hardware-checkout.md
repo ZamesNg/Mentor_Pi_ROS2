@@ -1,4 +1,4 @@
-# Normal Computer Tutorial 06: ROS 2 CLI Hardware Checkout
+# Tutorial 06: ROS 2 CLI Hardware Checkout
 
 Exercise the Mentor Pi MCU interfaces directly with standard ROS 2 Humble
 commands. This is a guarded lab-bench reference, not a substitute for recorded
@@ -23,12 +23,10 @@ cd /home/zames/Mentor_Pi && make start
 ```
 
 It validates the PID artifact, CH9102F identity, serial ownership, build
-prefixes, safety acknowledgement, and native-or-Docker environment before it
+prefixes, safety acknowledgement, and Docker environment before it
 invokes the Python ROS launch file.
-
-Ubuntu 24.04 uses `make start`; do not attempt a native launch because the
-pinned Humble environment lives inside its runtime container. The target runs
-the validated `controller.launch.py` inside that container.
+The pinned Humble environment lives inside its runtime container on both host
+types. The target runs the validated `controller.launch.py` there.
 
 Open a second terminal for the commands below:
 

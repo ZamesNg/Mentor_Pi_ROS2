@@ -6,9 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly PROJECT_ROOT
+readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
+if [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "$@"
+fi
 readonly BUILD_ROOT="${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32"
-readonly FIRMWARE_IMAGE="mentor-pi/rrclite-firmware-builder:gcc-13.2.1"
-readonly NATIVE_TOOLCHAIN_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_native_arm_toolchain.sh"
+readonly BUILD_IMAGE_PREPARER="${PROJECT_ROOT}/tools/prepare_build_images.sh"
 readonly REPORT_ROOT="${RRCLITE_REPRO_REPORT_DIR:-${PROJECT_ROOT}/build/firmware-reproducibility}"
 readonly TEMPORARY_PARENT="${TMPDIR:-/tmp}"
 SNAPSHOT_ROOT="$(mktemp -d \
@@ -28,17 +31,13 @@ Cleanup() {
 }
 trap Cleanup EXIT
 
-if [[ -r /etc/os-release ]] && \
-    grep -Eq '^ID=ubuntu$' /etc/os-release && \
-    grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release; then
-  [[ -x "${NATIVE_TOOLCHAIN_BOOTSTRAP}" ]] || {
-    echo "Native Arm toolchain bootstrap is missing." >&2
-    exit 1
-  }
-  NATIVE_TOOLCHAIN_BIN="$("${NATIVE_TOOLCHAIN_BOOTSTRAP}" --print-bin)"
-  readonly NATIVE_TOOLCHAIN_BIN
-  export PATH="${NATIVE_TOOLCHAIN_BIN}:${PATH}"
-fi
+case "$(uname -m)" in
+  x86_64 | amd64) readonly ARCHITECTURE=amd64 ;;
+  aarch64 | arm64) readonly ARCHITECTURE=arm64 ;;
+  *) echo "Unsupported host architecture." >&2; exit 1 ;;
+esac
+readonly FIRMWARE_IMAGE="$("${BUILD_IMAGE_PREPARER}" \
+  --architecture "${ARCHITECTURE}" --print firmware)"
 
 Sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -97,29 +96,23 @@ CleanBuild() {
 
 GenerateLoadableImage() {
   local output_path="${BUILD_ROOT}/mentor_pi_mcu.loadable.bin"
-  if command -v arm-none-eabi-objcopy >/dev/null 2>&1 && \
-      [[ "$(arm-none-eabi-gcc -dumpfullversion 2>/dev/null || true)" == \
-         "13.2.1" ]]; then
+  command -v docker >/dev/null 2>&1 || {
+    echo "Docker is required." >&2
+    return 1
+  }
+  docker image inspect "${FIRMWARE_IMAGE}" >/dev/null 2>&1 || {
+    echo "Pinned firmware builder image is unavailable after the build." >&2
+    return 1
+  }
+  docker run --rm \
+    --platform "linux/${ARCHITECTURE}" \
+    --user "$(id -u):$(id -g)" \
+    --volume "${PROJECT_ROOT}:/workspace" \
+    --workdir /workspace \
+    "${FIRMWARE_IMAGE}" \
     arm-none-eabi-objcopy -O binary \
-      "${BUILD_ROOT}/mentor_pi_mcu.elf" "${output_path}"
-  else
-    command -v docker >/dev/null 2>&1 || {
-      echo "Docker or the pinned local Arm GNU 13.2.1 toolchain is required." >&2
-      return 1
-    }
-    docker image inspect "${FIRMWARE_IMAGE}" >/dev/null 2>&1 || {
-      echo "Pinned firmware builder image is unavailable after the build." >&2
-      return 1
-    }
-    docker run --rm \
-      --user "$(id -u):$(id -g)" \
-      --volume "${PROJECT_ROOT}:/workspace" \
-      --workdir /workspace \
-      "${FIRMWARE_IMAGE}" \
-      arm-none-eabi-objcopy -O binary \
-      firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf \
-      firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.loadable.bin
-  fi
+    firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf \
+    firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.loadable.bin
   cmp "${output_path}" "${BUILD_ROOT}/mentor_pi_mcu.bin"
 }
 

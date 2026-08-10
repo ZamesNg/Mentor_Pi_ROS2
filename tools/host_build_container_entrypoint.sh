@@ -13,6 +13,8 @@ for variable in MENTOR_PI_CALLER_UID MENTOR_PI_CALLER_GID \
     MENTOR_PI_HOST_BUILDER_IMAGE MENTOR_PI_SKIP_TESTS; do
   [[ -n "${!variable:-}" ]] || Fail "missing ${variable}"
 done
+[[ "${RRCLITE_BUILD_JOBS:-}" =~ ^[1-9][0-9]*$ ]] || \
+  Fail "missing or invalid RRCLITE_BUILD_JOBS"
 [[ "${MENTOR_PI_CALLER_UID}" =~ ^[0-9]+$ && \
   "${MENTOR_PI_CALLER_GID}" =~ ^[0-9]+$ ]] || \
   Fail "caller UID/GID is invalid"
@@ -38,6 +40,8 @@ exec setpriv \
     ROS_LOG_DIR="${BUILD_HOME}/ros-log" \
     MENTOR_PI_HOST_BUILDER_IMAGE="${MENTOR_PI_HOST_BUILDER_IMAGE}" \
     MENTOR_PI_SKIP_TESTS="${MENTOR_PI_SKIP_TESTS}" \
+    RRCLITE_BUILD_JOBS="${RRCLITE_BUILD_JOBS}" \
+    CMAKE_BUILD_PARALLEL_LEVEL=1 \
     /bin/bash -lc '
       set -euo pipefail
       cd /workspace

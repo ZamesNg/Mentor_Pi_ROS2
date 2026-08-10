@@ -14,12 +14,14 @@ identity_kind=""
 identity_value=""
 device=""
 share_dir=""
+runtime_image=""
 
 Usage() {
   cat >&2 <<'EOF'
 Usage: install_production_assets --mode first-install|upgrade \
   --ros-domain-id 0..232 --identity-kind serial|id-path \
-  --identity-value VALUE --device /dev/ttyUSBX [--share-dir PATH]
+  --identity-value VALUE --device /dev/ttyUSBX \
+  --runtime-image sha256:HEX [--share-dir PATH]
 EOF
   exit 2
 }
@@ -32,6 +34,7 @@ while (($# > 0)); do
     --identity-value) identity_value="${2:-}"; shift 2 ;;
     --device) device="${2:-}"; shift 2 ;;
     --share-dir) share_dir="${2:-}"; shift 2 ;;
+    --runtime-image) runtime_image="${2:-}"; shift 2 ;;
     *) Usage ;;
   esac
 done
@@ -49,6 +52,7 @@ if [[ ! "${identity_value}" =~ ^[A-Za-z0-9._:+/@-]+$ ]]; then
   exit 2
 fi
 [[ "${device}" == /dev/* ]] || Usage
+[[ "${runtime_image}" =~ ^sha256:[0-9a-f]{64}$ ]] || Usage
 
 readonly TEST_ROOT="${MENTOR_PI_DEPLOYMENT_TEST_ROOT:-}"
 if [[ -z "${TEST_ROOT}" && "$(id -u)" != "0" ]]; then
@@ -78,17 +82,38 @@ readonly UDEVADM="${MENTOR_PI_UDEVADM:-/usr/bin/udevadm}"
 readonly SYS_CLASS_TTY="${MENTOR_PI_SYS_CLASS_TTY:-/sys/class/tty}"
 
 for source_file in config/controller.yaml \
-    systemd/mentor-pi-configuration-supervisor.default \
     systemd/mentor-pi-runtime.service \
-    systemd/mentor-pi-agent.service \
-    systemd/mentor-pi-configuration-supervisor.service \
     systemd/mentor-pi-controller.target \
+    systemd/run_production_container \
     udev/99-mentor-pi-mcu.rules.in; do
   [[ -f "${SHARE_DIR}/${source_file}" ]] || {
     echo "Deployment release is missing ${source_file}." >&2
     exit 1
   }
 done
+if [[ -z "${TEST_ROOT}" ]]; then
+  command -v docker >/dev/null 2>&1 || {
+    echo "Docker is required for production deployment." >&2
+    exit 1
+  }
+  [[ "$(docker image inspect "${runtime_image}" --format '{{.Id}}' \
+    2>/dev/null || true)" == "${runtime_image}" ]] || {
+    echo "The pinned production runtime image is not loaded." >&2
+    exit 1
+  }
+  native_architecture="$(dpkg --print-architecture)"
+  [[ "${native_architecture}" == "amd64" || \
+     "${native_architecture}" == "arm64" ]] || {
+    echo "Unsupported deployment architecture: ${native_architecture}." >&2
+    exit 1
+  }
+  runtime_platform="$(docker image inspect "${runtime_image}" \
+    --format '{{.Os}}/{{.Architecture}}' 2>/dev/null || true)"
+  [[ "${runtime_platform}" == "linux/${native_architecture}" ]] || {
+    echo "The runtime image platform ${runtime_platform:-unknown} does not match linux/${native_architecture}." >&2
+    exit 1
+  }
+fi
 
 Destination() {
   printf '%s%s' "${TEST_ROOT}" "$1"
@@ -238,6 +263,7 @@ if grep -Fq '@MENTOR_PI_DEVICE_IDENTITY@' \
 fi
 printf 'ROS_DOMAIN_ID=%s\n' "${ros_domain_id}" \
   >"${TEMP_ROOT}/mentor-pi.default"
+printf '%s\n' "${runtime_image}" >"${TEMP_ROOT}/runtime-image"
 
 readonly ETC_MENTOR_PI="$(Destination /etc/mentor-pi)"
 readonly ETC_DEFAULT="$(Destination /etc/default)"
@@ -247,13 +273,13 @@ mkdir -p "${ETC_MENTOR_PI}" "${ETC_DEFAULT}" "${ETC_UDEV}" \
   "${ETC_SYSTEMD}"
 
 readonly CONTROLLER_DEST="${ETC_MENTOR_PI}/controller.yaml"
+readonly RUNTIME_IMAGE_DEST="${ETC_MENTOR_PI}/runtime-image"
 readonly SHARED_DEST="${ETC_DEFAULT}/mentor-pi"
-readonly SUPERVISOR_DEST="${ETC_DEFAULT}/mentor-pi-configuration-supervisor"
 readonly UDEV_DEST="${ETC_UDEV}/${UDEV_RULE_NAME}"
 
 if [[ "${mode}" == "first-install" ]]; then
-  for destination in "${CONTROLLER_DEST}" "${SHARED_DEST}" \
-      "${SUPERVISOR_DEST}" "${UDEV_DEST}"; do
+  for destination in "${CONTROLLER_DEST}" "${RUNTIME_IMAGE_DEST}" \
+      "${SHARED_DEST}" "${UDEV_DEST}"; do
     if [[ -e "${destination}" || -L "${destination}" ]]; then
       echo "First install refuses existing site file ${destination}." >&2
       exit 1
@@ -261,40 +287,41 @@ if [[ "${mode}" == "first-install" ]]; then
   done
   SetupServiceAccount
   InstallFile "${SHARE_DIR}/config/controller.yaml" "${CONTROLLER_DEST}"
+  InstallFile "${TEMP_ROOT}/runtime-image" "${RUNTIME_IMAGE_DEST}"
   InstallFile "${TEMP_ROOT}/mentor-pi.default" "${SHARED_DEST}"
-  InstallFile \
-    "${SHARE_DIR}/systemd/mentor-pi-configuration-supervisor.default" \
-    "${SUPERVISOR_DEST}"
   InstallFile "${TEMP_ROOT}/${UDEV_RULE_NAME}" "${UDEV_DEST}"
 else
-  for required in "${CONTROLLER_DEST}" "${SHARED_DEST}" \
-      "${SUPERVISOR_DEST}" "${UDEV_DEST}"; do
+  for required in "${CONTROLLER_DEST}" "${RUNTIME_IMAGE_DEST}" \
+      "${SHARED_DEST}" "${UDEV_DEST}"; do
     [[ -f "${required}" && ! -L "${required}" ]] || {
       echo "Upgrade requires existing regular site file ${required}." >&2
       exit 1
     }
   done
   RequireExactSharedIdentity "${SHARED_DEST}"
-  if grep -Eq '^[[:space:]]*ROS_' "${SUPERVISOR_DEST}"; then
-    echo "Service-specific defaults must not contain ROS_* variables." >&2
-    exit 1
-  fi
   if ! cmp -s "${TEMP_ROOT}/${UDEV_RULE_NAME}" "${UDEV_DEST}"; then
     echo "Upgrade refuses an implicit USB identity change in ${UDEV_DEST}." \
       >&2
     exit 1
   fi
   SetupServiceAccount
-  for site_file in "${CONTROLLER_DEST}" "${SHARED_DEST}" \
-      "${SUPERVISOR_DEST}" "${UDEV_DEST}"; do
+  InstallFile "${TEMP_ROOT}/runtime-image" "${RUNTIME_IMAGE_DEST}"
+  for site_file in "${CONTROLLER_DEST}" "${RUNTIME_IMAGE_DEST}" \
+      "${SHARED_DEST}" "${UDEV_DEST}"; do
     HardenSiteFile "${site_file}"
   done
   echo "Preserved reviewed site configuration and ROS/device identity."
 fi
 
-for unit in mentor-pi-runtime.service mentor-pi-agent.service \
-    mentor-pi-configuration-supervisor.service mentor-pi-controller.target; do
+for unit in mentor-pi-runtime.service mentor-pi-controller.target; do
   InstallFile "${SHARE_DIR}/systemd/${unit}" "${ETC_SYSTEMD}/${unit}"
+done
+for obsolete_unit in mentor-pi-agent.service \
+    mentor-pi-configuration-supervisor.service; do
+  obsolete_path="${ETC_SYSTEMD}/${obsolete_unit}"
+  if [[ -f "${obsolete_path}" && ! -L "${obsolete_path}" ]]; then
+    rm -f -- "${obsolete_path}"
+  fi
 done
 
 if [[ -z "${TEST_ROOT}" ]]; then

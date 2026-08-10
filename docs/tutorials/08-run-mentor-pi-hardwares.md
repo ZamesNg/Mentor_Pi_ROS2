@@ -1,9 +1,9 @@
-# Normal Computer Tutorial 08: Run the `mentor_pi_hardwares` Integration
+# Tutorial 08: Run the `mentor_pi_hardwares` Integration
 
 Run the coordinated ROS 2 Humble stack for a mecanum or Ackermann vehicle using
-the native `/mentor_pi` firmware endpoints.
+the `/mentor_pi` firmware endpoints.
 
-**Run on:** normal computer through the pinned Ubuntu 22.04/Humble Docker runtime
+**Run on:** either computer through the pinned Ubuntu 22.04/Humble Docker runtime
 **Initial fixture:** actuator power disconnected and wheels contained
 
 Previous: [Tutorial 07: Run Stress, Soak, and Release Gates](07-run-stress-soak-and-release-gates.md)

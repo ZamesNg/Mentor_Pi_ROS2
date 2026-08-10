@@ -46,10 +46,11 @@ printf '%s\n' 'ROS_DOMAIN_ID=37' \
   >"${SYSTEM_ROOT}/etc/default/mentor-pi"
 printf '%s\n' 'controller fixture' \
   >"${SYSTEM_ROOT}/etc/mentor-pi/controller.yaml"
+printf '%s\n' 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  >"${SYSTEM_ROOT}/etc/mentor-pi/runtime-image"
 printf '%s\n' 'udev fixture' \
   >"${SYSTEM_ROOT}/etc/udev/rules.d/99-mentor-pi-mcu.rules"
-for unit in mentor-pi-runtime.service mentor-pi-agent.service \
-    mentor-pi-configuration-supervisor.service mentor-pi-controller.target; do
+for unit in mentor-pi-runtime.service mentor-pi-controller.target; do
   printf '[Unit]\nDescription=%s fixture\n' "${unit}" \
     >"${SYSTEM_ROOT}/etc/systemd/system/${unit}"
 done
@@ -63,12 +64,14 @@ ln -s "${SYSTEM_ROOT}/opt/mentor_pi/releases/agent/a1" \
 printf '%s\n' 'device fixture' >"${SYSTEM_ROOT}/dev/ttyUSB0"
 ln -s "${SYSTEM_ROOT}/dev/ttyUSB0" \
   "${SYSTEM_ROOT}/dev/mentor_pi_mcu"
-cat >"${SYSTEM_ROOT}/opt/mentor_pi/bin/mentor_pi_micro_ros_agent" <<'EOF'
+mkdir -p "${SYSTEM_ROOT}/opt/mentor_pi/releases/agent/a1/lib/micro_ros_agent"
+cat >"${SYSTEM_ROOT}/opt/mentor_pi/releases/agent/a1/lib/micro_ros_agent/micro_ros_agent" <<'EOF'
 #!/usr/bin/env bash
 echo 'Usage: micro_ros_agent <transport>'
 exit 1
 EOF
-chmod +x "${SYSTEM_ROOT}/opt/mentor_pi/bin/mentor_pi_micro_ros_agent"
+chmod +x \
+  "${SYSTEM_ROOT}/opt/mentor_pi/releases/agent/a1/lib/micro_ros_agent/micro_ros_agent"
 
 cat >"${FAKE_BIN}/timeout" <<'EOF'
 #!/usr/bin/env bash

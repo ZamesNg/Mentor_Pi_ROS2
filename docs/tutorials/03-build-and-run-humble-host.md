@@ -1,10 +1,9 @@
-# Normal Computer Tutorial 03: Build and Run Humble in Docker
+# Tutorial 03: Build and Run Humble in Docker
 
-Run ROS 2 Humble in the pinned container on the Ubuntu 24.04 normal computer
-connected to the MCU. There is no native ROS installation or architecture
-override on this track.
+Run ROS 2 Humble in the pinned architecture-native container on the computer
+connected to the MCU. Host ROS installations are neither required nor sourced.
 
-**Run on:** normal computer, Ubuntu 24.04 `amd64` or `arm64`
+**Run on:** RDK X5 Ubuntu 22.04 `arm64`, or normal Ubuntu computer on `amd64`/`arm64`
 **Hardware state:** verified default PID firmware; all actuators disconnected
 
 Previous: [Tutorial 02: Build and Flash the Default PID Firmware](02-build-and-flash-default-pid-firmware.md)
@@ -32,8 +31,8 @@ cd /home/zames/Mentor_Pi && make start
 ```
 
 Type `PID_FIRMWARE_ACTUATORS_PREPARED` when prompted. The command
-validates `/dev/mentor_pi_mcu`, verifies the PID artifact, selects native or
-Docker Humble, and starts the Agent at 1,000,000 baud/8N1 with
+validates `/dev/mentor_pi_mcu`, verifies the PID artifact, starts the hardened
+Docker Humble runtime, and starts the Agent at 1,000,000 baud/8N1 with
 `ROS_DOMAIN_ID=0`. Its DTR/RTS sequence resets into normal application boot;
 do not run another serial reader or reset guard.
 

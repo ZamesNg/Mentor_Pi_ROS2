@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly IMAGE_FILE=/etc/mentor-pi/runtime-image
+readonly HOST_PREFIX=/opt/mentor_pi/host
+readonly AGENT_PREFIX=/opt/mentor_pi/micro_ros_agent
+readonly DEVICE=/dev/mentor_pi_mcu
+readonly CONTAINER_NAME=mentor-pi-production
+
+Fail() {
+  echo "Mentor Pi production container error: $*" >&2
+  exit 1
+}
+
+[[ "$#" -eq 0 ]] || Fail "this command accepts no arguments"
+[[ "$(id -u)" == 0 ]] || Fail "production container launcher must run as root"
+command -v docker >/dev/null 2>&1 || Fail "Docker is not installed"
+[[ -f "${IMAGE_FILE}" && ! -L "${IMAGE_FILE}" ]] || \
+  Fail "runtime image identity is missing"
+image="$(tr -d '[:space:]' <"${IMAGE_FILE}")"
+[[ "${image}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+  Fail "runtime image identity is malformed"
+[[ "$(docker image inspect "${image}" --format '{{.Id}}' 2>/dev/null || true)" == \
+  "${image}" ]] || Fail "the pinned runtime image is not loaded"
+native_architecture="$(dpkg --print-architecture)"
+[[ "${native_architecture}" == "amd64" || \
+   "${native_architecture}" == "arm64" ]] || \
+  Fail "the deployment host architecture is unsupported: ${native_architecture}"
+image_platform="$(docker image inspect "${image}" \
+  --format '{{.Os}}/{{.Architecture}}' 2>/dev/null || true)"
+[[ "${image_platform}" == "linux/${native_architecture}" ]] || \
+  Fail "runtime image platform ${image_platform:-unknown} does not match linux/${native_architecture}"
+[[ -c "${DEVICE}" ]] || Fail "the Mentor Pi serial device is unavailable"
+[[ -r /run/udev ]] || Fail "the host udev database is unavailable"
+[[ -r "${HOST_PREFIX}/setup.bash" ]] || Fail "the active host release is missing"
+[[ -r "${AGENT_PREFIX}/local_setup.bash" ]] || Fail "the active Agent release is missing"
+agent_executable="${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
+[[ -x "${agent_executable}" ]] || Fail "the Agent executable is missing"
+[[ -r /etc/mentor-pi/controller.yaml ]] || Fail "controller configuration is missing"
+
+service_uid="$(id -u mentor-pi)"
+service_gid="$(id -g mentor-pi)"
+serial_gid="$(stat -Lc '%g' "${DEVICE}")"
+[[ "${service_uid}" =~ ^[0-9]+$ && "${service_gid}" =~ ^[0-9]+$ && \
+   "${serial_gid}" =~ ^[0-9]+$ ]] || Fail "service account identity is invalid"
+[[ ! -L /var/log/mentor-pi ]] || \
+  Fail "the production ROS log directory must not be a symbolic link"
+install -d -o "${service_uid}" -g "${service_gid}" -m 0750 \
+  /var/log/mentor-pi
+[[ "$(stat -Lc '%u:%g:%a' /var/log/mentor-pi)" == \
+   "${service_uid}:${service_gid}:750" ]] || \
+  Fail "the production ROS log directory ownership or mode is invalid"
+
+if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
+  Fail "container ${CONTAINER_NAME} already exists"
+fi
+
+exec docker run --rm \
+  --name "${CONTAINER_NAME}" \
+  --init \
+  --stop-timeout 5 \
+  --network host \
+  --platform "linux/${native_architecture}" \
+  --user "${service_uid}:${service_gid}" \
+  --group-add "${serial_gid}" \
+  --device "${DEVICE}:${DEVICE}:rwm" \
+  --volume /run/udev:/run/udev:ro \
+  --volume "${HOST_PREFIX}:${HOST_PREFIX}:ro" \
+  --volume "${AGENT_PREFIX}:${AGENT_PREFIX}:ro" \
+  --volume /etc/mentor-pi/controller.yaml:/etc/mentor-pi/controller.yaml:ro \
+  --volume /var/log/mentor-pi:/var/log/mentor-pi \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --read-only \
+  --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=256m \
+  --env HOME=/tmp/mentor-pi-home \
+  --env ROS_LOG_DIR=/var/log/mentor-pi \
+  --env RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
+  --env MENTOR_PI_RRCLITE_AUTORESET=1 \
+  --env MENTOR_PI_AGENT_EXECUTABLE="${agent_executable}" \
+  --env-file /etc/default/mentor-pi \
+  --workdir /opt/mentor_pi/host \
+  --entrypoint /bin/bash \
+  "${image}" -lc '
+    set -eo pipefail
+    mkdir -p "${HOME}" "${ROS_LOG_DIR}"
+    set +u
+    source /opt/ros/humble/setup.bash
+    source /opt/mentor_pi/micro_ros_agent/local_setup.bash
+    source /opt/mentor_pi/host/setup.bash
+    set -u
+    exec ros2 launch mentor_pi_bringup controller.launch.py \
+      serial_device:=/dev/mentor_pi_mcu \
+      config_file:=/etc/mentor-pi/controller.yaml \
+      agent_executable:="${MENTOR_PI_AGENT_EXECUTABLE}"
+  '

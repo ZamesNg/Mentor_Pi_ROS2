@@ -56,9 +56,9 @@ Active channel wiring signs are fixed as `{1, 1, 1, 1}` in firmware. Before
 any powered motor work, complete Tutorials 01--05 passively with actuator
 power disconnected, confirm wheel clearance, use a current-limited supply,
 keep a physical motor-power stop reachable, follow the guarded checkout in
-[onboard Tutorial 06](../../docs/tutorials/onboard-computer/06-ros2-cli-hardware-checkout.md), and run
+[Tutorial 06](../../docs/tutorials/06-ros2-cli-hardware-checkout.md), and run
 the campaign gates in
-[normal-computer Tutorial 07](../../docs/tutorials/normal-computer/07-run-stress-soak-and-release-gates.md).
+[Tutorial 07](../../docs/tutorials/07-run-stress-soak-and-release-gates.md).
 D3 HIL must qualify or replace every PID, filter, deadband, motor/channel
 polarity, and full-range behavior before production nonzero-motion claims.
 

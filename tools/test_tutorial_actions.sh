@@ -39,16 +39,22 @@ for target in serial-setup flash start start-hardware start-mecanum start-ackerm
   grep -Eq "^[^:#]*\\b${target}([ :]|$)" "${PROJECT_ROOT}/Makefile" || \
     Fail "Makefile target is missing: ${target}"
 done
-grep -Fq 'RUN_ONBOARD_NATIVE_GATES' "${SCRIPT_DIR}/tutorial_action.sh" || \
-  Fail "onboard native gates do not require their distinct acknowledgement"
+grep -Fq 'RUN_ONBOARD_DOCKER_GATES' "${SCRIPT_DIR}/tutorial_action.sh" || \
+  Fail "RDK Docker gates do not require their distinct acknowledgement"
 grep -Fq 'run_fuzz_smoke.sh' "${SCRIPT_DIR}/tutorial_action.sh" || \
   Fail "normal-computer software gates lost fuzzing"
+grep -Fq 'onboard Docker gates require the detected RDK X5' \
+  "${SCRIPT_DIR}/tutorial_action.sh" || \
+  Fail "reduced onboard gates do not require RDK X5 device-tree detection"
+grep -Fq 'full software gates must run on the normal computer' \
+  "${SCRIPT_DIR}/tutorial_action.sh" || \
+  Fail "full software gates do not reject the RDK X5 profile"
 onboard_gate_block="$(sed -n '/release-onboard-gates)/,/;;/p' \
   "${SCRIPT_DIR}/tutorial_action.sh")"
 [[ "${onboard_gate_block}" != *'run_fuzz_smoke.sh'* ]] || \
-  Fail "onboard native gates must not invoke fuzzing"
+  Fail "RDK Docker gates must not invoke fuzzing"
 [[ "${onboard_gate_block}" != *'run_coverage_tests.sh'* ]] || \
-  Fail "onboard native gates must not require the normal-computer coverage toolchain"
+  Fail "RDK Docker gates must not require the normal-computer coverage toolchain"
 
 grep -Fq './tools/verify_firmware_artifact.sh PID' \
   "${SCRIPT_DIR}/tutorial_action.sh" || \
@@ -76,16 +82,12 @@ grep -Fq '/mentor_pi/motors/set_pid' \
 grep -Fq 'all 21 MCU endpoints and heartbeat' \
   "${SCRIPT_DIR}/run_runtime_action.sh" || \
   Fail "controller readiness reports a stale endpoint count"
-grep -Fq 'onboard_colcon_state.sh" verify' \
-  "${SCRIPT_DIR}/setup_onboard_ros_environment.sh" || \
-  Fail "Bash onboard environment does not reject a stale conventional colcon build"
-grep -Fq 'onboard_colcon_state.sh" verify' \
-  "${SCRIPT_DIR}/setup_onboard_ros_environment.zsh" || \
-  Fail "zsh onboard environment does not reject a stale conventional colcon build"
-if grep -ERq 'source [^`]*setup[.]bash|setup_onboard_ros_environment[.]sh' \
-    "${PROJECT_ROOT}/docs/tutorials/onboard-computer"; then
-  Fail "onboard tutorials expose a Bash environment command"
+if grep -ERq 'source [^`]*setup[.](bash|zsh)|setup_onboard_ros_environment' \
+    "${PROJECT_ROOT}/docs/tutorials"; then
+  Fail "Docker tutorials expose a native ROS environment command"
 fi
+grep -Fq '/usr/bin/zsh -d -i' "${SCRIPT_DIR}/open_runtime_shell.sh" || \
+  Fail "make shell no longer opens the runtime zsh configuration"
 
 readonly CONTROLLER_LAUNCH="${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.py"
 [[ -f "${CONTROLLER_LAUNCH}" ]] || Fail "Python controller launch is missing"

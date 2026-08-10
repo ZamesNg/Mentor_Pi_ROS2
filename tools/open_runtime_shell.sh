@@ -46,38 +46,4 @@ if command -v docker >/dev/null 2>&1 && \
     docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
   Fail "runtime container exists but is not running; remove that exact stopped container"
 fi
-
-grep -Eq '^ID=ubuntu$' /etc/os-release || Fail "the host must be Ubuntu"
-grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release || \
-  Fail "start make start in another terminal before opening a Docker ROS shell"
-if [[ -n "${MENTOR_PI_NATIVE_INSTALL_PREFIX:-}" ]]; then
-  host_prefix="${MENTOR_PI_NATIVE_INSTALL_PREFIX}"
-elif [[ -r "${PROJECT_ROOT}/mentor_pi_ros2/install/setup.bash" ]]; then
-  host_prefix="${PROJECT_ROOT}/mentor_pi_ros2/install"
-else
-  host_prefix="$(${HOST_BUILDER} --print-output)"
-fi
-readonly host_prefix
-readonly agent_prefix="$(${AGENT_BUILDER} --print-output)"
-readonly agent_executable="${agent_prefix}/lib/micro_ros_agent/micro_ros_agent"
-[[ -r "${host_prefix}/setup.bash" && -x "${agent_executable}" ]] || \
-  Fail "run make host and make agent first"
-command -v zsh >/dev/null 2>&1 || \
-  Fail "zsh is required by the native interactive shell"
-
-set +u
-source /opt/ros/humble/setup.bash
-source "${agent_prefix}/local_setup.bash"
-source "${host_prefix}/setup.bash"
-set -u
-export ROS_DOMAIN_ID="${ros_domain_id}"
-ros2 daemon stop >/dev/null 2>&1 || true
-export MENTOR_PI_DEVELOPMENT_RUNTIME=1
-export MENTOR_PI_PROJECT_ROOT="${PROJECT_ROOT}"
-export MENTOR_PI_FIRMWARE_VERIFIER="${PROJECT_ROOT}/tools/verify_firmware_artifact.sh"
-export MENTOR_PI_HOST_PREFIX="${host_prefix}"
-export MENTOR_PI_AGENT_PREFIX="${agent_prefix}"
-export MENTOR_PI_AGENT_EXECUTABLE="${agent_executable}"
-export MENTOR_PI_USER_ZDOTDIR="${ZDOTDIR:-${HOME}}"
-export ZDOTDIR="${PROJECT_ROOT}/tools/zsh/native"
-exec /usr/bin/zsh -d -i
+Fail "start make start in another terminal before opening the Docker ROS shell"

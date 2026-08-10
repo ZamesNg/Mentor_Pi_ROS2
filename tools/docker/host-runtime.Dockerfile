@@ -13,6 +13,8 @@ ARG GIT_VERSION=1:2.34.1-1ubuntu1.17
 ARG ZSH_PACKAGE_VERSION=5.8.1-1
 ARG ZSH_AUTOSUGGESTIONS_VERSION=0.7.0-1
 ARG ZSH_SYNTAX_HIGHLIGHTING_VERSION=0.7.1-2
+ARG PSMISC_VERSION=23.4-2build3
+ARG UDEV_VERSION=249.11-0ubuntu3.21
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -23,8 +25,8 @@ RUN apt-get update \
        "ros-humble-foxglove-bridge=${FOXGLOVE_BRIDGE_VERSION}" \
        "ros-humble-xacro=${XACRO_VERSION}" \
        "git=${GIT_VERSION}" \
-       psmisc \
-       udev \
+       "psmisc=${PSMISC_VERSION}" \
+       "udev=${UDEV_VERSION}" \
        "zsh=${ZSH_PACKAGE_VERSION}" \
        "zsh-autosuggestions=${ZSH_AUTOSUGGESTIONS_VERSION}" \
        "zsh-syntax-highlighting=${ZSH_SYNTAX_HIGHLIGHTING_VERSION}" \
@@ -35,6 +37,10 @@ RUN apt-get update \
     && test "$(dpkg-query -W -f='${Version}' ros-humble-foxglove-bridge)" = \
        "${FOXGLOVE_BRIDGE_VERSION}" \
     && test "$(dpkg-query -W -f='${Version}' git)" = "${GIT_VERSION}" \
+    && test "$(dpkg-query -W -f='${Version}' psmisc)" = \
+       "${PSMISC_VERSION}" \
+    && test "$(dpkg-query -W -f='${Version}' udev)" = \
+       "${UDEV_VERSION}" \
     && test "$(dpkg-query -W -f='${Version}' zsh)" = \
        "${ZSH_PACKAGE_VERSION}" \
     && test "$(dpkg-query -W -f='${Version}' zsh-autosuggestions)" = \

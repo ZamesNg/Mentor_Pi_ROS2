@@ -4,454 +4,160 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-readonly ENVIRONMENT_CHECK="${SCRIPT_DIR}/verify_host_build_environment.sh"
-readonly RELOCATION_CHECK="${SCRIPT_DIR}/verify_host_release_relocation.sh"
-readonly PACKAGE_TOOL="${SCRIPT_DIR}/package_host_handoff.sh"
-readonly FINGERPRINT_TOOL="${SCRIPT_DIR}/host_source_fingerprint.sh"
-readonly TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mentor-pi-host-tools.XXXXXX")"
+readonly PACKAGER="${SCRIPT_DIR}/package_host_handoff.sh"
+readonly FINGERPRINT="${SCRIPT_DIR}/host_source_fingerprint.sh"
+readonly OCI_EXPORTER="${SCRIPT_DIR}/export_oci_image_archive.sh"
+readonly TEST_ROOT="$(mktemp -d)"
+readonly IMAGE_ID="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 Cleanup() {
-  rm -rf -- "${TEST_ROOT}"
+  [[ ! -d "${TEST_ROOT}" ]] || rm -rf -- "${TEST_ROOT}"
 }
 trap Cleanup EXIT
 
 Fail() {
-  echo "Host handoff tool test failure: $*" >&2
+  echo "Host handoff contract test failed: $*" >&2
   exit 1
 }
 
 ExpectFailure() {
-  if "$@" >/dev/null 2>&1; then
+  local expected="$1"
+  shift
+  local output=""
+  if output="$("$@" 2>&1)"; then
     Fail "command unexpectedly succeeded: $*"
   fi
+  [[ "${output}" == *"${expected}"* ]] || \
+    Fail "expected '${expected}' in failure: ${output}"
 }
 
-VerifyManifest() {
-  local directory="$1"
-  if command -v sha256sum >/dev/null 2>&1; then
-    (cd "${directory}" && sha256sum --check SHA256SUMS >/dev/null)
-  else
-    (cd "${directory}" && shasum -a 256 --check SHA256SUMS >/dev/null)
-  fi
-}
+readonly HOST_PREFIX="${TEST_ROOT}/host"
+readonly AGENT_PREFIX="${TEST_ROOT}/agent"
+readonly IMAGE_ARCHIVE="${TEST_ROOT}/runtime.tar"
+mkdir -p "${HOST_PREFIX}/lib/mentor_pi_bringup" \
+  "${AGENT_PREFIX}/lib/micro_ros_agent"
 
-readonly PLATFORM_ROOT="${TEST_ROOT}/platform"
-mkdir -p "${PLATFORM_ROOT}/etc" "${PLATFORM_ROOT}/usr/lib" \
-  "${PLATFORM_ROOT}/fake-bin"
-cat >"${PLATFORM_ROOT}/usr/lib/os-release" <<'EOF'
-ID=ubuntu
-VERSION_ID="22.04"
-EOF
-ln -s ../usr/lib/os-release "${PLATFORM_ROOT}/etc/os-release"
-for tool in colcon rosdep cmake c++ python3 sha256sum tar gzip; do
-  cat >"${PLATFORM_ROOT}/fake-bin/${tool}" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
-  chmod +x "${PLATFORM_ROOT}/fake-bin/${tool}"
+for executable in configuration_supervisor qualification_campaign \
+    qualification_monitor motor_commissioning capture_board_diagnostics \
+    install_production_assets promote_host_release \
+    require_controller_target_inactive run_production_container; do
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+    >"${HOST_PREFIX}/lib/mentor_pi_bringup/${executable}"
+  chmod +x "${HOST_PREFIX}/lib/mentor_pi_bringup/${executable}"
 done
-cat >"${PLATFORM_ROOT}/humble-setup.bash" <<EOF
-export ROS_DISTRO=humble
-export PATH="${PLATFORM_ROOT}/fake-bin:/usr/bin:/bin"
-EOF
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+  >"${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
+chmod +x "${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
+printf 'shared library\n' >"${AGENT_PREFIX}/lib/libfixture.so.1"
+ln -s libfixture.so.1 "${AGENT_PREFIX}/lib/libfixture.so"
+printf '%s\n' 'oci-layout fixture' >"${IMAGE_ARCHIVE}"
 
-"${ENVIRONMENT_CHECK}" \
-  --os-release "${PLATFORM_ROOT}/etc/os-release" \
-  --architecture arm64 \
-  --ros-setup "${PLATFORM_ROOT}/humble-setup.bash" \
-  --check-tools yes >/dev/null
-rm "${PLATFORM_ROOT}/etc/os-release"
-ln -s ../usr/lib/missing-release "${PLATFORM_ROOT}/etc/os-release"
-ExpectFailure "${ENVIRONMENT_CHECK}" \
-  --os-release "${PLATFORM_ROOT}/etc/os-release" \
-  --architecture arm64 \
-  --ros-setup "${PLATFORM_ROOT}/humble-setup.bash" \
-  --check-tools no
-rm "${PLATFORM_ROOT}/etc/os-release"
-ln -s ../usr/lib "${PLATFORM_ROOT}/etc/os-release"
-ExpectFailure "${ENVIRONMENT_CHECK}" \
-  --os-release "${PLATFORM_ROOT}/etc/os-release" \
-  --architecture arm64 \
-  --ros-setup "${PLATFORM_ROOT}/humble-setup.bash" \
-  --check-tools no
-rm "${PLATFORM_ROOT}/etc/os-release"
-ln -s ../usr/lib/os-release "${PLATFORM_ROOT}/etc/os-release"
-ExpectFailure "${ENVIRONMENT_CHECK}" \
-  --os-release "${PLATFORM_ROOT}/etc/os-release" \
-  --architecture riscv64 \
-  --ros-setup "${PLATFORM_ROOT}/humble-setup.bash" \
-  --check-tools no
-
-MakeFakePrefix() {
-  local prefix="$1"
-  local hardcoded_setup="${2:-no}"
-  mkdir -p \
-    "${prefix}/lib/mentor_pi_bringup" \
-    "${prefix}/lib" \
-    "${prefix}/share/ament_index/resource_index/packages" \
-    "${prefix}/share/mentor_pi_interfaces" \
-    "${prefix}/share/mentor_pi_bringup/config" \
-    "${prefix}/share/mentor_pi_bringup/launch" \
-    "${prefix}/share/mentor_pi_bringup/systemd" \
-    "${prefix}/share/mentor_pi_bringup/udev" \
-    "${prefix}/test-bin"
-  : >"${prefix}/share/ament_index/resource_index/packages/mentor_pi_bringup"
-  : >"${prefix}/share/ament_index/resource_index/packages/mentor_pi_interfaces"
-  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces/package.xml" \
-    "${prefix}/share/mentor_pi_interfaces/package.xml"
-  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/config/controller.yaml" \
-    "${prefix}/share/mentor_pi_bringup/config/controller.yaml"
-  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/launch/controller.launch.py" \
-    "${prefix}/share/mentor_pi_bringup/launch/controller.launch.py"
-  for asset in mentor-pi-configuration-supervisor.default \
-      mentor-pi-runtime.service mentor-pi-agent.service \
-      mentor-pi-configuration-supervisor.service mentor-pi-controller.target; do
-    cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/systemd/${asset}" \
-      "${prefix}/share/mentor_pi_bringup/systemd/${asset}"
-  done
-  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in" \
-    "${prefix}/share/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in"
-  cp "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/systemd/promote_host_release" \
-    "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/systemd/require_controller_target_inactive" \
-    "${prefix}/lib/mentor_pi_bringup/"
-  for executable in configuration_supervisor qualification_campaign \
-      qualification_monitor motor_commissioning \
-      capture_board_diagnostics \
-      install_production_assets run_configuration_supervisor; do
-    cat >"${prefix}/lib/mentor_pi_bringup/${executable}" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
-  done
-  chmod +x "${prefix}/lib/mentor_pi_bringup/"*
-  for library in libmentor_pi_interfaces__rosidl_generator_c.so \
-      libmentor_pi_interfaces__rosidl_typesupport_cpp.so \
-      libmentor_pi_interfaces__rosidl_typesupport_fastrtps_cpp.so; do
-    printf 'fixture\n' >"${prefix}/lib/${library}"
-  done
-  printf 'fixture\n' >"${prefix}/lib/libmentor_pi_hardwares.so"
-  cat >"${prefix}/test-bin/ros2" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-prefix="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-if [[ "${1:-}" == pkg && "${2:-}" == prefix ]]; then
-  printf '%s\n' "${prefix}"
-  exit 0
-fi
-if [[ "${1:-}" == interface && "${2:-}" == show ]]; then
-  exit 0
-fi
-exit 2
-EOF
-  cat >"${prefix}/test-bin/ldd" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ -f "${1:-}" ]]
-echo 'libfixture.so => /usr/lib/libfixture.so'
-EOF
-  chmod +x "${prefix}/test-bin/ros2" "${prefix}/test-bin/ldd"
-  if [[ "${hardcoded_setup}" == yes ]]; then
-    cat >"${prefix}/setup.bash" <<EOF
-export AMENT_PREFIX_PATH="${prefix}"
-export PATH="${prefix}/test-bin:/usr/bin:/bin"
-EOF
-  else
-    cat >"${prefix}/setup.bash" <<'EOF'
-_mentor_pi_fixture_prefix="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-export AMENT_PREFIX_PATH="${_mentor_pi_fixture_prefix}"
-export PATH="${_mentor_pi_fixture_prefix}/test-bin:/usr/bin:/bin"
-unset _mentor_pi_fixture_prefix
-EOF
-  fi
-  local source_fingerprint
-  source_fingerprint="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"
-  cat >"${prefix}/HOST-BUILD-METADATA.txt" <<EOF
+readonly SOURCE_SHA="$("${FINGERPRINT}" "${PROJECT_ROOT}")"
+cat >"${HOST_PREFIX}/HOST-BUILD-METADATA.txt" <<EOF
 format=rrclite-host-build-v2
 ubuntu=22.04
 target_os=ubuntu
 target_version=22.04
-architecture=arm64
+architecture=amd64
 ros_distro=humble
 build_type=Release
-source_sha256=${source_fingerprint}
-created_utc=1970-01-01T00:00:00Z
-compiler=fixture
-builder_image=native-ubuntu-22.04
+builder_image=ros:humble-ros-base@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+builder_image_id=sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+source_sha256=${SOURCE_SHA}
 EOF
-}
+readonly AGENT_LOCK_SHA="$(sha256sum "${SCRIPT_DIR}/microros_agent_source.lock" | awk '{print $1}')"
+readonly AGENT_SHA="$(sha256sum \
+  "${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent" | awk '{print $1}')"
+cat >"${AGENT_PREFIX}/AGENT-BUILD-METADATA.txt" <<EOF
+format=rrclite-adaptive-agent-v1
+ubuntu_target=22.04
+ros_distro=humble
+architecture=amd64
+source_lock_sha256=${AGENT_LOCK_SHA}
+rrclite_patch_sha256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+builder_identity=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+executable_sha256=${AGENT_SHA}
+EOF
 
-readonly GOOD_PREFIX="${TEST_ROOT}/good-prefix"
-MakeFakePrefix "${GOOD_PREFIX}"
-mkdir "${TEST_ROOT}/relocation-work"
-"${RELOCATION_CHECK}" --prefix "${GOOD_PREFIX}" \
-  --work-directory "${TEST_ROOT}/relocation-work"
-[[ -d "${GOOD_PREFIX}" ]] || Fail "relocation check did not restore staging prefix"
-[[ -z "$(find "${TEST_ROOT}" -maxdepth 1 -name '*.relocation-hidden.*' -print)" ]] ||
-  Fail "relocation check left a hidden prefix"
+readonly HANDOFF="${TEST_ROOT}/handoff"
+"${PACKAGER}" \
+  --host-prefix "${HOST_PREFIX}" \
+  --agent-prefix "${AGENT_PREFIX}" \
+  --runtime-image-archive "${IMAGE_ARCHIVE}" \
+  --runtime-image-id "${IMAGE_ID}" \
+  --output-directory "${HANDOFF}" \
+  --release-id fixture-r1 >/dev/null
 
-readonly BROKEN_PREFIX="${TEST_ROOT}/broken-prefix"
-MakeFakePrefix "${BROKEN_PREFIX}" yes
-mkdir "${TEST_ROOT}/broken-relocation-work"
-ExpectFailure "${RELOCATION_CHECK}" --prefix "${BROKEN_PREFIX}" \
-  --work-directory "${TEST_ROOT}/broken-relocation-work"
-[[ -d "${BROKEN_PREFIX}" ]] ||
-  Fail "failed relocation check did not restore staging prefix"
-
-readonly HANDOFF="${TEST_ROOT}/host-handoff"
-"${PACKAGE_TOOL}" --host-prefix "${GOOD_PREFIX}" \
-  --output-directory "${HANDOFF}" --release-id test-arm64 >/dev/null
-[[ -f "${HANDOFF}/HOST-HANDOFF.txt" ]] || Fail "handoff metadata is missing"
-[[ -f "${HANDOFF}/AGENT-METADATA.txt" ]] || Fail "Agent metadata is missing"
-[[ -x "${HANDOFF}/host/lib/mentor_pi_bringup/capture_board_diagnostics" ]] ||
-  Fail "current diagnostic executable is missing from handoff"
-[[ -x "${HANDOFF}/host/lib/mentor_pi_bringup/qualification_campaign" ]] ||
-  Fail "qualification campaign executable is missing from handoff"
-[[ -x "${HANDOFF}/host/lib/mentor_pi_bringup/require_controller_target_inactive" ]] ||
-  Fail "current idle guard is missing from handoff"
-[[ -f "${HANDOFF}/agent-installer/tools/microros_agent_source.lock" ]] ||
-  Fail "Agent source lock is missing from handoff"
-[[ -f "${HANDOFF}/agent-installer/tools/patches/micro_xrce_agent_rrclite_modem_lines.patch" ]] ||
-  Fail "RRCLite Agent modem-line patch is missing from handoff"
-[[ -x "${HANDOFF}/agent-installer/tools/build_microros_agent_from_lock.sh" ]] ||
-  Fail "shared Agent source-build helper is missing from handoff"
-readonly PACKAGED_TUTORIALS=(
-  onboard-computer/01-prepare-ubuntu-development-host.md
-  onboard-computer/02-build-and-flash-default-pid-firmware.md
-  onboard-computer/03-build-and-run-humble-host.md
-  onboard-computer/04-run-passive-board-bringup.md
-  onboard-computer/05-characterize-board-hardware.md
-  onboard-computer/06-ros2-cli-hardware-checkout.md
-  onboard-computer/07-run-stress-soak-and-release-gates.md
-  onboard-computer/08-run-mentor-pi-hardwares.md
-  normal-computer/01-prepare-ubuntu-development-host.md
-  normal-computer/02-build-and-flash-default-pid-firmware.md
-  normal-computer/03-build-and-run-humble-host.md
-  normal-computer/04-run-passive-board-bringup.md
-  normal-computer/05-characterize-board-hardware.md
-  normal-computer/06-ros2-cli-hardware-checkout.md
-  normal-computer/07-run-stress-soak-and-release-gates.md
-  normal-computer/08-run-mentor-pi-hardwares.md
-)
-for tutorial in "${PACKAGED_TUTORIALS[@]}"; do
-  [[ -f "${HANDOFF}/docs/tutorials/${tutorial}" ]] ||
-    Fail "numbered tutorial is missing from handoff: ${tutorial}"
-done
-grep -Fq 'docs/tutorials/onboard-computer/03-build-and-run-humble-host.md' \
-  "${HANDOFF}/INSTALL.txt" ||
-  Fail "handoff installation text does not point to Tutorial 03"
-VerifyManifest "${HANDOFF}"
+(cd "${HANDOFF}" && sha256sum --check SHA256SUMS >/dev/null) || \
+  Fail "handoff checksum manifest does not verify"
 grep -Fqx 'package_format=rrclite-host-handoff-v2' \
-  "${HANDOFF}/HOST-HANDOFF.txt" || Fail "handoff schema was not upgraded"
-grep -Fqx 'ubuntu=22.04' "${HANDOFF}/host/HOST-BUILD-METADATA.txt" ||
-  Fail "host build metadata does not record the exact Ubuntu identity"
-grep -Fqx 'ubuntu=22.04' "${HANDOFF}/HOST-HANDOFF.txt" ||
-  Fail "handoff does not record the exact Ubuntu identity"
-grep -Fqx 'target_os=ubuntu' "${HANDOFF}/HOST-HANDOFF.txt" ||
-  Fail "handoff targets the wrong OS"
-grep -Fqx 'target_version=22.04' "${HANDOFF}/HOST-HANDOFF.txt" ||
-  Fail "handoff targets the wrong Ubuntu version"
-grep -Fqx 'architecture=arm64' "${HANDOFF}/HOST-HANDOFF.txt" ||
-  Fail "handoff did not propagate the release architecture"
-grep -Fqx 'ros_distro=humble' "${HANDOFF}/HOST-HANDOFF.txt" ||
-  Fail "handoff does not bind ROS 2 Humble"
-grep -Fqx 'format=rrclite-agent-handoff-v2' \
-  "${HANDOFF}/AGENT-METADATA.txt" || Fail "Agent schema was not upgraded"
-grep -Fqx 'ros_distro=humble' "${HANDOFF}/AGENT-METADATA.txt" ||
-  Fail "Agent metadata does not bind ROS 2 Humble"
-grep -Eq '^rrclite_patch_sha256=[0-9a-f]{64}$' \
-  "${HANDOFF}/AGENT-METADATA.txt" ||
-  Fail "Agent metadata does not bind the RRCLite modem-line patch"
-grep -Fqx 'builder_image=native-ubuntu-22.04' \
-  "${HANDOFF}/HOST-HANDOFF.txt" || Fail "builder provenance was not propagated"
-grep -Fqx 'ubuntu=22.04' "${SCRIPT_DIR}/build_host_release.sh" ||
-  Fail "host build metadata producer omits the exact Ubuntu identity"
+  "${HANDOFF}/HOST-HANDOFF.txt" || Fail "handoff format is missing"
+grep -Fqx "runtime_image_id=${IMAGE_ID}" "${HANDOFF}/HOST-HANDOFF.txt" || \
+  Fail "runtime image identity is missing"
+grep -Eq '^runtime_image_archive_sha256=[0-9a-f]{64}$' \
+  "${HANDOFF}/HOST-HANDOFF.txt" || Fail "runtime archive hash is missing"
+grep -Fqx 'runtime_image_archive_format=oci-v1' \
+  "${HANDOFF}/HOST-HANDOFF.txt" || Fail "OCI archive format is missing"
+grep -Fqx $'agent/lib/libfixture.so\tlibfixture.so.1' \
+  "${HANDOFF}/SYMLINKS.txt" || Fail "Agent symlink manifest is missing"
+[[ "$(readlink "${HANDOFF}/agent/lib/libfixture.so")" == libfixture.so.1 ]] || \
+  Fail "Agent shared-library symlink was not preserved"
+[[ -x "${HANDOFF}/agent/lib/micro_ros_agent/micro_ros_agent" ]] || \
+  Fail "Agent artifact is missing"
+[[ -s "${HANDOFF}/runtime-image/mentor-pi-runtime.tar" ]] || \
+  Fail "runtime image archive is missing"
+[[ "$(find "${HANDOFF}/docs/tutorials" -maxdepth 1 -name '*.md' | wc -l)" == 8 ]] || \
+  Fail "handoff does not contain exactly one 01--08 tutorial sequence"
+[[ -z "$(find "${HANDOFF}/docs/tutorials" -mindepth 1 -type d -print -quit)" ]] || \
+  Fail "handoff contains obsolete host-track tutorial directories"
 
-initial_fingerprint_line="$(grep -n -F \
-  'INITIAL_SOURCE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${project_root}")"' \
-  "${SCRIPT_DIR}/build_host_release.sh" | cut -d: -f1)"
-build_line="$(grep -n -F 'colcon --log-base "${LOG_ROOT}" build' \
-  "${SCRIPT_DIR}/build_host_release.sh" | cut -d: -f1)"
-post_test_line="$(grep -n -F \
-  'POST_TEST_SOURCE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${project_root}")"' \
-  "${SCRIPT_DIR}/build_host_release.sh" | cut -d: -f1)"
-relocation_line="$(grep -n -F \
-  '"${RELOCATION_CHECK}" --prefix "${output_prefix}"' \
-  "${SCRIPT_DIR}/build_host_release.sh" | cut -d: -f1)"
-final_fingerprint_line="$(grep -n -F \
-  'FINAL_SOURCE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${project_root}")"' \
-  "${SCRIPT_DIR}/build_host_release.sh" | cut -d: -f1)"
-[[ -n "${initial_fingerprint_line}" && -n "${build_line}" &&
-      -n "${post_test_line}" && -n "${relocation_line}" &&
-      -n "${final_fingerprint_line}" ]] ||
-  Fail "host build source-stability gates are missing"
-((initial_fingerprint_line < build_line &&
-  build_line < post_test_line &&
-  post_test_line < relocation_line &&
-  relocation_line < final_fingerprint_line)) ||
-  Fail "host build source-stability gates are in the wrong order"
-grep -Fq 'POST_TEST_SOURCE_FINGERPRINT}" == "${INITIAL_SOURCE_FINGERPRINT}' \
-  "${SCRIPT_DIR}/build_host_release.sh" ||
-  Fail "post-test source equality is not enforced"
-test_command_line="$(grep -n -F 'colcon --log-base "${LOG_ROOT}" test' \
-  "${SCRIPT_DIR}/build_host_release.sh" | cut -d: -f1)"
-merge_test_line="$(awk -v start="${test_command_line}" \
-  'NR > start && NR <= start + 4 && /--merge-install/ {print NR; exit}' \
-  "${SCRIPT_DIR}/build_host_release.sh")"
-[[ -n "${test_command_line}" && -n "${merge_test_line}" ]] ||
-  Fail "merged host release test command omits --merge-install"
-grep -Fq 'FINAL_SOURCE_FINGERPRINT}" == "${INITIAL_SOURCE_FINGERPRINT}' \
-  "${SCRIPT_DIR}/build_host_release.sh" ||
-  Fail "post-relocation source equality is not enforced"
+cp -a "${HOST_PREFIX}" "${TEST_ROOT}/bad-host"
+sed -i 's#builder_image=.*#builder_image=native-ubuntu-22.04#' \
+  "${TEST_ROOT}/bad-host/HOST-BUILD-METADATA.txt"
+ExpectFailure 'unpinned builder identity' "${PACKAGER}" \
+  --host-prefix "${TEST_ROOT}/bad-host" \
+  --agent-prefix "${AGENT_PREFIX}" \
+  --runtime-image-archive "${IMAGE_ARCHIVE}" \
+  --runtime-image-id "${IMAGE_ID}" \
+  --output-directory "${TEST_ROOT}/bad-output" \
+  --release-id bad
 
-readonly FINGERPRINT_PROJECT="${TEST_ROOT}/fingerprint-project"
-mkdir -p "${FINGERPRINT_PROJECT}/mentor_pi_ros2/src" \
-  "${FINGERPRINT_PROJECT}/tools/patches" \
-  "${FINGERPRINT_PROJECT}/tools/docker" \
-  "${FINGERPRINT_PROJECT}/tools/zsh/native" \
-  "${FINGERPRINT_PROJECT}/docs/tutorials"
-cp -R "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces" \
-  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup" \
-  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_hardwares" \
-  "${FINGERPRINT_PROJECT}/mentor_pi_ros2/src/"
-cp -R "${PROJECT_ROOT}/docs/tutorials/." \
-  "${FINGERPRINT_PROJECT}/docs/tutorials/"
-readonly FINGERPRINT_STANDALONE_INPUTS=(
-  Makefile
-  tools/bootstrap_native_arm_toolchain.sh
-  tools/build_agent.sh
-  tools/build_host_handoff_container.sh
-  tools/build_microros_agent_from_lock.sh
-  tools/build_host.sh
-  tools/build_host_runtime_image.sh
-  tools/build_host_release.sh
-  tools/host_build_container_entrypoint.sh
-  tools/host_handoff_container_entrypoint.sh
-  tools/host_source_fingerprint.sh
-  tools/docker/host-runtime.Dockerfile
-  tools/docker/host-runtime.zshrc
-  tools/install_microros_agent.sh
-  tools/install_onboard_microros_setup.sh
-  tools/install_onboard_stm32cubeprogrammer.sh
-  tools/microros_agent_source.lock
-  tools/microros_setup_source.lock
-  tools/open_runtime_shell.sh
-  tools/onboard_colcon_state.sh
-  tools/package_host_handoff.sh
-  tools/patches/micro_xrce_agent_rrclite_modem_lines.patch
-  tools/prepare_host_build_dependencies.sh
-  tools/require_microros_agent_install_idle.sh
-  tools/run_runtime.sh
-  tools/select_pinned_build_image.sh
-  tools/setup_onboard_ros_environment.sh
-  tools/setup_onboard_ros_environment.zsh
-  tools/verify_host_build_environment.sh
-  tools/verify_host_release_relocation.sh
-  tools/verify_microros_agent_build_container.sh
-  tools/verify_microros_agent_build_in_container.sh
-  tools/test_active_build_policy.sh
-  tools/test_ros_workspace_layout.sh
-  tools/verify_microros_agent_install_state.sh
-  tools/zsh/native/.zshrc
-)
-for relative in "${FINGERPRINT_STANDALONE_INPUTS[@]}"; do
-  cp "${PROJECT_ROOT}/${relative}" "${FINGERPRINT_PROJECT}/${relative}"
+cp -a "${HOST_PREFIX}" "${TEST_ROOT}/bad-host-image-id"
+sed -i 's#builder_image_id=.*#builder_image_id=mutable-tag#' \
+  "${TEST_ROOT}/bad-host-image-id/HOST-BUILD-METADATA.txt"
+ExpectFailure 'builder image ID is not content-addressed' "${PACKAGER}" \
+  --host-prefix "${TEST_ROOT}/bad-host-image-id" \
+  --agent-prefix "${AGENT_PREFIX}" \
+  --runtime-image-archive "${IMAGE_ARCHIVE}" \
+  --runtime-image-id "${IMAGE_ID}" \
+  --output-directory "${TEST_ROOT}/bad-image-id-output" \
+  --release-id bad-image-id
+
+for tracked in tools/select_build_jobs.sh tools/detect_host_profile.sh \
+    tools/validate_docker_host.sh \
+    tools/prepare_build_images.sh tools/docker/host-runtime.zshrc \
+    tools/build_host_handoff_container.sh tools/export_oci_image_archive.py \
+    tools/export_oci_image_archive.sh tools/run_with_build_lock.sh; do
+  grep -Fq "${tracked}" "${FINGERPRINT}" || \
+    Fail "host fingerprint omits ${tracked}"
+done
+grep -Fq 'AppendDirectory "${PROJECT_ROOT}/docs/tutorials"' "${FINGERPRINT}" || \
+  Fail "host fingerprint omits the tutorial sequence"
+grep -Fq 'AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup"' \
+  "${FINGERPRINT}" || Fail "host fingerprint omits production runtime assets"
+for obsolete in setup_onboard_ros_environment install_onboard_microros_setup \
+    bootstrap_native_arm_toolchain; do
+  ! grep -Fq "${obsolete}" "${FINGERPRINT}" || \
+    Fail "host fingerprint retains obsolete ${obsolete} input"
 done
 
-readonly BASELINE_FINGERPRINT="$(${FINGERPRINT_TOOL} "${FINGERPRINT_PROJECT}")"
-readonly FINGERPRINT_SHARED_INPUTS=(
-  mentor_pi_ros2/src/mentor_pi_interfaces/package.xml
-  mentor_pi_ros2/src/mentor_pi_bringup/package.xml
-  mentor_pi_ros2/src/mentor_pi_hardwares/package.xml
-  docs/tutorials/onboard-computer/01-prepare-ubuntu-development-host.md
-  docs/tutorials/onboard-computer/02-build-and-flash-default-pid-firmware.md
-  docs/tutorials/onboard-computer/03-build-and-run-humble-host.md
-  docs/tutorials/onboard-computer/04-run-passive-board-bringup.md
-  docs/tutorials/onboard-computer/05-characterize-board-hardware.md
-  docs/tutorials/onboard-computer/06-ros2-cli-hardware-checkout.md
-  docs/tutorials/onboard-computer/07-run-stress-soak-and-release-gates.md
-  docs/tutorials/onboard-computer/08-run-mentor-pi-hardwares.md
-  docs/tutorials/normal-computer/01-prepare-ubuntu-development-host.md
-  docs/tutorials/normal-computer/02-build-and-flash-default-pid-firmware.md
-  docs/tutorials/normal-computer/03-build-and-run-humble-host.md
-  docs/tutorials/normal-computer/04-run-passive-board-bringup.md
-  docs/tutorials/normal-computer/05-characterize-board-hardware.md
-  docs/tutorials/normal-computer/06-ros2-cli-hardware-checkout.md
-  docs/tutorials/normal-computer/07-run-stress-soak-and-release-gates.md
-  docs/tutorials/normal-computer/08-run-mentor-pi-hardwares.md
-)
-for relative in "${FINGERPRINT_SHARED_INPUTS[@]}"; do
-  printf '\n<!-- host-fingerprint-mutation-fixture -->\n' \
-    >>"${FINGERPRINT_PROJECT}/${relative}"
-  mutated_fingerprint="$(${FINGERPRINT_TOOL} "${FINGERPRINT_PROJECT}")"
-  [[ "${mutated_fingerprint}" != "${BASELINE_FINGERPRINT}" ]] ||
-    Fail "host fingerprint omitted shared input ${relative}"
-  cp "${PROJECT_ROOT}/${relative}" "${FINGERPRINT_PROJECT}/${relative}"
-done
-for relative in "${FINGERPRINT_STANDALONE_INPUTS[@]}"; do
-  printf '\n# host-fingerprint-mutation-fixture\n' \
-    >>"${FINGERPRINT_PROJECT}/${relative}"
-  mutated_fingerprint="$(${FINGERPRINT_TOOL} "${FINGERPRINT_PROJECT}")"
-  [[ "${mutated_fingerprint}" != "${BASELINE_FINGERPRINT}" ]] ||
-    Fail "host fingerprint omitted standalone input ${relative}"
-  cp "${PROJECT_ROOT}/${relative}" "${FINGERPRINT_PROJECT}/${relative}"
-done
+grep -Fq '"${OCI_EXPORTER}" "${image}" "${IMAGE_ARCHIVE}"' \
+  "${SCRIPT_DIR}/build_host_handoff_container.sh" || \
+  Fail "container handoff does not export the runtime image as OCI"
+[[ -x "${OCI_EXPORTER}" ]] || Fail "OCI image exporter is not executable"
+grep -Fq 'oci-layout' "${OCI_EXPORTER}" || \
+  Fail "OCI image exporter does not validate the OCI layout marker"
+grep -Fq 'RRCLITE_BUILD_JOBS' "${SCRIPT_DIR}/host_handoff_container_entrypoint.sh" || \
+  Fail "container handoff does not propagate the shared build budget"
 
-grep -Fq 'POST_STAGING_SOURCE}" == "${CURRENT_SOURCE}' \
-  "${PACKAGE_TOOL}" ||
-  Fail "handoff packaging does not enforce post-staging source stability"
-
-ExpectMetadataMutationFailure() {
-  local mutation="$1"
-  local output_name="$2"
-  cp "${GOOD_PREFIX}/HOST-BUILD-METADATA.txt" \
-    "${GOOD_PREFIX}/HOST-BUILD-METADATA.valid"
-  sed "${mutation}" "${GOOD_PREFIX}/HOST-BUILD-METADATA.valid" \
-    >"${GOOD_PREFIX}/HOST-BUILD-METADATA.txt"
-  ExpectFailure "${PACKAGE_TOOL}" --host-prefix "${GOOD_PREFIX}" \
-    --output-directory "${TEST_ROOT}/${output_name}" \
-    --release-id "${output_name}"
-  mv "${GOOD_PREFIX}/HOST-BUILD-METADATA.valid" \
-    "${GOOD_PREFIX}/HOST-BUILD-METADATA.txt"
-}
-
-ExpectMetadataMutationFailure \
-  's/^builder_image=.*/builder_image=ros:humble-ros-base/' bad-builder
-ExpectMetadataMutationFailure \
-  's/^format=.*/format=rrclite-host-build-v1/' legacy-schema
-ExpectMetadataMutationFailure '/^ubuntu=/d' missing-ubuntu
-ExpectMetadataMutationFailure 's/^ubuntu=.*/ubuntu=24.04/' wrong-ubuntu
-ExpectMetadataMutationFailure 's/^target_os=.*/target_os=debian/' wrong-os
-ExpectMetadataMutationFailure \
-  's/^target_version=.*/target_version=24.04/' wrong-version
-ExpectMetadataMutationFailure \
-  's/^architecture=.*/architecture=riscv64/' wrong-architecture
-ExpectMetadataMutationFailure \
-  's/^ros_distro=.*/ros_distro=rolling/' wrong-distro
-
-for architecture in amd64 arm64; do
-  default_host_image="$(
-    "${SCRIPT_DIR}/build_host_handoff_container.sh" --print-default-image \
-      --architecture "${architecture}"
-  )"
-  [[ "${default_host_image}" =~ ^mentor-pi/rrclite-host-runtime:humble-${architecture}-[0-9a-f]{16}$ ]] ||
-    Fail "default ${architecture} host runtime image is not content-addressed"
-done
-grep -Fq 'if [[ -z "${image}" ]]' \
-  "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
-  Fail "the host wrapper no longer preserves an explicit --image override"
-grep -Fq '"${IMAGE_ARCH}" == "${architecture}"' \
-  "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
-  Fail "the host wrapper does not verify the local image architecture"
-grep -Fq 'org.mentor-pi.host-runtime.base' \
-  "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
-  Fail "the host wrapper does not verify the runtime image base"
-grep -Fq 'org.mentor-pi.host-runtime.zshrc-sha256' \
-  "${SCRIPT_DIR}/build_host_handoff_container.sh" ||
-  Fail "the host wrapper does not verify the runtime zsh configuration"
-
-bash -n "${ENVIRONMENT_CHECK}" "${RELOCATION_CHECK}" "${PACKAGE_TOOL}" \
-  "${SCRIPT_DIR}/build_host_handoff_container.sh"
-zsh -n "${SCRIPT_DIR}/docker/host-runtime.zshrc" \
-  "${SCRIPT_DIR}/setup_onboard_ros_environment.zsh" \
-  "${SCRIPT_DIR}/zsh/native/.zshrc"
-echo "Host build, relocation, and handoff tool tests passed."
+echo "Docker host handoff contract tests passed."

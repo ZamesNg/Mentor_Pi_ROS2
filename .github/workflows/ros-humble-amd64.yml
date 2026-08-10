@@ -29,7 +29,6 @@ jobs:
       HOST_ARCH: ${{ matrix.architecture }}
       HOST_RELEASE_ID: ci-${{ github.run_id }}-${{ matrix.architecture }}
       HOST_OUTPUT: build/host-handoff/ci-${{ github.run_id }}-${{ matrix.architecture }}
-      AGENT_EVIDENCE_ID: ci-${{ github.run_id }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,24 +39,20 @@ jobs:
           test "$(dpkg --print-architecture)" = "${HOST_ARCH}"
           docker version
           docker info
-      - name: Pull exact Agent verification image
-        run: |
-          agent_image="$(./tools/verify_microros_agent_build_container.sh \
-            --print-default-image --architecture "${HOST_ARCH}")"
-          test -n "${agent_image}"
-          docker pull --platform "linux/${HOST_ARCH}" "${agent_image}"
+      - name: Prepare exact architecture-native images
+        run: make setup
       - name: Build, test, package, and relocate host release
         run: |
-          make host
-          host_prefix="$(./tools/build_host.sh --print-output)"
-          ./tools/package_host_handoff.sh \
-            --host-prefix "${host_prefix}" \
+          ./tools/build_host_handoff_container.sh \
+            --architecture "${HOST_ARCH}" \
             --output-directory "${HOST_OUTPUT}" \
             --release-id "${HOST_RELEASE_ID}"
       - name: Verify host handoff identity and manifest
         run: |
           test -f "${HOST_OUTPUT}/HOST-HANDOFF.txt"
           test -f "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
+          test -f "${HOST_OUTPUT}/agent/AGENT-BUILD-METADATA.txt"
+          test -s "${HOST_OUTPUT}/runtime-image/mentor-pi-runtime.tar"
           grep -Fqx 'package_format=rrclite-host-handoff-v2' \
             "${HOST_OUTPUT}/HOST-HANDOFF.txt"
           grep -Fqx 'ubuntu=22.04' "${HOST_OUTPUT}/HOST-HANDOFF.txt"
@@ -73,12 +68,27 @@ jobs:
           grep -Fqx "architecture=${HOST_ARCH}" \
             "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
           (cd "${HOST_OUTPUT}" && sha256sum --check SHA256SUMS)
-      - name: Build pinned native Humble Agent
-        run: make agent
-      - name: Upload Agent compatibility evidence
+      - name: Preserve handoff modes and symlinks for artifact transport
+        run: |
+          handoff_parent="$(dirname "${HOST_OUTPUT}")"
+          handoff_name="$(basename "${HOST_OUTPUT}")"
+          tar --format=posix -cf "${HOST_OUTPUT}.tar" \
+            -C "${handoff_parent}" "${handoff_name}"
+          (cd "${handoff_parent}" && \
+            sha256sum "${handoff_name}.tar" >"${handoff_name}.tar.sha256")
+          (cd "${handoff_parent}" && \
+            sha256sum --check "${handoff_name}.tar.sha256")
+          round_trip="$(mktemp -d)"
+          tar -xf "${HOST_OUTPUT}.tar" -C "${round_trip}"
+          test -x "${round_trip}/${handoff_name}/host/lib/mentor_pi_bringup/run_production_container"
+          test -x "${round_trip}/${handoff_name}/agent/lib/micro_ros_agent/micro_ros_agent"
+          (cd "${round_trip}/${handoff_name}" && sha256sum --check SHA256SUMS)
+      - name: Upload production handoff
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: micro-ros-agent-${{ matrix.architecture }}
-          path: build/microros-agent-verification/${{ env.AGENT_EVIDENCE_ID }}-${{ matrix.architecture }}
+          name: mentor-pi-host-${{ matrix.architecture }}
+          path: |
+            ${{ env.HOST_OUTPUT }}.tar
+            ${{ env.HOST_OUTPUT }}.tar.sha256
           if-no-files-found: error
           retention-days: 14

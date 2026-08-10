@@ -11,7 +11,6 @@ readonly SOURCE_UTILS_REPOSITORY="https://github.com/micro-ROS/micro_ros_stm32cu
 readonly SOURCE_UTILS_COMMIT="bd531b273c1bcd070b3143c5642128ec75a6f04e"
 readonly BUILD_ROOT="${FIRMWARE_ROOT}/build/microros"
 readonly BUILD_UTILS="${BUILD_ROOT}/micro_ros_stm32cubemx_utils"
-readonly IMAGE="mentor-pi/micro-ros-static-library-builder:humble-gcc-13.2.1"
 readonly CAPTURE_IMAGE="microros/micro_ros_static_library_builder:humble@sha256:e291f74890e81b31eb1d70731cb79b2d767dd585269325031effc72952b24b9d"
 readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/microros-builder.Dockerfile"
 readonly SOURCE_LOCK="${FIRMWARE_ROOT}/config/microros_sources.lock"
@@ -20,19 +19,25 @@ readonly ARTIFACT_TREE_HASH="${FIRMWARE_ROOT}/config/microros_artifact_tree.sha2
 readonly FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
 readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
 readonly DEPENDENCY_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_firmware_dependencies.sh"
-readonly NATIVE_TOOLCHAIN_BOOTSTRAP="${PROJECT_ROOT}/tools/bootstrap_native_arm_toolchain.sh"
-readonly MICROROS_SETUP_INSTALLER="${PROJECT_ROOT}/tools/install_onboard_microros_setup.sh"
+readonly BUILD_IMAGE_PREPARER="${PROJECT_ROOT}/tools/prepare_build_images.sh"
+readonly JOB_SELECTOR="${PROJECT_ROOT}/tools/select_build_jobs.sh"
+readonly CACHE_VALIDATOR="${PROJECT_ROOT}/tools/verify_microros_cache.sh"
 readonly GEOMETRY2_COMMIT="65c620c308920f558c7b5d3fb852941bd6d8fced"
 readonly LIBYAML_REPOSITORY="https://github.com/yaml/libyaml"
 readonly LIBYAML_COMMIT="2c891fc7a770e8ba2fec34fc6b545c672beb37e6"
 readonly SOURCE_LOCK_CANDIDATE="${FIRMWARE_ROOT}/build/microros_sources.humble.candidate.lock"
 readonly ARTIFACT_HASH_CANDIDATE="${FIRMWARE_ROOT}/build/microros_artifact.humble.candidate.sha256"
 readonly ARTIFACT_TREE_HASH_CANDIDATE="${FIRMWARE_ROOT}/build/microros_artifact_tree.humble.candidate.sha256"
+readonly CACHE_METADATA="${BUILD_ROOT}/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros/MENTOR-PI-CACHE.txt"
+readonly BUILD_LOCK="${PROJECT_ROOT}/tools/run_with_build_lock.sh"
+
+if [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "$@"
+fi
 
 # Docker does not inherit shell proxy variables into builds or containers.
 # Forward only the standard proxy variables when the caller explicitly sets
 # them; a normal direct-network build adds no proxy arguments.
-declare -a docker_build_command=(docker build)
 declare -a docker_run_command=(docker run --rm)
 for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
     http_proxy https_proxy no_proxy; do
@@ -46,15 +51,12 @@ for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
           ;;
       esac
     fi
-    docker_build_command+=(
-      --build-arg "${proxy_variable}=${!proxy_variable}"
-    )
     docker_run_command+=(
       --env "${proxy_variable}=${!proxy_variable}"
     )
   fi
 done
-readonly -a docker_build_command docker_run_command
+readonly -a docker_run_command
 
 capture_source_lock=0
 capture_artifact_hashes=0
@@ -76,6 +78,24 @@ Sha256() {
     echo "Neither sha256sum nor shasum is installed." >&2
     return 1
   fi
+}
+
+GenerationInputFingerprint() {
+  local image_identity="$1"
+  {
+    printf 'image=%s\n' "${image_identity}"
+    for input in \
+        "${SOURCE_LOCK}" \
+        "${FIRMWARE_ROOT}/config/microros_colcon.meta" \
+        "${FIRMWARE_ROOT}/config/microros_toolchain.cmake" \
+        "${FIRMWARE_ROOT}/config/microros_library_generation.sh" \
+        "${DOCKERFILE}" \
+        "${PROJECT_ROOT}/tools/apply_microros_source_lock.sh" \
+        "${PROJECT_ROOT}/tools/build_microros_library.sh" \
+        "${CACHE_VALIDATOR}"; do
+      printf '%s  %s\n' "$(Sha256 "${input}")" "${input#"${PROJECT_ROOT}/"}"
+    done
+  } | sha256sum | awk '{print $1}'
 }
 
 RemoveBuildRoot() {
@@ -102,9 +122,11 @@ if [[ ! -f "${SOURCE_LOCK}" || \
   echo "micro-ROS source/artifact lock is missing under config/." >&2
   exit 1
 fi
-if [[ ! -x "${FINGERPRINT_TOOL}" || \
+if [[ ! -x "${FINGERPRINT_TOOL}" || ! -x "${CACHE_VALIDATOR}" || \
     ! -x "${MICROROS_FINGERPRINT_TOOL}" || \
-    ! -x "${DEPENDENCY_BOOTSTRAP}" ]]; then
+    ! -x "${DEPENDENCY_BOOTSTRAP}" || \
+    ! -x "${BUILD_IMAGE_PREPARER}" || \
+    ! -x "${JOB_SELECTOR}" ]]; then
   echo "Firmware artifact fingerprint tooling is missing or not executable." >&2
   exit 1
 fi
@@ -113,6 +135,62 @@ fi
 readonly INTERFACE_FINGERPRINT_BEFORE="$(
   "${FINGERPRINT_TOOL}" interfaces "${PROJECT_ROOT}"
 )"
+
+case "$(uname -m)" in
+  x86_64 | amd64) readonly ARCHITECTURE=amd64 ;;
+  aarch64 | arm64) readonly ARCHITECTURE=arm64 ;;
+  *) echo "Unsupported host architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
+command -v docker >/dev/null 2>&1 || {
+  echo "Docker is required for micro-ROS generation." >&2
+  exit 1
+}
+docker info >/dev/null 2>&1 || {
+  echo "Docker Engine is not running or accessible." >&2
+  exit 1
+}
+
+selected_image=""
+if [[ "${capture_source_lock}" == "1" ]]; then
+  selected_image="${CAPTURE_IMAGE}"
+  if ! docker image inspect "${selected_image}" >/dev/null 2>&1; then
+    docker pull --platform "linux/${ARCHITECTURE}" "${selected_image}"
+  fi
+else
+  "${BUILD_IMAGE_PREPARER}" --architecture "${ARCHITECTURE}"
+  selected_image="$("${BUILD_IMAGE_PREPARER}" \
+    --architecture "${ARCHITECTURE}" --print microros)"
+fi
+readonly selected_image
+readonly IMAGE_ID="$(docker image inspect "${selected_image}" --format '{{.Id}}')"
+readonly IMAGE_ARCHITECTURE="$(docker image inspect "${selected_image}" --format '{{.Architecture}}')"
+[[ "${IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ && \
+   "${IMAGE_ARCHITECTURE}" == "${ARCHITECTURE}" ]] || {
+  echo "The micro-ROS image identity or architecture is invalid." >&2
+  exit 1
+}
+readonly GENERATION_INPUT_SHA="$(GenerationInputFingerprint "${IMAGE_ID}")"
+
+if [[ "${capture_source_lock}" == 0 && "${capture_artifact_hashes}" == 0 && \
+      -e "${CACHE_METADATA}" ]]; then
+  cached_tree="$("${MICROROS_FINGERPRINT_TOOL}" "${PROJECT_ROOT}" 2>/dev/null || true)"
+  if "${CACHE_VALIDATOR}" \
+      --metadata "${CACHE_METADATA}" \
+      --image-id "${IMAGE_ID}" \
+      --architecture "${ARCHITECTURE}" \
+      --generation-input-sha256 "${GENERATION_INPUT_SHA}" \
+      --interfaces-sha256 "${INTERFACE_FINGERPRINT_BEFORE}" \
+      --archive "${CACHE_METADATA%/*}/libmicroros.a" \
+      --expected-archive-sha256 "$(tr -d '[:space:]' <"${ARTIFACT_HASH}")" \
+      --tree-sha256 "${cached_tree}" \
+      --expected-tree-sha256 "$(tr -d '[:space:]' <"${ARTIFACT_TREE_HASH}")" \
+      >/dev/null; then
+    echo "Reusing verified Humble micro-ROS library cache: ${CACHE_METADATA%/*}"
+    exit 0
+  fi
+  echo "Discarding stale or corrupt micro-ROS cache."
+fi
 
 RemoveBuildRoot
 mkdir -p "${BUILD_UTILS}"
@@ -144,14 +222,6 @@ cp \
   "${FIRMWARE_ROOT}/config/microros_library_generation.sh" \
   "${BUILD_UTILS}/microros_static_library_ide/library_generation/library_generation.sh"
 
-native_generation=0
-if [[ "${capture_source_lock}" == "0" && -r /etc/os-release ]] && \
-    grep -Eq '^ID=ubuntu$' /etc/os-release && \
-    grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release; then
-  native_generation=1
-fi
-readonly native_generation
-
 # Select the sole MCU type-support backend at generation time so desktop
 # backends are not retained in the embedded archive.
 if [[ "${capture_source_lock}" == "1" ]]; then
@@ -162,107 +232,30 @@ if [[ "${capture_artifact_hashes}" == "1" ]]; then
     "${ARTIFACT_TREE_HASH_CANDIDATE}"
 fi
 
-if ((native_generation == 1)); then
-  [[ -x "${NATIVE_TOOLCHAIN_BOOTSTRAP}" ]] || {
-    echo "Native Arm toolchain bootstrap is missing." >&2
-    exit 1
-  }
-  [[ -r /opt/ros/humble/setup.bash ]] || {
-    echo "ROS 2 Humble is not installed; prepare the onboard host first." >&2
-    exit 1
-  }
-  set +u
-  source /opt/ros/humble/setup.bash
-  set -u
-  command -v ros2 >/dev/null 2>&1 || {
-    echo "ROS 2 Humble setup did not provide ros2." >&2
-    exit 1
-  }
-  readonly NATIVE_COLCON_EXECUTABLE="$(command -v colcon || true)"
-  [[ "${NATIVE_COLCON_EXECUTABLE}" =~ ^/[A-Za-z0-9._/+:-]+$ &&
-    -x "${NATIVE_COLCON_EXECUTABLE}" ]] || {
-    echo "colcon is not available as a safe absolute executable path." >&2
-    exit 1
-  }
-  command -v vcs >/dev/null 2>&1 || {
-    echo "python3-vcstool is not installed." >&2
-    exit 1
-  }
-  command -v rsync >/dev/null 2>&1 || {
-    echo "rsync is not installed." >&2
-    exit 1
-  }
-  [[ -x "${MICROROS_SETUP_INSTALLER}" ]] || {
-    echo "Pinned micro_ros_setup verifier is missing." >&2
-    exit 1
-  }
-  "${MICROROS_SETUP_INSTALLER}" --verify >/dev/null
-  readonly NATIVE_MICROROS_SETUP_OVERLAY="$(
-    "${MICROROS_SETUP_INSTALLER}" --print-overlay
-  )"
-  set +u
-  source "${NATIVE_MICROROS_SETUP_OVERLAY}"
-  set -u
-  ros2 pkg prefix micro_ros_setup >/dev/null 2>&1 || {
-    echo "the pinned source-built micro_ros_setup is unavailable." >&2
-    exit 1
-  }
-  readonly NATIVE_TOOLCHAIN_BIN="$("${NATIVE_TOOLCHAIN_BOOTSTRAP}" --print-bin)"
-  readonly NATIVE_GENERATOR_WORKSPACE="${BUILD_ROOT}/native-generator-workspace"
-  # Upstream create_firmware_ws.sh appends EXTERNAL_SKIP to both of its
-  # generated-workspace rosdep calls. The onboard production build does not
-  # use clang-tidy, whose dependency chain is not resolvable on the RDK image.
-  env \
-    PATH="${NATIVE_TOOLCHAIN_BIN}:${PATH}" \
-    EXTERNAL_SKIP=clang-tidy \
-    ROS_DISTRO=humble \
-    MICROROS_LIBRARY_FOLDER=build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide \
-    STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_microxrcedds_c \
-    MICROROS_GEOMETRY2_COMMIT="${GEOMETRY2_COMMIT}" \
-    MICROROS_LIBYAML_REPOSITORY="${LIBYAML_REPOSITORY}" \
-    MICROROS_LIBYAML_COMMIT="${LIBYAML_COMMIT}" \
-    MICROROS_CAPTURE_SOURCE_LOCK=0 \
-    MICROROS_SOURCE_LOCK_CANDIDATE=build/microros_sources.humble.candidate.lock \
-    MICROROS_CALLER_UID="$(id -u)" \
-    MICROROS_CALLER_GID="$(id -g)" \
-    MICROROS_PROJECT_ROOT="${FIRMWARE_ROOT}" \
-    MICROROS_GENERATOR_WORKSPACE="${NATIVE_GENERATOR_WORKSPACE}" \
-    MICROROS_TOOLCHAIN_ROOT="${NATIVE_TOOLCHAIN_BIN}" \
-    MICROROS_TOOLS_ROOT="${PROJECT_ROOT}/tools" \
-    MICROROS_RESTORE_OWNERSHIP=0 \
-    MICROROS_SETUP_OVERLAY="${NATIVE_MICROROS_SETUP_OVERLAY}" \
-    MICROROS_NATIVE_COLCON_EXECUTABLE="${NATIVE_COLCON_EXECUTABLE}" \
-    PYTHONHASHSEED=0 \
-    SOURCE_DATE_EPOCH=0 \
-    bash "${FIRMWARE_ROOT}/config/microros_library_generation.sh"
-else
-  selected_image="${IMAGE}"
-  if [[ "${capture_source_lock}" == "1" ]]; then
-    selected_image="${CAPTURE_IMAGE}"
-    if ! docker image inspect "${selected_image}" >/dev/null 2>&1; then
-      docker pull "${selected_image}"
-    fi
-  else
-    "${docker_build_command[@]}" \
-      --file "${DOCKERFILE}" --tag "${selected_image}" \
-      "${PROJECT_ROOT}/tools/docker"
-  fi
-  readonly selected_image
-  "${docker_run_command[@]}" \
-    --volume "${FIRMWARE_ROOT}:/project" \
-    --volume "${PROJECT_ROOT}/tools:/rrclite_tools:ro" \
-    --env MICROROS_LIBRARY_FOLDER=build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide \
-    --env STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_microxrcedds_c \
-    --env MICROROS_GEOMETRY2_COMMIT="${GEOMETRY2_COMMIT}" \
-    --env MICROROS_LIBYAML_REPOSITORY="${LIBYAML_REPOSITORY}" \
-    --env MICROROS_LIBYAML_COMMIT="${LIBYAML_COMMIT}" \
-    --env MICROROS_CAPTURE_SOURCE_LOCK="${capture_source_lock}" \
-    --env MICROROS_SOURCE_LOCK_CANDIDATE=build/microros_sources.humble.candidate.lock \
-    --env MICROROS_CALLER_UID="$(id -u)" \
-    --env MICROROS_CALLER_GID="$(id -g)" \
-    --env PYTHONHASHSEED=0 \
-    "${selected_image}"
-fi
+cat >"${BUILD_ROOT}/colcon-defaults.yaml" <<EOF
+build:
+  executor: parallel
+  parallel-workers: ${BUILD_JOBS}
+EOF
+"${docker_run_command[@]}" \
+  --platform "linux/${ARCHITECTURE}" \
+  --volume "${FIRMWARE_ROOT}:/project" \
+  --volume "${PROJECT_ROOT}/tools:/rrclite_tools:ro" \
+  --env COLCON_DEFAULTS_FILE=/project/build/microros/colcon-defaults.yaml \
+  --env CMAKE_BUILD_PARALLEL_LEVEL=1 \
+  --env MAKEFLAGS=-j1 \
+  --env "RRCLITE_BUILD_JOBS=${BUILD_JOBS}" \
+  --env MICROROS_LIBRARY_FOLDER=build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide \
+  --env STATIC_ROSIDL_TYPESUPPORT_C=rosidl_typesupport_microxrcedds_c \
+  --env MICROROS_GEOMETRY2_COMMIT="${GEOMETRY2_COMMIT}" \
+  --env MICROROS_LIBYAML_REPOSITORY="${LIBYAML_REPOSITORY}" \
+  --env MICROROS_LIBYAML_COMMIT="${LIBYAML_COMMIT}" \
+  --env MICROROS_CAPTURE_SOURCE_LOCK="${capture_source_lock}" \
+  --env MICROROS_SOURCE_LOCK_CANDIDATE=build/microros_sources.humble.candidate.lock \
+  --env MICROROS_CALLER_UID="$(id -u)" \
+  --env MICROROS_CALLER_GID="$(id -g)" \
+  --env PYTHONHASHSEED=0 \
+  "${selected_image}"
 
 if [[ "${capture_source_lock}" == "1" ]]; then
   test -s "${SOURCE_LOCK_CANDIDATE}"
@@ -346,4 +339,14 @@ if [[ "${ACTUAL_TREE_HASH}" != "${EXPECTED_TREE_HASH}" ]]; then
   echo "Actual:   ${ACTUAL_TREE_HASH}" >&2
   exit 1
 fi
+cat >"${CACHE_METADATA}.tmp" <<EOF
+format=mentor-pi-microros-cache-v1
+image_id=${IMAGE_ID}
+architecture=${ARCHITECTURE}
+generation_input_sha256=${GENERATION_INPUT_SHA}
+interfaces_sha256=${INTERFACE_FINGERPRINT_AFTER}
+archive_sha256=${ACTUAL_ARCHIVE_HASH}
+tree_sha256=${ACTUAL_TREE_HASH}
+EOF
+mv "${CACHE_METADATA}.tmp" "${CACHE_METADATA}"
 echo "Generated Humble micro-ROS library: ${LIBRARY_DIR}"

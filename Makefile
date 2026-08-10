@@ -45,18 +45,18 @@ help:
 		'  make setup' \
 		'      Fetch pinned sources and images for the detected architecture.' \
 		'  make firmware' \
-		'      Generate micro-ROS and build PID natively on Ubuntu 22.04, otherwise in Docker.' \
+		'      Generate micro-ROS and build PID in architecture-native Docker.' \
 		'  make host' \
-		'      Build/test Humble natively on Ubuntu 22.04, otherwise in Docker.' \
+		'      Build/test Humble in architecture-native Docker.' \
 		'  make host-hardwares' \
-		'      Alias for the same adaptive build/test path as make host.' \
+		'      Alias for the same Docker build/test path as make host.' \
 		'  make agent' \
-		'      Build the pinned Humble Agent natively on 22.04, otherwise in Docker.' \
+		'      Build the pinned Humble Agent in architecture-native Docker.' \
 		'  make run PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0' \
 		'      RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED' \
-		'      Run against the MCU natively on 22.04, otherwise in Docker.' \
+		'      Run against the MCU in the hardened Docker runtime.' \
 		'  make start' \
-		'      Interactively verify passive safety and start the adaptive runtime with the default PID firmware.' \
+		'      Interactively verify passive safety and start the Docker runtime with the default PID firmware.' \
 		'  make start-hardware VEHICLE_CONFIG=/absolute/robot.yaml' \
 		'      Start Agent, supervisor, and the YAML-selected ros2_control adapter.' \
 		'  make start-mecanum | make start-ackermann' \
@@ -92,12 +92,10 @@ setup: doctor
 		exit 1; \
 	fi
 	@./tools/bootstrap_firmware_dependencies.sh
-	@if grep -Eq '^VERSION_ID="?22[.]04"?$$' /etc/os-release; then \
-		./tools/bootstrap_native_arm_toolchain.sh; \
-	elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		./tools/pull_pinned_build_images.sh --architecture "$(SYSTEM_ARCH)"; \
 	else \
-		echo 'Docker is required outside native Ubuntu 22.04.' >&2; \
+		echo 'Docker is required on every supported host.' >&2; \
 		exit 1; \
 	fi
 	@printf '%s\n' \
@@ -159,7 +157,11 @@ shell:
 	@./tools/open_runtime_shell.sh --ros-domain-id "$(ROS_DOMAIN_ID)"
 
 test: host
-	@./tools/run_quality_tests_container.sh
+	@if [[ "$(shell ./tools/detect_host_profile.sh | sed -n 's/^profile=//p')" == 'rdk-x5' ]]; then \
+		./tools/run_quality_tests_container.sh --profile rdk; \
+	else \
+		./tools/run_quality_tests_container.sh --profile full; \
+	fi
 
 serial-access:
 	@./tools/configure_dev_serial_access.sh \

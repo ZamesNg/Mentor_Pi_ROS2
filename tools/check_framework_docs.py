@@ -30,14 +30,8 @@ TUTORIAL_FILENAMES = (
     "07-run-stress-soak-and-release-gates.md",
     "08-run-mentor-pi-hardwares.md",
 )
-TUTORIAL_TRACKS = {
-    "onboard-computer": "Onboard Computer",
-    "normal-computer": "Normal Computer",
-}
 TUTORIAL_PATHS = tuple(
-    TUTORIAL_DIRECTORY / track / filename
-    for track in TUTORIAL_TRACKS
-    for filename in TUTORIAL_FILENAMES
+    TUTORIAL_DIRECTORY / filename for filename in TUTORIAL_FILENAMES
 )
 RETIRED_DOCUMENT_FILENAMES = (
     "board-arrival-bringup-checklist.md",
@@ -396,56 +390,55 @@ def validate_traceability() -> tuple[list[str], dict[str, int]]:
 
 
 def validate_tutorial_sequence(paths: list[Path]) -> list[str]:
-    """Require exact, navigable onboard and normal-computer 01--08 tracks."""
+    """Require one exact, navigable Docker-first 01--08 sequence."""
     errors: list[str] = []
-    root_markdown = sorted(TUTORIAL_DIRECTORY.glob("*.md"))
-    if root_markdown:
-        errors.append(f"{TUTORIAL_DIRECTORY}: tutorial files must be inside a host track")
+    actual_names = tuple(path.name for path in sorted(TUTORIAL_DIRECTORY.glob("*.md")))
+    if actual_names != TUTORIAL_FILENAMES:
+        errors.append(
+            f"{TUTORIAL_DIRECTORY}: expected tutorials "
+            f"{', '.join(TUTORIAL_FILENAMES)}; found {', '.join(actual_names)}"
+        )
+    legacy_directories = [
+        path for path in TUTORIAL_DIRECTORY.iterdir() if path.is_dir()
+    ]
+    for legacy_directory in legacy_directories:
+        errors.append(f"{legacy_directory}: tutorial host-track directory is obsolete")
 
-    for track_directory_name, title_name in TUTORIAL_TRACKS.items():
-        track_directory = TUTORIAL_DIRECTORY / track_directory_name
-        actual_names = tuple(path.name for path in sorted(track_directory.glob("*.md")))
-        if actual_names != TUTORIAL_FILENAMES:
-            errors.append(
-                f"{track_directory}: expected tutorials "
-                f"{', '.join(TUTORIAL_FILENAMES)}; found {', '.join(actual_names)}"
-            )
-        for index, filename in enumerate(TUTORIAL_FILENAMES, start=1):
-            path = track_directory / filename
-            if not path.is_file():
-                continue
-            text = path.read_text(encoding="utf-8")
-            title = f"# {title_name} Tutorial {index:02d}:"
-            if title not in text:
-                errors.append(f"{path}: missing exact title prefix {title!r}")
-            if index >= 2 and "**Warning:**" not in text:
-                errors.append(f"{path}: hardware-sensitive tutorial has no warning")
-            if index == 1:
-                if "There is no previous tutorial" not in text:
-                    errors.append(f"{path}: missing start-of-sequence marker")
-            elif TUTORIAL_FILENAMES[index - 2] not in text:
-                errors.append(f"{path}: missing previous-tutorial link")
-            if index == len(TUTORIAL_FILENAMES):
-                if "Next: none" not in text:
-                    errors.append(f"{path}: missing end-of-sequence marker")
-            elif TUTORIAL_FILENAMES[index] not in text:
-                errors.append(f"{path}: missing next-tutorial link")
-            if "cd /home/zames/Mentor_Pi" not in text:
-                errors.append(f"{path}: missing exact repository command")
+    for index, filename in enumerate(TUTORIAL_FILENAMES, start=1):
+        path = TUTORIAL_DIRECTORY / filename
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        title = f"# Tutorial {index:02d}:"
+        if title not in text:
+            errors.append(f"{path}: missing exact title prefix {title!r}")
+        if index >= 2 and "**Warning:**" not in text:
+            errors.append(f"{path}: hardware-sensitive tutorial has no warning")
+        if index == 1:
+            if "There is no previous tutorial" not in text:
+                errors.append(f"{path}: missing start-of-sequence marker")
+        elif TUTORIAL_FILENAMES[index - 2] not in text:
+            errors.append(f"{path}: missing previous-tutorial link")
+        if index == len(TUTORIAL_FILENAMES):
+            if "Next: none" not in text:
+                errors.append(f"{path}: missing end-of-sequence marker")
+        elif TUTORIAL_FILENAMES[index] not in text:
+            errors.append(f"{path}: missing next-tutorial link")
+        if "cd /home/zames/Mentor_Pi" not in text:
+            errors.append(f"{path}: missing exact repository command")
+        for description, pattern in {
+            "replacement placeholder": r"REPLACE_WITH",
+            "domain placeholder": r"THE_SAME_ID",
+            "repository lookup": r"matching repository root",
+            "native ROS command": r"source\s+[^\n]*setup\.(?:bash|zsh)",
+            "backward command delegation": (
+                r"(?:repeat|exactly as in|commands? from) Tutorials? [0-9]"
+            ),
+        }.items():
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                errors.append(f"{path}: contains {description}")
 
-            forbidden_patterns = {
-                "replacement placeholder": r"REPLACE_WITH",
-                "domain placeholder": r"THE_SAME_ID",
-                "repository lookup": r"matching repository root",
-                "backward command delegation": (
-                    r"(?:repeat|exactly as in|commands? from) Tutorials? [0-9]"
-                ),
-            }
-            for description, pattern in forbidden_patterns.items():
-                if re.search(pattern, text, flags=re.IGNORECASE):
-                    errors.append(f"{path}: contains {description}")
-
-    normal_actions = {
+    required_actions = {
         TUTORIAL_FILENAMES[0]: ("make doctor", "make setup"),
         TUTORIAL_FILENAMES[1]: (
             "make firmware",
@@ -470,7 +463,7 @@ def validate_tutorial_sequence(paths: list[Path]) -> list[str]:
             "/mentor_pi/motors/set_pid",
         ),
         TUTORIAL_FILENAMES[6]: (
-            "make release-software-gates",
+            "make release-software-gates", "make release-onboard-gates",
             "make qualification-preflight",
             "make campaign-load",
             "make campaign-soak",
@@ -484,42 +477,14 @@ def validate_tutorial_sequence(paths: list[Path]) -> list[str]:
             "make shell",
         ),
     }
-    onboard_actions = {
-        TUTORIAL_FILENAMES[0]: ("make doctor", "make setup"),
-        TUTORIAL_FILENAMES[1]: ("make firmware", "make serial-setup", "make flash"),
-        TUTORIAL_FILENAMES[2]: (
-            "rosdep check", "colcon build", "colcon test", "make agent",
-            "onboard_colcon_state.sh record", "setup_onboard_ros_environment.zsh",
-            "controller.launch.py",
-        ),
-        TUTORIAL_FILENAMES[3]: ("make passive-check", "make peripheral-smoke"),
-        TUTORIAL_FILENAMES[4]: ("make characterize-board",),
-        TUTORIAL_FILENAMES[5]: (
-            "setup_onboard_ros_environment.zsh", "controller.launch.py",
-            "/mentor_pi/motors/command", "/mentor_pi/motors/set_pid",
-        ),
-        TUTORIAL_FILENAMES[6]: (
-            "make release-onboard-gates", "make qualification-preflight",
-            "make campaign-load", "make campaign-soak", "make campaign-recovery",
-        ),
-        TUTORIAL_FILENAMES[7]: (
-            "colcon build", "colcon test", "mecanum.launch.py",
-            "ackermann.launch.py", "vehicle.launch.py",
-            "onboard_colcon_state.sh record", "setup_onboard_ros_environment.zsh",
-        ),
-    }
-    for track, required_actions in (
-        ("normal-computer", normal_actions),
-        ("onboard-computer", onboard_actions),
-    ):
-        for filename, actions in required_actions.items():
-            path = TUTORIAL_DIRECTORY / track / filename
-            if not path.is_file():
-                continue
-            text = path.read_text(encoding="utf-8")
-            for action in actions:
-                if action not in text:
-                    errors.append(f"{path}: missing one-line action {action!r}")
+    for filename, actions in required_actions.items():
+        path = TUTORIAL_DIRECTORY / filename
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for action in actions:
+            if action not in text:
+                errors.append(f"{path}: missing one-line action {action!r}")
 
     for filename in RETIRED_DOCUMENT_FILENAMES:
         retired_matches = [

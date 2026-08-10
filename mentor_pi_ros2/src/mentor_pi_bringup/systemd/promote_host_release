@@ -76,13 +76,10 @@ if [[ -n "${TEST_ROOT}" ]]; then
     Fail "MENTOR_PI_DEPLOYMENT_TEST_ROOT must be an absolute non-root path"
   deployment_os_release="${MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE:-}"
   deployment_architecture="${MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE:-}"
-  deployment_ros_setup="${MENTOR_PI_DEPLOYMENT_TEST_ROS_SETUP:-}"
   [[ "${deployment_os_release}" == /* ]] ||
     Fail "test mode requires an absolute MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE"
   [[ -n "${deployment_architecture}" ]] ||
     Fail "test mode requires MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE"
-  [[ "${deployment_ros_setup}" == /* ]] ||
-    Fail "test mode requires an absolute MENTOR_PI_DEPLOYMENT_TEST_ROS_SETUP"
 else
   if [[ "${MENTOR_PI_DEPLOYMENT_TEST_OS_RELEASE+x}" == "x" ||
         "${MENTOR_PI_DEPLOYMENT_TEST_ARCHITECTURE+x}" == "x" ||
@@ -95,11 +92,9 @@ else
   if ! deployment_architecture="$(dpkg --print-architecture 2>/dev/null)"; then
     Fail "could not determine the production dpkg architecture"
   fi
-  deployment_ros_setup="/opt/ros/humble/setup.bash"
 fi
 readonly DEPLOYMENT_OS_RELEASE="${deployment_os_release}"
 readonly DEPLOYMENT_ARCHITECTURE="${deployment_architecture}"
-readonly DEPLOYMENT_ROS_SETUP="${deployment_ros_setup}"
 readonly OPT_ROOT="${TEST_ROOT}/opt/mentor_pi"
 readonly RELEASE_ROOT="${OPT_ROOT}/releases/host"
 readonly RELEASE_PATH="${RELEASE_ROOT}/${release_id}"
@@ -108,7 +103,6 @@ readonly ACTIVE_PATH="${OPT_ROOT}/host"
 ValidateDeploymentPlatform() {
   local os_id=""
   local os_version=""
-  local ros_distro=""
   [[ -f "${DEPLOYMENT_OS_RELEASE}" && -r "${DEPLOYMENT_OS_RELEASE}" ]] ||
     Fail "OS release file is missing or unreadable: ${DEPLOYMENT_OS_RELEASE}"
   os_id="$(StripOuterQuotes "$(ReadSingleValue \
@@ -121,18 +115,12 @@ ValidateDeploymentPlatform() {
   [[ "${DEPLOYMENT_ARCHITECTURE}" == "amd64" ||
       "${DEPLOYMENT_ARCHITECTURE}" == "arm64" ]] ||
     Fail "unsupported host architecture ${DEPLOYMENT_ARCHITECTURE}"
-  [[ -f "${DEPLOYMENT_ROS_SETUP}" && -r "${DEPLOYMENT_ROS_SETUP}" ]] ||
-    Fail "ROS setup is missing or unreadable: ${DEPLOYMENT_ROS_SETUP}"
-  if ! ros_distro="$(
-      set +u
-      source "${DEPLOYMENT_ROS_SETUP}" >/dev/null || exit 1
-      set -u
-      printf '%s' "${ROS_DISTRO:-}"
-    )"; then
-    Fail "ROS setup could not be sourced: ${DEPLOYMENT_ROS_SETUP}"
+  if [[ -z "${TEST_ROOT}" ]]; then
+    command -v docker >/dev/null 2>&1 || \
+      Fail "Docker is required for production deployment"
+    docker info >/dev/null 2>&1 || \
+      Fail "Docker Engine is not running or accessible"
   fi
-  [[ "${ros_distro}" == "${EXPECTED_ROS_DISTRO}" ]] ||
-    Fail "ROS setup must identify ROS_DISTRO=${EXPECTED_ROS_DISTRO}"
 }
 
 RequireReleaseIdentity() {
@@ -187,7 +175,7 @@ RequireReleaseLayout() {
       share/ament_index/resource_index/packages/mentor_pi_bringup \
       share/ament_index/resource_index/packages/mentor_pi_interfaces \
       lib/mentor_pi_bringup/configuration_supervisor \
-      lib/mentor_pi_bringup/run_configuration_supervisor \
+      lib/mentor_pi_bringup/run_production_container \
       lib/mentor_pi_bringup/install_production_assets \
       lib/mentor_pi_bringup/promote_host_release \
       lib/libmentor_pi_interfaces__rosidl_generator_c.so \
@@ -195,10 +183,7 @@ RequireReleaseLayout() {
       lib/libmentor_pi_interfaces__rosidl_typesupport_fastrtps_cpp.so \
       share/mentor_pi_interfaces/package.xml \
       share/mentor_pi_bringup/config/controller.yaml \
-      share/mentor_pi_bringup/systemd/mentor-pi-configuration-supervisor.default \
       share/mentor_pi_bringup/systemd/mentor-pi-runtime.service \
-      share/mentor_pi_bringup/systemd/mentor-pi-agent.service \
-      share/mentor_pi_bringup/systemd/mentor-pi-configuration-supervisor.service \
       share/mentor_pi_bringup/systemd/mentor-pi-controller.target \
       share/mentor_pi_bringup/udev/99-mentor-pi-mcu.rules.in; do
     if [[ ! -f "${prefix}/${required}" ]]; then
@@ -210,8 +195,12 @@ RequireReleaseLayout() {
     echo "configuration_supervisor is not executable." >&2
     exit 1
   }
-  for required in capture_board_diagnostics run_configuration_supervisor \
-      install_production_assets promote_host_release; do
+  [[ -x "${prefix}/lib/mentor_pi_bringup/run_production_container" ]] || {
+    echo "run_production_container is not executable." >&2
+    exit 1
+  }
+  for required in capture_board_diagnostics install_production_assets \
+      promote_host_release; do
     if [[ "${layout_generation}" == "legacy-compatible" &&
           "${required}" == "capture_board_diagnostics" ]]; then
       continue

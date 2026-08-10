@@ -8,6 +8,9 @@ readonly BUILD_HELPER="${SCRIPT_DIR}/build_microros_agent_from_lock.sh"
 readonly SOURCE_LOCK="${SCRIPT_DIR}/microros_agent_source.lock"
 readonly XRCE_AGENT_PATCH="${SCRIPT_DIR}/patches/micro_xrce_agent_rrclite_modem_lines.patch"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
+readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
+readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
+readonly -a ORIGINAL_ARGUMENTS=("$@")
 
 print_output=0
 
@@ -58,35 +61,34 @@ while (($# > 0)); do
   esac
 done
 
+if ((print_output == 0)) && [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "${ORIGINAL_ARGUMENTS[@]}"
+fi
+
 [[ -r /etc/os-release ]] || Fail "/etc/os-release is unavailable"
 [[ "$(ReadOsValue ID)" == "ubuntu" ]] || Fail "the host must be Ubuntu"
-readonly ubuntu_version="$(ReadOsValue VERSION_ID)"
 case "$(uname -m)" in
   x86_64 | amd64) architecture=amd64 ;;
   aarch64 | arm64) architecture=arm64 ;;
   *) Fail "the host architecture must be amd64 or arm64" ;;
 esac
 readonly architecture
+readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
 [[ -f "${XRCE_AGENT_PATCH}" && ! -L "${XRCE_AGENT_PATCH}" ]] || \
   Fail "RRCLite Agent patch is missing or symbolic"
 readonly lock_sha="$(Sha256 "${SOURCE_LOCK}")"
 readonly patch_sha="$(Sha256 "${XRCE_AGENT_PATCH}")"
 
-image=""
-image_id="native-ubuntu-22.04"
-if [[ "${ubuntu_version}" != "22.04" ]]; then
-  command -v docker >/dev/null 2>&1 || \
-    Fail "Docker is required on Ubuntu ${ubuntu_version}"
-  docker info >/dev/null 2>&1 || Fail "Docker is not running or accessible"
-  image="$(${IMAGE_SELECTOR} microros "${architecture}")"
-  image_id="$(docker image inspect "${image}" --format '{{.Id}}' \
-    2>/dev/null || true)"
-  image_architecture="$(docker image inspect "${image}" \
-    --format '{{.Architecture}}' 2>/dev/null || true)"
-  [[ "${image_id}" =~ ^sha256:[0-9a-f]{64}$ && \
-    "${image_architecture}" == "${architecture}" ]] || \
-    Fail "the pinned Humble Agent image is not local; run make setup"
-fi
+command -v docker >/dev/null 2>&1 || Fail "Docker is required"
+docker info >/dev/null 2>&1 || Fail "Docker is not running or accessible"
+image="$(${IMAGE_SELECTOR} microros "${architecture}")"
+image_id="$(docker image inspect "${image}" --format '{{.Id}}' \
+  2>/dev/null || true)"
+image_architecture="$(docker image inspect "${image}" \
+  --format '{{.Architecture}}' 2>/dev/null || true)"
+[[ "${image_id}" =~ ^sha256:[0-9a-f]{64}$ && \
+  "${image_architecture}" == "${architecture}" ]] || \
+  Fail "the pinned Humble Agent image is not local; run make setup"
 readonly image image_id
 
 cache_identity="${image_id#sha256:}"
@@ -118,49 +120,37 @@ fi
   Fail "Agent metadata path is not a regular file: ${metadata}"
 mkdir -p "${work_root}" "${work_root}/home"
 
-if [[ "${ubuntu_version}" == "22.04" ]]; then
-  [[ -r /opt/ros/humble/setup.bash ]] || \
-    Fail "ROS 2 Humble is missing at /opt/ros/humble/setup.bash"
-  set +u
-  source /opt/ros/humble/setup.bash
-  set -u
-  [[ "${ROS_DISTRO:-}" == "humble" ]] || \
-    Fail "native ROS setup did not identify Humble"
-  echo "Fetching and building the pinned Agent natively on Ubuntu 22.04."
-  "${BUILD_HELPER}" fetch --work-root "${work_root}"
-  "${BUILD_HELPER}" build --work-root "${work_root}" \
-    --dependency-mode install
-else
-  readonly caller_uid="$(id -u)"
-  readonly caller_gid="$(id -g)"
-  echo "Fetching pinned Agent sources in Docker."
-  docker run --rm \
-    --platform "linux/${architecture}" \
-    --network bridge \
-    --user "${caller_uid}:${caller_gid}" \
-    --cap-drop ALL \
-    --security-opt no-new-privileges \
-    --env HOME=/work/home \
-    --volume "${PROJECT_ROOT}:/project:ro" \
-    --volume "${work_root}:/work" \
-    --entrypoint /bin/bash \
-    "${image}" -lc \
-    'source /opt/ros/humble/setup.bash && exec /project/tools/build_microros_agent_from_lock.sh fetch --work-root /work'
+readonly caller_uid="$(id -u)"
+readonly caller_gid="$(id -g)"
+echo "Fetching pinned Agent sources in Docker."
+docker run --rm \
+  --platform "linux/${architecture}" \
+  --network bridge \
+  --user "${caller_uid}:${caller_gid}" \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --env HOME=/work/home \
+  --volume "${PROJECT_ROOT}:/project:ro" \
+  --volume "${work_root}:/work" \
+  --entrypoint /bin/bash \
+  "${image}" -lc \
+  'source /opt/ros/humble/setup.bash && exec /project/tools/build_microros_agent_from_lock.sh fetch --work-root /work'
 
-  echo "Building the pinned Agent in Docker with networking disabled."
-  docker run --rm \
-    --platform "linux/${architecture}" \
-    --network none \
-    --user "${caller_uid}:${caller_gid}" \
-    --cap-drop ALL \
-    --security-opt no-new-privileges \
-    --env HOME=/work/home \
-    --volume "${PROJECT_ROOT}:/project:ro" \
-    --volume "${work_root}:/work" \
-    --entrypoint /bin/bash \
-    "${image}" -lc \
-    'source /opt/ros/humble/setup.bash && exec /project/tools/build_microros_agent_from_lock.sh build --work-root /work --dependency-mode preinstalled'
-fi
+echo "Building the pinned Agent in Docker with networking disabled."
+docker run --rm \
+  --platform "linux/${architecture}" \
+  --network none \
+  --user "${caller_uid}:${caller_gid}" \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --env HOME=/work/home \
+  --env "CMAKE_BUILD_PARALLEL_LEVEL=${BUILD_JOBS}" \
+  --env "RRCLITE_BUILD_JOBS=${BUILD_JOBS}" \
+  --volume "${PROJECT_ROOT}:/project:ro" \
+  --volume "${work_root}:/work" \
+  --entrypoint /bin/bash \
+  "${image}" -lc \
+  'source /opt/ros/humble/setup.bash && exec /project/tools/build_microros_agent_from_lock.sh build --work-root /work --dependency-mode preinstalled'
 
 [[ -x "${executable}" && ! -L "${executable}" ]] || \
   Fail "Agent build did not produce its executable"

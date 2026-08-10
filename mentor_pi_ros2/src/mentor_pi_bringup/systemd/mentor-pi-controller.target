@@ -1,7 +1,6 @@
 [Unit]
-Description=Mentor Pi MCU Agent and configuration supervisor
+Description=Mentor Pi containerized controller runtime
 Requires=mentor-pi-runtime.service
-Wants=mentor-pi-agent.service mentor-pi-configuration-supervisor.service
 After=mentor-pi-runtime.service
 
 [Install]

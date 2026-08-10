@@ -2,10 +2,10 @@
 
 RRCLite v2 is a C++17 ROS 2 Humble controller stack for the Mentor Pi RRCLite
 V1.0 board (STM32F407VET6). It replaces the legacy Python serial bridge and
-proprietary MCU packet dispatcher with micro-ROS and a native micro-ROS Agent.
+proprietary MCU packet dispatcher with micro-ROS and a compiled micro-ROS Agent.
 
 ```text
-ROS 2 nodes <-> native micro-ROS Agent
+ROS 2 nodes <-> containerized micro-ROS Agent
             <-> USB-C / CH9102F / USART1 at 1,000,000 baud, 8N1
             <-> FreeRTOS firmware <-> robot hardware
 ```
@@ -16,43 +16,23 @@ transport.
 
 ## Start here
 
-Choose one computer track and follow its tutorials in numerical order. Do not
-mix environments or jump directly to powered motor motion.
-
-### Onboard computer: RDK X5, Ubuntu 22.04 arm64, native Humble
-
-This path uses no Docker. It builds firmware with a checked local Arm GNU
-toolchain and uses conventional `rosdep`, `colcon`, and direct `ros2` commands
-from the RDK X5 user's existing zsh configuration.
+Follow the single tutorial sequence in numerical order on either the RDK X5
+onboard computer or a normal Ubuntu development computer. Docker supplies ROS
+2 Humble, the Agent, firmware tools, builds, and runtime on both. Only udev
+serial configuration and STM32CubeProgrammer flashing remain host operations.
+`make shell` opens a zsh runtime with pinned Oh My Zsh, completion,
+autosuggestions, and syntax highlighting.
 
 | Step | Tutorial | Main command |
 | ---: | --- | --- |
-| 01 | [Prepare the RDK X5](docs/tutorials/onboard-computer/01-prepare-ubuntu-development-host.md) | `make setup` |
-| 02 | [Build and flash PID natively](docs/tutorials/onboard-computer/02-build-and-flash-default-pid-firmware.md) | `make firmware` |
-| 03 | [Build and run native Humble](docs/tutorials/onboard-computer/03-build-and-run-humble-host.md) | `colcon build`, `ros2 launch` |
-| 04 | [Run passive board bring-up](docs/tutorials/onboard-computer/04-run-passive-board-bringup.md) | `make passive-check` |
-| 05 | [Characterize board hardware](docs/tutorials/onboard-computer/05-characterize-board-hardware.md) | `make characterize-board` |
-| 06 | [Run native ROS 2 CLI checkout](docs/tutorials/onboard-computer/06-ros2-cli-hardware-checkout.md) | `ros2` CLI |
-| 07 | [Run native and physical gates](docs/tutorials/onboard-computer/07-run-stress-soak-and-release-gates.md) | `make release-onboard-gates` |
-| 08 | [Run ros2_control natively](docs/tutorials/onboard-computer/08-run-mentor-pi-hardwares.md) | `ros2 launch` |
-
-### Normal computer: Ubuntu 24.04, pinned Humble Docker
-
-This path keeps ROS off the native OS and performs the complete software suite,
-including Clang 18 fuzzing, in the reviewed containers. `make shell` opens a
-zsh runtime with pinned Oh My Zsh, completion, autosuggestions, and syntax
-highlighting.
-
-| Step | Tutorial | Main command |
-| ---: | --- | --- |
-| 01 | [Prepare Ubuntu 24.04](docs/tutorials/normal-computer/01-prepare-ubuntu-development-host.md) | `make setup` |
-| 02 | [Build and flash PID in Docker](docs/tutorials/normal-computer/02-build-and-flash-default-pid-firmware.md) | `make firmware` |
-| 03 | [Build and run Docker Humble](docs/tutorials/normal-computer/03-build-and-run-humble-host.md) | `make start` |
-| 04 | [Run passive board bring-up](docs/tutorials/normal-computer/04-run-passive-board-bringup.md) | `make passive-check` |
-| 05 | [Characterize board hardware](docs/tutorials/normal-computer/05-characterize-board-hardware.md) | `make characterize-board` |
-| 06 | [Run Docker ROS 2 CLI checkout](docs/tutorials/normal-computer/06-ros2-cli-hardware-checkout.md) | `make shell` |
-| 07 | [Run full software and physical gates](docs/tutorials/normal-computer/07-run-stress-soak-and-release-gates.md) | `make release-software-gates` |
-| 08 | [Run ros2_control in Docker](docs/tutorials/normal-computer/08-run-mentor-pi-hardwares.md) | `make host-hardwares` |
+| 01 | [Prepare the Docker host](docs/tutorials/01-prepare-ubuntu-development-host.md) | `make setup` |
+| 02 | [Build and flash PID](docs/tutorials/02-build-and-flash-default-pid-firmware.md) | `make firmware`, `make flash` |
+| 03 | [Build and run Humble](docs/tutorials/03-build-and-run-humble-host.md) | `make host`, `make start` |
+| 04 | [Run passive board bring-up](docs/tutorials/04-run-passive-board-bringup.md) | `make passive-check` |
+| 05 | [Characterize board hardware](docs/tutorials/05-characterize-board-hardware.md) | `make characterize-board` |
+| 06 | [Run ROS 2 CLI checkout](docs/tutorials/06-ros2-cli-hardware-checkout.md) | `make shell` |
+| 07 | [Run software and physical gates](docs/tutorials/07-run-stress-soak-and-release-gates.md) | computer-specific release gate |
+| 08 | [Run ros2_control](docs/tutorials/08-run-mentor-pi-hardwares.md) | `make host-hardwares` |
 
 Every complex operation is a one-line Make action. The helper prompts for
 hardware-specific values and exact safety acknowledgements, so operators do
@@ -61,8 +41,7 @@ not copy long ROS command blocks or edit placeholder text.
 The current board has a hardware-verified timing baseline, while the newest
 complete default PID candidate is prepared but not yet flashed. Its practical
 resume point is Tutorial 02 for that PID default flash, followed by Tutorial
-04's passive checks. A new computer or operator starts at Tutorial 01 of the
-track matching that computer.
+04's passive checks. A new computer or operator starts at Tutorial 01.
 
 ## Safety and current status
 
@@ -87,15 +66,13 @@ hardware-sensitive step.
 
 ## Supported environments
 
-- Production/onboard computer: RDK X5 arm64, Ubuntu 22.04 with native ROS 2
-  Humble and Docker-free host, Agent, micro-ROS library, and firmware builds.
-- Development computer: any Ubuntu release; Ubuntu 22.04 uses native Humble,
-  while every other release uses pinned Ubuntu 22.04/Humble Docker.
-- No native ROS installation is supported outside Ubuntu 22.04.
-- Host architectures: `arm64` and `amd64`, matched to the deployment computer.
-- Firmware build: CMake/Ninja through the root Makefile; native pinned Arm GNU
-  13.2.1 on Ubuntu 22.04 and pinned Docker elsewhere.
-- Host build: native Humble `colcon` on Ubuntu 22.04, otherwise Docker Humble.
+- Production/onboard computer: RDK X5 arm64 on Ubuntu 22.04 with Docker Engine.
+- Development computer: supported Ubuntu on `amd64` or `arm64` with Docker
+  Engine; architecture-native pinned Ubuntu 22.04/Humble images are used.
+- Existing host ROS installations are left untouched and never sourced.
+- Firmware, micro-ROS, Agent, host, and runtime builds are Docker-only.
+- The RDK X5 release gate excludes fuzzing, coverage, and the full Clang suite;
+  `make release-software-gates` retains those normal-computer checks.
 - UART flashing: STM32CubeProgrammer CLI through CH9102F/USART1.
 - Project-owned data-plane runtime: C++17; Python is limited to ROS launch and
   build orchestration.
@@ -127,9 +104,9 @@ does not substitute for an unobserved physical metric.
   developer serial-access helpers.
 - [`thirdpart/`](thirdpart/) — the checked repository copy of the licensed
   STM32CubeProgrammer 2.23.0 arm64 Debian-package archive used by the onboard
-  dependency helper.
-- [`docs/tutorials/`](docs/tutorials/) — separate complete 01--08 onboard and
-  normal-computer operator workflows.
+  CubeProgrammer installer.
+- [`docs/tutorials/`](docs/tutorials/) — one complete Docker-first 01--08
+  operator workflow for both computer types.
 - [`docs/framework/`](docs/framework/) — normative design and verification
   contracts.
 

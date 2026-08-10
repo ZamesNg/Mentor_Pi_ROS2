@@ -6,6 +6,9 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
 readonly EVIDENCE_PARENT="${PROJECT_ROOT}/build/microros-agent-verification"
+readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
+readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
+readonly -a ORIGINAL_ARGUMENTS=("$@")
 
 architecture=""
 evidence_id="$(date -u '+%Y%m%dT%H%M%SZ')"
@@ -108,6 +111,17 @@ if [[ "${dry_run}" == "1" ]]; then
     "${DEFAULT_IMAGE}" "${architecture}" "${OUTPUT_ROOT}"
   exit 0
 fi
+case "$(uname -m)" in
+  x86_64 | amd64) native_architecture=amd64 ;;
+  aarch64 | arm64) native_architecture=arm64 ;;
+  *) Fail "unsupported native architecture: $(uname -m)" ;;
+esac
+[[ "${architecture}" == "${native_architecture}" ]] || \
+  Fail "cross-architecture Agent verification is forbidden; requested ${architecture} on ${native_architecture}"
+if [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "${ORIGINAL_ARGUMENTS[@]}"
+fi
+readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
 
 command -v docker >/dev/null 2>&1 || Fail "Docker is not installed"
 docker info >/dev/null 2>&1 || Fail "Docker is not running or accessible"
@@ -157,6 +171,8 @@ RunContainerPhase() {
     --env RRCLITE_AGENT_IMAGE_ID="${IMAGE_ID}" \
     --env RRCLITE_AGENT_PHASE="${phase}" \
     --env RRCLITE_AGENT_HOST_SOURCE_SHA="${SOURCE_FINGERPRINT_BEFORE}" \
+    --env "RRCLITE_BUILD_JOBS=${BUILD_JOBS}" \
+    --env "CMAKE_BUILD_PARALLEL_LEVEL=${BUILD_JOBS}" \
     --volume "${PROJECT_ROOT}:/project:ro" \
     --volume "${STAGING_ROOT}:/evidence" \
     --entrypoint /bin/bash \
@@ -269,12 +285,8 @@ RequireMetadataSha verification_script_sha256 \
   "$(Sha256 "${SCRIPT_DIR}/verify_microros_agent_build_in_container.sh")"
 RequireMetadataSha orchestrator_script_sha256 \
   "$(Sha256 "${SCRIPT_DIR}/verify_microros_agent_build_container.sh")"
-RequireMetadataSha production_installer_sha256 \
-  "$(Sha256 "${SCRIPT_DIR}/install_microros_agent.sh")"
 RequireMetadataSha shared_build_helper_sha256 \
   "$(Sha256 "${SCRIPT_DIR}/build_microros_agent_from_lock.sh")"
-RequireMetadataSha runtime_wrapper_sha256 \
-  "$(Sha256 "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/scripts/run_micro_ros_agent")"
 readonly EXECUTABLE_MANIFEST_ROW_COUNT="$(grep -Ec \
   '  [*]?.[/]lib/micro_ros_agent/micro_ros_agent$' \
   "${STAGING_ROOT}/install-tree-files.sha256" || true)"

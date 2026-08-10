@@ -2,14 +2,12 @@
 
 This directory contains the detailed design and acceptance specifications for
 RRCLite v2: STM32F407VET6 firmware using FreeRTOS, STM32 HAL, and a pinned ROS 2
-Humble micro-ROS stack, with an Ubuntu 22.04 Humble host on `amd64` or `arm64`.
-Ubuntu 22.04 development runs Humble natively; every other Ubuntu release uses
-the pinned Humble Docker runtime and no native ROS installation.
+Humble micro-ROS stack, with architecture-native Ubuntu 22.04/Humble Docker
+images on `amd64` or `arm64`. Host ROS installations are not used.
 
-For hands-on work, start with the matching
-[onboard-computer](../tutorials/onboard-computer/01-prepare-ubuntu-development-host.md)
-or [normal-computer](../tutorials/normal-computer/01-prepare-ubuntu-development-host.md)
-Tutorial 01 and follow its numbered `Next` links. For changing project status, use
+For hands-on work, start with
+[Tutorial 01](../tutorials/01-prepare-ubuntu-development-host.md)
+and follow its numbered `Next` links. For changing project status, use
 [Next steps](../NEXT_STEPS.md). This README indexes the normative contracts;
 tutorials do not override them.
 
@@ -22,6 +20,7 @@ tutorials do not override them.
 | [Verified board profile](verified-hardware-profile.md) | Compiled wheel placement/signs, IMU axes, retained defaults, and MCU status indication. |
 | [Legacy audit](legacy-audit.md) | Traceability from retained legacy behavior and known defects to v2 dispositions. |
 | [Transport ADR](adr/0001-mcu-ros-transport.md) | Accepted CH9102F/USART1 micro-ROS transport and rejected alternatives. |
+| [Docker host ADR](adr/0002-docker-everywhere-host-runtime.md) | Docker-only build, development, handoff, and production deployment. |
 | [Architecture](architecture.md) | Host/MCU components, task ownership, data flow, resource budgets, and session lifecycle. |
 | [ROS interface contract](ros-interface-contract.md) | Exact topics, services, schemas, QoS, units, limits, and validation rules. |
 | [Reliability and safety](reliability-and-safety.md) | Safe states, command leases, overload policy, watchdog, and fault response. |
@@ -36,9 +35,8 @@ physical wiring or safe output is a stop-work condition until resolved.
 
 ## Operator and qualification path
 
-The ordered [onboard](../tutorials/onboard-computer/01-prepare-ubuntu-development-host.md)
-and [normal-computer](../tutorials/normal-computer/01-prepare-ubuntu-development-host.md)
-tutorial series contain environment setup, default PID flashing, host deployment, passive
+The ordered [tutorial series](../tutorials/01-prepare-ubuntu-development-host.md)
+contains environment setup, default PID flashing, host deployment, passive
 bring-up, SWD characterization, guarded CLI checkout, functional HIL, and long
 qualification campaigns. Exact ROS commands appear at the stage where they are
 safe to run.

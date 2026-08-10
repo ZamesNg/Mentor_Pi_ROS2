@@ -4,6 +4,8 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
+readonly -a ORIGINAL_ARGUMENTS=("$@")
 
 build_type="Debug"
 sanitizers="on"
@@ -47,6 +49,10 @@ case "${sanitizers}" in
     ;;
 esac
 
+if [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "${ORIGINAL_ARGUMENTS[@]}"
+fi
+
 readonly build_label="$(printf '%s' "${build_type}" | tr '[:upper:]' '[:lower:]')"
 readonly BUILD_ROOT="${PROJECT_ROOT}/build/ci-native-${build_label}-${sanitizers}"
 declare -a generator_args=()
@@ -63,10 +69,9 @@ bash -n "${PROJECT_ROOT}"/tools/*.sh
 "${PROJECT_ROOT}/tools/test_ch9102_boot_control.sh"
 "${PROJECT_ROOT}/tools/test_guided_flash.sh"
 "${PROJECT_ROOT}/tools/test_tutorial_actions.sh"
-"${PROJECT_ROOT}/tools/test_native_onboard_tools.sh"
+"${PROJECT_ROOT}/tools/test_docker_host_policy.sh"
 "${PROJECT_ROOT}/tools/test_firmware_dependency_provenance.sh"
 "${PROJECT_ROOT}/tools/test_firmware_artifact_verification.sh"
-"${PROJECT_ROOT}/tools/test_microros_agent_install_state.sh"
 "${PROJECT_ROOT}/tools/test_microros_agent_build_container.sh"
 "${PROJECT_ROOT}/tools/test_microros_source_lock.sh"
 "${PROJECT_ROOT}/tools/test_package_board_handoff.sh"
@@ -107,7 +112,7 @@ RunCmakeSuite() {
     -DCMAKE_BUILD_TYPE="${build_type}" \
     "${sanitizer_args[@]}" \
     "$@"
-  cmake --build "${build_directory}" --parallel
+  cmake --build "${build_directory}" --parallel "${RRCLITE_BUILD_JOBS:-1}"
   ctest --test-dir "${build_directory}" --output-on-failure
 }
 

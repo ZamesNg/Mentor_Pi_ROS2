@@ -193,7 +193,7 @@ instruments are attached. Consequently `CampaignSummary::release_qualified`
 is always false and `summary.json` always says
 `release_qualification: INCOMPLETE`; a zero exit status or green JUnit record
 never closes D5 by itself. Follow
-[normal-computer Tutorial 07](../../../docs/tutorials/normal-computer/07-run-stress-soak-and-release-gates.md) and
+[Tutorial 07](../../../docs/tutorials/07-run-stress-soak-and-release-gates.md) and
 retain generated campaign and independent instrument files; an absent or
 `NOT_OBSERVED` physical metric keeps the release gate open.
 
@@ -230,25 +230,18 @@ the reviewed controller configuration, recent journals, and USB identity, so
 inspect it for site-sensitive data before sharing. Do not reboot before this
 capture when it is safe to retain the live reset/session evidence.
 
-## Build and native tests
+## Docker build and tests
 
-The production build requires ROS 2 Humble and the sibling
-`mentor_pi_interfaces` package:
-
-```sh
-colcon build --packages-up-to mentor_pi_bringup
-colcon test --packages-select mentor_pi_bringup
-```
-
-The state machine, configuration validator, and deterministic qualification
-monitor core can be tested without ROS:
+Build and test this package with its sibling interfaces and hardware package
+through the repository-root Docker interface:
 
 ```sh
-cmake -S mentor_pi_ros2/src/mentor_pi_bringup -B build/mentor_pi_bringup-native \
-  -DMENTOR_PI_BUILD_ROS2=OFF -DBUILD_TESTING=ON
-cmake --build build/mentor_pi_bringup-native
-ctest --test-dir build/mentor_pi_bringup-native --output-on-failure
+make host
 ```
+
+The architecture-native Ubuntu 22.04/Humble image supplies `rosdep`, `colcon`,
+and the native CMake test dependencies. Host ROS and host build toolchains are
+not used.
 
 The ROS build also runs three C++ integration tests with generated Humble types.
 The in-process controller peer verifies exact non-default service payloads,
@@ -279,77 +272,49 @@ must pass the physical stress campaign.
 
 ## Interactive launch
 
-The Humble Agent is not assumed to exist in `/opt/ros`. Install the pinned
-native build once on the onboard Ubuntu 22.04/Humble host:
+The host build, compiled Agent, and ROS 2 Humble environment are supplied by
+architecture-native pinned Docker images. Build and start them through the
+repository interface:
 
 ```sh
-sudo ./tools/install_microros_agent.sh
+make host
+make agent
+RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED make start
 ```
 
-The installer verifies Ubuntu 22.04 from `/etc/os-release`, accepts only
-`amd64`/`arm64`, and checks out immutable official Agent and message revisions.
-Before its first package or source-tree mutation, it proves
-`mentor-pi-controller.target` is inactive; a not-yet-installed target is
-accepted only when systemd reports `LoadState=not-found` and
-`ActiveState=inactive`. A loaded inactive target is also safe; an active,
-transitional, failed, malformed, or indeterminate state fails closed.
-Before building, it requires both source trees to have the exact origin, a
-detached pinned commit, and no modified or untracked files. It builds a release
-prefix under `/opt/mentor_pi` and installs a native-exec wrapper. Python is used
-only by upstream ROS build tooling and ROS launch orchestration; the Agent data
-path remains native C++.
-
-The Python launch description starts that Agent executable. Stop the production
-target first: the installed Agent wrapper takes a nonblocking serial-owner lock
-and refuses a second Agent. A production installation also grants the device
-only to the `mentor-pi-serial` group, so run an interactive launch under the
-`mentor-pi` service account after starting its runtime-directory unit:
+Open a second interactive terminal in the running container with:
 
 ```sh
-sudo systemctl stop mentor-pi-controller.target
-sudo systemctl start mentor-pi-runtime.service
-sudo -u mentor-pi -- env \
-  ROS_DOMAIN_ID=37 \
-  ROS_LOG_DIR=/var/log/mentor-pi \
-  XDG_RUNTIME_DIR=/run/mentor-pi \
-  RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
-  bash -c 'source /opt/mentor_pi/host/setup.bash && \
-    ros2 launch mentor_pi_bringup controller.launch.py \
-      serial_device:=/dev/mentor_pi_mcu'
+make shell ROS_DOMAIN_ID=0
 ```
 
-`serial_device` may be overridden, but only the Agent receives it. The
-supervisor has no serial-device parameter. Developers using another verified
-native Agent prefix may also override `agent_executable`.
+The shell is zsh with pinned Oh My Zsh, standard and ROS 2 completion,
+autosuggestions, and syntax highlighting. Host dotfiles and host ROS are not
+used. The controller launch remains Bash-driven and fail-couples the Agent and
+configuration supervisor.
 
 ## Production installation
 
-Production uses immutable versioned host releases below
-`/opt/mentor_pi/releases/host`; `/opt/mentor_pi/host` is an atomically replaced
-symlink. Never build into that live path. Build and test a new staging prefix as
-an unprivileged operator:
+Production uses immutable versioned host and Agent releases below
+`/opt/mentor_pi`, plus the exact runtime image ID recorded in
+`/etc/mentor-pi/runtime-image`. Build a Docker handoff containing both release
+prefixes and a checksummed OCI runtime-image archive. The installed host path
+is an atomically replaced symlink; never build into it.
 
-For the normal connected development build and runtime, follow
-[onboard Tutorial 03](../../../docs/tutorials/onboard-computer/03-build-and-run-humble-host.md). It
-does not install or transfer a host release.
-The manual commands below remain the underlying native deployment sequence.
+For connected development, follow
+[Tutorial 03](../../../docs/tutorials/03-build-and-run-humble-host.md). For a
+production handoff, use the repository packaging target and verify its manifest
+before transfer.
 
 ```sh
-source /opt/ros/humble/setup.zsh
-readonly RELEASE_ID="2026-08-06.1"
-readonly STAGED_PREFIX="${PWD}/artifacts/mentor-pi-host-${RELEASE_ID}"
-test ! -e "${STAGED_PREFIX}"
-colcon build --merge-install \
-  --install-base "${STAGED_PREFIX}" \
-  --packages-up-to mentor_pi_bringup \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release
-colcon test --merge-install \
-  --install-base "${STAGED_PREFIX}" \
-  --packages-select mentor_pi_interfaces mentor_pi_bringup
-colcon test-result --verbose
+./tools/build_host_handoff_container.sh \
+  --architecture arm64 \
+  --release-id 2026-08-10.1 \
+  --output-directory "${PWD}/artifacts"
 ```
 
-Install the pinned Agent, then promote the already-tested host prefix. The
+Load the pinned runtime image, install the packaged Agent prefix, then promote
+the already-tested host prefix. The
 promotion tool refuses an active controller target, an incomplete prefix, an
 existing release ID, or a non-managed `/opt/mentor_pi/host` path. Its layout
 check includes both package-index records, interface metadata, and the
@@ -357,11 +322,16 @@ generated C/C++/Fast-RTPS runtime libraries required by the supervisor. New
 releases must also contain the read-only diagnostic collector and the shared
 deployment idle guard. It copies a complete root-owned, non-group-writable
 release before switching the symlink; older releases remain available for
-rollback. The Agent installer, release promoter, and production-asset installer
-all require an exact loaded-or-not-found/inactive target state before mutation:
+rollback. The release promoter and production-asset installer require an exact
+loaded-or-not-found/inactive target state before mutation:
 
 ```sh
-sudo ./tools/install_microros_agent.sh
+readonly RELEASE_ID="2026-08-10.1"
+readonly STAGED_PREFIX="${PWD}/host"
+readonly RUNTIME_IMAGE_ID="$(sed -n 's/^runtime_image_id=//p' HOST-HANDOFF.txt)"
+docker load --input runtime-image/mentor-pi-runtime.tar
+sudo install -d -m 0755 /opt/mentor_pi/micro_ros_agent
+sudo cp -a agent/. /opt/mentor_pi/micro_ros_agent/
 sudo "${STAGED_PREFIX}/lib/mentor_pi_bringup/promote_host_release" \
   --staged-prefix "${STAGED_PREFIX}" \
   --release-id "${RELEASE_ID}"
@@ -391,24 +361,23 @@ sudo /opt/mentor_pi/host/lib/mentor_pi_bringup/install_production_assets \
   --ros-domain-id 37 \
   --identity-kind serial \
   --identity-value RRCLITE_A1B2C3 \
-  --device "${DEVICE}"
+  --device "${DEVICE}" \
+  --runtime-image "${RUNTIME_IMAGE_ID}"
 
 sudo systemd-analyze verify \
   /etc/systemd/system/mentor-pi-runtime.service \
-  /etc/systemd/system/mentor-pi-agent.service \
-  /etc/systemd/system/mentor-pi-configuration-supervisor.service \
   /etc/systemd/system/mentor-pi-controller.target
 sudo systemctl enable --now mentor-pi-controller.target
 ```
 
 The required `/etc/default/mentor-pi` is authoritative and contains exactly one
-active setting, `ROS_DOMAIN_ID`. Both services load it last and their launchers
-reject a missing, malformed, or out-of-range value. Service-specific defaults
+active setting, `ROS_DOMAIN_ID`. The runtime service loads it last and its launcher
+rejects a missing, malformed, or out-of-range value. Service-specific defaults
 must contain no `ROS_*` keys. The fixed production serial path is
 `/dev/mentor_pi_mcu`; production does not accept a path override.
 
 Upgrade mode deliberately preserves `/etc/mentor-pi/controller.yaml`, the
-shared ROS identity, supervisor path overrides, and the rendered device rule.
+shared ROS identity, controller configuration, and the rendered device rule.
 It fails on a ROS-domain or device-identity mismatch instead of replacing them.
 Build another staged release, stop the target, promote it, install only the new
 units while validating the preserved site state, and then restart:
@@ -426,7 +395,8 @@ sudo /opt/mentor_pi/host/lib/mentor_pi_bringup/install_production_assets \
   --ros-domain-id 37 \
   --identity-kind serial \
   --identity-value RRCLITE_A1B2C3 \
-  --device "${DEVICE}"
+  --device "${DEVICE}" \
+  --runtime-image "${RUNTIME_IMAGE_ID}"
 sudo systemctl start mentor-pi-controller.target
 ```
 
@@ -442,7 +412,8 @@ sudo /opt/mentor_pi/host/lib/mentor_pi_bringup/install_production_assets \
   --ros-domain-id 37 \
   --identity-kind serial \
   --identity-value RRCLITE_A1B2C3 \
-  --device "${DEVICE}"
+  --device "${DEVICE}" \
+  --runtime-image "${RUNTIME_IMAGE_ID}"
 ```
 
 Changing motor model, PWM offsets, battery threshold, ROS domain, or USB
@@ -452,51 +423,31 @@ mode performs such a change implicitly. Archive and remove any obsolete
 production unit no longer loads that file.
 
 Enable only `mentor-pi-controller.target` for normal production startup. It
-coordinates three units:
-
-- `mentor-pi-runtime.service` owns `/run/mentor-pi` for the complete stack
-  lifetime and `/var/log/mentor-pi` for ROS log files;
-- `mentor-pi-agent.service` is the sole serial owner, is limited to the uniquely
-  selected device, holds the wrapper lock, and retains the required one-second
-  `Restart=always` policy; and
-- `mentor-pi-configuration-supervisor.service` starts after the Agent and
-  immediately replaces its small environment launcher with the installed C++
-  executable. It uses `Restart=always` and intentionally remains alive
-  during Agent reconnects so its graph/session logic can close the motion gate
-  and reapply configuration.
-
-The Agent and supervisor require the same domain-only `/etc/default/mentor-pi`,
-use the same `ROS_DOMAIN_ID`, set `XDG_RUNTIME_DIR=/run/mentor-pi`, and set
-`ROS_LOG_DIR=/var/log/mentor-pi`. Supervisor-path overrides are separate and
-cannot override the authoritative domain. The supervisor command has no device
-argument, and its closed device policy has no `DeviceAllow` exception for the
-USB serial adapter. The Agent has a closed policy with only that device allowed.
-The units do not use a private `/dev` mount because ROS
-middleware may use the host's shared-memory namespace; the device cgroup
-restriction blocks physical device nodes without separating that middleware
-transport. The launcher sources the merged ROS environment and uses `exec`;
-neither `ros2 run` nor a Python node remains in the running process tree.
+owns one `mentor-pi-runtime.service`. The root systemd process talks to Docker,
+but the container runs as the unprivileged `mentor-pi` account with the serial
+device's supplemental group. The runtime mounts only the reviewed serial
+device, `/run/udev`, installed host/Agent prefixes, immutable configuration,
+and its log directory. It uses host networking, a read-only root filesystem,
+all capabilities dropped, `no-new-privileges`, and temporary home/log state.
+The Bash entrypoint starts `controller.launch.py`; a critical Agent or
+supervisor exit ends the container, and systemd owns restart/stop behavior.
 
 After changing the shared environment or immutable controller YAML, restart
-the coordinated target and inspect both services:
+the coordinated target and inspect the runtime service:
 
 ```sh
 sudo systemctl restart mentor-pi-controller.target
-systemctl status mentor-pi-agent.service \
-  mentor-pi-configuration-supervisor.service
-journalctl -u mentor-pi-agent.service \
-  -u mentor-pi-configuration-supervisor.service
+systemctl status mentor-pi-runtime.service
+journalctl -u mentor-pi-runtime.service
 ```
 
 The journal is the primary operator log; ROS also writes beneath
-`/var/log/mentor-pi`. Never put a serial-device option in the supervisor unit
-or launcher, and never start a second Agent or interactive launch while the
-production target owns the port.
+`/var/log/mentor-pi`. Never start a second Agent or development runtime while
+the production target owns the port.
 
-Production support is Ubuntu 22.04 with ROS 2 Humble on amd64 or arm64. An
-Ubuntu 22.04 development host uses native Humble; a development host on any
-other Ubuntu release keeps ROS out of the native OS and uses the pinned Ubuntu
-22.04/Humble Docker runtime. ROS 2 Jazzy is future migration work
+Production support is the pinned Ubuntu 22.04/ROS 2 Humble runtime image on
+arm64. Development uses the same architecture-native image model on supported
+Ubuntu hosts. ROS 2 Jazzy is future migration work
 to complete before Humble reaches end of life in May 2027; mixed-distribution
 deployment is unsupported.
 

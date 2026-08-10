@@ -7,6 +7,8 @@ readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
 readonly DOCKERFILE="${SCRIPT_DIR}/docker/host-runtime.Dockerfile"
 readonly ZSHRC="${SCRIPT_DIR}/docker/host-runtime.zshrc"
+readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
+readonly -a ORIGINAL_ARGUMENTS=("$@")
 
 architecture=""
 print_output=0
@@ -38,6 +40,17 @@ if ((print_output == 1)); then
   printf '%s\n' "${image}"
   exit 0
 fi
+if [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "${ORIGINAL_ARGUMENTS[@]}"
+fi
+
+case "$(uname -m)" in
+  x86_64 | amd64) native_architecture=amd64 ;;
+  aarch64 | arm64) native_architecture=arm64 ;;
+  *) Fail "unsupported native architecture: $(uname -m)" ;;
+esac
+[[ "${architecture}" == "${native_architecture}" ]] || \
+  Fail "cross-architecture image builds are forbidden; requested ${architecture} on ${native_architecture}"
 
 command -v docker >/dev/null 2>&1 || Fail "Docker is not installed"
 docker info >/dev/null 2>&1 || Fail "Docker is not running or accessible"
@@ -49,7 +62,10 @@ if [[ "$(docker image inspect "${image}" \
     2>/dev/null || true)" == "${dockerfile_sha}" && \
       "$(docker image inspect "${image}" \
     --format '{{index .Config.Labels "org.mentor-pi.host-runtime.zshrc-sha256"}}' \
-    2>/dev/null || true)" == "${zshrc_sha}" ]]; then
+    2>/dev/null || true)" == "${zshrc_sha}" && \
+      "$(docker image inspect "${image}" \
+    --format '{{.Os}}/{{.Architecture}}' 2>/dev/null || true)" == \
+      "linux/${architecture}" ]]; then
   echo "Reusing verified Mentor Pi Humble host runtime image: ${image}"
   exit 0
 fi
@@ -80,6 +96,6 @@ fi
 build_command+=("${PROJECT_ROOT}")
 "${build_command[@]}"
 
-[[ "$(docker image inspect "${image}" --format '{{.Architecture}}')" == \
-  "${architecture}" ]] || Fail "built image architecture does not match"
+[[ "$(docker image inspect "${image}" --format '{{.Os}}/{{.Architecture}}')" == \
+  "linux/${architecture}" ]] || Fail "built image platform does not match"
 echo "Built Mentor Pi Humble host runtime image: ${image}"

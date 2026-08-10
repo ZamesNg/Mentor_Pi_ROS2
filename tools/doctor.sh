@@ -5,6 +5,9 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly DEFAULT_MINIMUM_FREE_KIB=10485760
+readonly PROFILE_DETECTOR="${SCRIPT_DIR}/detect_host_profile.sh"
+readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
+readonly HOST_VALIDATOR="${SCRIPT_DIR}/validate_docker_host.sh"
 
 Fail() {
   echo "RRCLite development environment check failed: $*" >&2
@@ -36,29 +39,18 @@ case "$(uname -m)" in
     ;;
 esac
 
-[[ -r /etc/os-release ]] || Fail "/etc/os-release is unavailable"
-os_id="$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"' | head -n 1)"
-os_version="$(sed -n 's/^VERSION_ID=//p' /etc/os-release | \
-  tr -d '"' | head -n 1)"
-[[ "${os_id}" == "ubuntu" && -n "${os_version}" ]] || \
-  Fail "the development host must be Ubuntu"
-
-runtime_mode="docker-humble"
-docker_status="required and available"
-if [[ "${os_version}" == "22.04" ]]; then
-  runtime_mode="native-humble"
-  [[ -r /opt/ros/humble/setup.bash ]] || \
-    Fail "Ubuntu 22.04 native mode requires ROS 2 Humble at /opt/ros/humble/setup.bash"
-  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    docker_status="optional and available"
-  else
-    docker_status="optional and unavailable"
-  fi
-else
-  command -v docker >/dev/null 2>&1 || \
-    Fail "Docker is required on Ubuntu ${os_version}"
-  docker info >/dev/null 2>&1 || Fail "Docker is not running or accessible"
-fi
+[[ -x "${HOST_VALIDATOR}" ]] || Fail "Docker host validator is unavailable"
+host_policy="$(${HOST_VALIDATOR} --os-release /etc/os-release \
+  --architecture "${ARCHITECTURE}")"
+os_version="$(sed -n 's/^ubuntu=//p' <<<"${host_policy}")"
+command -v docker >/dev/null 2>&1 || \
+  Fail "Docker Engine is required on Ubuntu ${os_version}"
+docker info >/dev/null 2>&1 || Fail "Docker is not running or accessible"
+[[ -x "${PROFILE_DETECTOR}" && -x "${JOB_SELECTOR}" ]] || \
+  Fail "Docker host-policy helpers are unavailable"
+profile_output="$(${PROFILE_DETECTOR})"
+profile="$(sed -n 's/^profile=//p' <<<"${profile_output}")"
+build_jobs="$(${JOB_SELECTOR})"
 
 readonly MINIMUM_FREE_KIB="${RRCLITE_MIN_FREE_KIB:-${DEFAULT_MINIMUM_FREE_KIB}}"
 [[ "${MINIMUM_FREE_KIB}" =~ ^[0-9]+$ ]] || \
@@ -95,9 +87,11 @@ fi
 echo "Git worktree: ${PROJECT_ROOT}"
 echo "Build architecture: ${ARCHITECTURE}"
 echo "Ubuntu: ${os_version}"
-echo "Host runtime mode: ${runtime_mode}"
+echo "Host profile: ${profile}"
+echo "Host runtime mode: docker-humble"
+echo "Build jobs: ${build_jobs}"
 echo "Available workspace space: ${AVAILABLE_KIB} KiB"
-echo "Docker: ${docker_status}"
+echo "Docker: required and available"
 if [[ -n "${programmer}" ]]; then
   echo "STM32CubeProgrammer: ${programmer}"
 else

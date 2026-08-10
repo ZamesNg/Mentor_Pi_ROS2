@@ -504,7 +504,7 @@ if(MENTOR_PI_BUILD_ROS2)
     systemd/install_production_assets
     systemd/promote_host_release
     systemd/require_controller_target_inactive
-    systemd/run_configuration_supervisor
+    systemd/run_production_container
     DESTINATION lib/${PROJECT_NAME}
   )
   install(FILES README.md DESTINATION share/${PROJECT_NAME})

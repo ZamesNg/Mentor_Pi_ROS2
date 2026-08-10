@@ -1,9 +1,9 @@
-# Normal Computer Tutorial 02: Build and Flash the Default PID Firmware
+# Tutorial 02: Build and Flash the Default PID Firmware
 
 Build, provenance-check, program, read back, and automatically reset the normal
 closed-loop PID firmware. No firmware handoff is needed for a local board.
 
-**Run on:** the connected normal computer through the pinned firmware builders
+**Run on:** either connected computer through its architecture-native Docker builders
 **Hardware state:** all motors, PWM servos, and bus servos disconnected
 
 Previous: [Tutorial 01: Prepare the Ubuntu Development Host](01-prepare-ubuntu-development-host.md)
@@ -16,7 +16,7 @@ cd /home/zames/Mentor_Pi && make firmware
 ```
 
 This generates the Humble micro-ROS library and builds with the pinned Arm GNU
-13.2.1 image in Docker. Do not substitute a native Ubuntu 24.04 toolchain.
+13.2.1 image in Docker. No host ROS or host cross-compiler is used.
 
 Expected result: the artifact verifier reports `motor_mode=PID`,
 `artifact_mode=NORMAL`, `control_mode=CLOSED_LOOP`, `release_qualified=0`, valid
@@ -34,7 +34,7 @@ cd /home/zames/Mentor_Pi && make serial-setup
 The helper requires exactly one `1a86:55d4` CH9102F and asks for
 `CONFIGURE_SERIAL_ACCESS` before using `sudo`. It installs
 `/dev/mentor_pi_mcu` and the `mentor-pi-serial` group. Log out and back in after
-the first successful run so every normal host tool sees the membership. The
+the first successful run so every host-side serial tool sees the membership. The
 guided one-line flash commands automatically activate an already-granted but
 not-yet-active membership for their own process. Stop if the identity is
 ambiguous or the alias is not readable and writable afterward.

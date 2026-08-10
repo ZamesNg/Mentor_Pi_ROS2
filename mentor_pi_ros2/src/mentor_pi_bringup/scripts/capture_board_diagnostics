@@ -248,7 +248,7 @@ else
   CaptureCommand installed-paths ls -ld \
     "$(RootPath /opt/mentor_pi/host)" \
     "$(RootPath /opt/mentor_pi/micro_ros_agent)" \
-    "$(RootPath /opt/mentor_pi/bin/mentor_pi_micro_ros_agent)" \
+    "$(RootPath /opt/mentor_pi/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent)" \
     "$(RootPath /dev/mentor_pi_mcu)"
   CaptureCommand installed-link-targets readlink -f \
     "$(RootPath /opt/mentor_pi/host)" \
@@ -261,12 +261,11 @@ CaptureKnownFile controller-configuration \
   "$(RootPath /etc/mentor-pi/controller.yaml)"
 CaptureKnownFile usb-udev-rule \
   "$(RootPath /etc/udev/rules.d/99-mentor-pi-mcu.rules)"
+CaptureKnownFile runtime-image "$(RootPath /etc/mentor-pi/runtime-image)"
 
 readonly -a SYSTEMD_UNITS=(
   mentor-pi-controller.target
   mentor-pi-runtime.service
-  mentor-pi-agent.service
-  mentor-pi-configuration-supervisor.service
 )
 CaptureCommand systemd-active-state systemctl is-active "${SYSTEMD_UNITS[@]}"
 CaptureCommand systemd-enabled-state systemctl is-enabled \
@@ -278,14 +277,10 @@ CaptureCommand systemd-properties systemctl show \
   "${SYSTEMD_UNITS[@]}"
 CaptureCommand systemd-unit-verification systemd-analyze verify \
   "$(RootPath /etc/systemd/system/mentor-pi-runtime.service)" \
-  "$(RootPath /etc/systemd/system/mentor-pi-agent.service)" \
-  "$(RootPath /etc/systemd/system/mentor-pi-configuration-supervisor.service)" \
   "$(RootPath /etc/systemd/system/mentor-pi-controller.target)"
 CaptureCommand service-journal journalctl --utc --no-pager --output=short-iso \
   --since "15 minutes ago" \
-  -u mentor-pi-runtime.service \
-  -u mentor-pi-agent.service \
-  -u mentor-pi-configuration-supervisor.service
+  -u mentor-pi-runtime.service
 
 CaptureCommand usb-identity udevadm info --query=property \
   --name="$(RootPath /dev/mentor_pi_mcu)"

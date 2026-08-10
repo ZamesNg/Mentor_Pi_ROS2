@@ -6,6 +6,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly PORT="${PORT:-/dev/mentor_pi_mcu}"
 readonly ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+readonly HOST_PROFILE_DETECTOR="${SCRIPT_DIR}/detect_host_profile.sh"
 
 Fail() {
   echo "Mentor Pi tutorial action failed: $*" >&2
@@ -175,34 +176,28 @@ case "${ACTION}" in
   release-software-gates)
     RequireExact "${RELEASE_GATES_ACK:-}" RUN_RELEASE_SOFTWARE_GATES \
       "These checks can take a long time and use substantial CPU and disk."
-    python3 tools/check_framework_docs.py
-    ./tools/run_native_ci_tests.sh --build-type Debug --sanitizers on
-    ./tools/run_native_ci_tests.sh --build-type Release --sanitizers off
-    ./tools/run_tsan_tests.sh
-    ./tools/run_coverage_tests.sh
-    CLANG_FORMAT=clang-format-18 ./tools/check_cpp_format.sh
-    CLANG_TIDY=clang-tidy-18 RUN_CLANG_TIDY=run-clang-tidy-18 \
-      ./tools/run_clang_tidy.sh
+    [[ "$("${HOST_PROFILE_DETECTOR}" | sed -n 's/^profile=//p')" != rdk-x5 ]] || \
+      Fail "full software gates must run on the normal computer, not the RDK X5"
+    ./tools/run_quality_tests_container.sh --profile full
     ./tools/run_fuzz_smoke.sh
     ./tools/check_firmware_reproducibility.sh
     ./tools/run_firmware_target_ci.sh
     ./tools/verify_firmware_artifact.sh PID
     ;;
   release-onboard-gates)
-    RequireExact "${RELEASE_GATES_ACK:-}" RUN_ONBOARD_NATIVE_GATES \
-      "These Docker-free arm64 checks can take a long time and use substantial CPU and disk."
+    RequireExact "${RELEASE_GATES_ACK:-}" RUN_ONBOARD_DOCKER_GATES \
+      "These bounded Docker arm64 checks can take a long time and use substantial CPU and disk."
+    [[ "$("${HOST_PROFILE_DETECTOR}" | sed -n 's/^profile=//p')" == rdk-x5 ]] || \
+      Fail "onboard Docker gates require the detected RDK X5"
     grep -Eq '^ID=ubuntu$' /etc/os-release
     grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release
     [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]] || \
-      Fail "onboard native gates require the arm64 Ubuntu 22.04 computer"
-    python3 tools/check_framework_docs.py
+      Fail "onboard Docker gates require the arm64 Ubuntu 22.04 computer"
     ./tools/build_host.sh
-    ./tools/run_native_ci_tests.sh --build-type Debug --sanitizers on
-    ./tools/run_native_ci_tests.sh --build-type Release --sanitizers off
-    ./tools/run_tsan_tests.sh
+    ./tools/run_quality_tests_container.sh --profile rdk
     ./tools/check_firmware_reproducibility.sh
     ./tools/verify_firmware_artifact.sh PID
-    echo "ONBOARD NATIVE GATES PASS: fuzz, coverage, Clang 18 target analysis, and pinned-container parity remain normal-computer gates."
+    echo "ONBOARD DOCKER GATES PASS: fuzz, coverage, and full Clang 18 analysis remain normal-computer gates."
     ;;
   qualification-preflight)
     RequireExact "${PREFLIGHT_ACK:-}" ACTUATORS_DISCONNECTED \

@@ -8,6 +8,10 @@ readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
 readonly HOST_RUNTIME_BUILDER="${SCRIPT_DIR}/build_host_runtime_image.sh"
 readonly HOST_RUNTIME_DOCKERFILE="${SCRIPT_DIR}/docker/host-runtime.Dockerfile"
 readonly HOST_RUNTIME_ZSHRC="${SCRIPT_DIR}/docker/host-runtime.zshrc"
+readonly AGENT_BUILDER="${SCRIPT_DIR}/build_agent.sh"
+readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
+readonly OCI_EXPORTER="${SCRIPT_DIR}/export_oci_image_archive.sh"
+readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
 
 architecture=""
 output_directory=""
@@ -34,6 +38,10 @@ if [[ "$#" -eq 3 && "$1" == "--print-default-image" && \
   exit 0
 fi
 
+if [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "$@"
+fi
+
 Fail() {
   echo "Host container build error: $*" >&2
   exit 1
@@ -50,6 +58,13 @@ while (($# > 0)); do
 done
 
 [[ "${architecture}" == "amd64" || "${architecture}" == "arm64" ]] || Usage
+case "$(uname -m)" in
+  x86_64 | amd64) native_architecture=amd64 ;;
+  aarch64 | arm64) native_architecture=arm64 ;;
+  *) Fail "unsupported native architecture: $(uname -m)" ;;
+esac
+[[ "${architecture}" == "${native_architecture}" ]] || \
+  Fail "cross-architecture handoff builds are forbidden; requested ${architecture} on ${native_architecture}"
 [[ -x "${IMAGE_SELECTOR}" ]] || Fail "pinned image selector is unavailable"
 [[ -x "${HOST_RUNTIME_BUILDER}" && -f "${HOST_RUNTIME_DOCKERFILE}" && \
    -f "${HOST_RUNTIME_ZSHRC}" ]] || \
@@ -65,12 +80,13 @@ fi
   Fail "release ID must contain 1-64 safe filename characters"
 [[ -n "${output_directory}" ]] || Usage
 command -v docker >/dev/null 2>&1 || Fail "docker is not installed"
+[[ -x "${OCI_EXPORTER}" ]] || Fail "OCI image exporter is unavailable"
 docker image inspect "${image}" >/dev/null 2>&1 ||
   Fail "prepared image is not local; run make setup"
-readonly IMAGE_ARCH="$(docker image inspect "${image}" \
-  --format '{{.Architecture}}')"
-[[ "${IMAGE_ARCH}" == "${architecture}" ]] || \
-  Fail "prepared image architecture ${IMAGE_ARCH} does not match ${architecture}"
+readonly IMAGE_PLATFORM="$(docker image inspect "${image}" \
+  --format '{{.Os}}/{{.Architecture}}')"
+[[ "${IMAGE_PLATFORM}" == "linux/${architecture}" ]] || \
+  Fail "prepared image platform ${IMAGE_PLATFORM} does not match linux/${architecture}"
 builder_identity=""
 if [[ "${image}" == "${DEFAULT_RUNTIME_IMAGE}" ]]; then
   readonly RUNTIME_DOCKERFILE_SHA="$(sha256sum \
@@ -123,6 +139,27 @@ readonly BUILD_RELATIVE="${WORK_RELATIVE}/colcon"
 readonly CONTAINER_PLATFORM="linux/${architecture}"
 readonly CALLER_UID="$(id -u)"
 readonly CALLER_GID="$(id -g)"
+readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
+"${AGENT_BUILDER}"
+readonly AGENT_PREFIX="$(${AGENT_BUILDER} --print-output)"
+readonly AGENT_RELATIVE="${AGENT_PREFIX#"${PROJECT_ROOT}/"}"
+[[ "${AGENT_RELATIVE}" != "${AGENT_PREFIX}" && \
+   -x "${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent" ]] || \
+  Fail "verified Agent prefix is unavailable"
+readonly RUNTIME_IMAGE_ID="$(docker image inspect "${image}" --format '{{.Id}}')"
+readonly IMAGE_ARCHIVE_RELATIVE="build/host-handoff-images/${release_id}-${architecture}.tar"
+readonly IMAGE_ARCHIVE="${PROJECT_ROOT}/${IMAGE_ARCHIVE_RELATIVE}"
+mkdir -p "$(dirname "${IMAGE_ARCHIVE}")"
+[[ ! -e "${IMAGE_ARCHIVE}" && ! -L "${IMAGE_ARCHIVE}" ]] || \
+  Fail "runtime image archive path already exists"
+cleanup_archive=1
+CleanupArchive() {
+  if [[ "${cleanup_archive}" == 1 && -f "${IMAGE_ARCHIVE}" ]]; then
+    rm -f -- "${IMAGE_ARCHIVE}"
+  fi
+}
+trap CleanupArchive EXIT
+"${OCI_EXPORTER}" "${image}" "${IMAGE_ARCHIVE}"
 
 docker run --rm --network=none \
   --platform "${CONTAINER_PLATFORM}" \
@@ -130,13 +167,22 @@ docker run --rm --network=none \
   --env MENTOR_PI_CALLER_UID="${CALLER_UID}" \
   --env MENTOR_PI_CALLER_GID="${CALLER_GID}" \
   --env MENTOR_PI_HOST_BUILDER_IMAGE="${builder_identity}" \
+  --env MENTOR_PI_HOST_BUILDER_IMAGE_ID="${RUNTIME_IMAGE_ID}" \
   --env MENTOR_PI_OUTPUT_RELATIVE="${OUTPUT_RELATIVE}" \
   --env MENTOR_PI_PREFIX_RELATIVE="${PREFIX_RELATIVE}" \
   --env MENTOR_PI_BUILD_RELATIVE="${BUILD_RELATIVE}" \
   --env MENTOR_PI_RELEASE_ID="${release_id}" \
+  --env MENTOR_PI_AGENT_RELATIVE="${AGENT_RELATIVE}" \
+  --env MENTOR_PI_RUNTIME_IMAGE_ARCHIVE_RELATIVE="${IMAGE_ARCHIVE_RELATIVE}" \
+  --env MENTOR_PI_RUNTIME_IMAGE_ID="${RUNTIME_IMAGE_ID}" \
+  --env "RRCLITE_BUILD_JOBS=${BUILD_JOBS}" \
   --volume "${PROJECT_ROOT}:/workspace" \
   --workdir /workspace \
   "${image}" \
   /workspace/tools/host_handoff_container_entrypoint.sh
+
+rm -f -- "${IMAGE_ARCHIVE}"
+cleanup_archive=0
+trap - EXIT
 
 echo "Host handoff completed without network or hardware access: ${OUTPUT_ROOT}"

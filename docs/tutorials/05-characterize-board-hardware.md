@@ -1,10 +1,10 @@
-# Normal Computer Tutorial 05: Characterize Board Hardware
+# Tutorial 05: Characterize Board Hardware
 
 Confirm passive encoder direction and the IMU board axes without a debug
 probe. This does not command a motor or authorize unguarded motion.
 
-**Run on:** the connected normal computer while `make start` remains open
-remains running in its own terminal
+**Run on:** either connected computer while `make start` remains running in its
+own terminal
 **Hardware state:** verified default PID firmware; motor power disconnected; encoders
 connected; servos unplugged; all four wheels raised
 

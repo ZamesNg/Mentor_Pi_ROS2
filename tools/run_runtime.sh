@@ -28,9 +28,8 @@ Usage() {
 Usage: run_runtime.sh --device /dev/mentor_pi_mcu \
   --ros-domain-id 0..232 [--vehicle-config /absolute/robot.yaml] [--dry-run]
 
-Ubuntu 22.04 runs the locally built ROS 2 Humble host natively. Every other
-Ubuntu release runs it in pinned Ubuntu 22.04/Humble Docker with only the
-reviewed MCU character device passed through.
+Every supported Ubuntu host runs the architecture-matched pinned ROS 2 Humble
+container with only the reviewed MCU character device passed through.
 
 Before starting a normal default PID firmware session, confirm safe actuator
 state and operational clearances, then set:
@@ -145,7 +144,7 @@ readonly agent_executable="${agent_prefix}/lib/micro_ros_agent/micro_ros_agent"
 
 if ((dry_run == 1)); then
   printf '%s\n' \
-    "mode=$([[ "${ubuntu_version}" == 22.04 ]] && echo native || echo docker)" \
+    "mode=docker" \
     "ubuntu=${ubuntu_version}" \
     "architecture=${architecture}" \
     "device=${resolved_device}" \
@@ -170,33 +169,6 @@ printf '%s\n' \
   "ROS_DOMAIN_ID=${ros_domain_id}" \
   'Keep this terminal open and press Ctrl-C once to stop.' \
   "Use make shell ROS_DOMAIN_ID=${ros_domain_id} from a second terminal."
-
-if [[ "${ubuntu_version}" == "22.04" ]]; then
-  [[ -r "${resolved_device}" && -w "${resolved_device}" ]] || \
-    Fail "the native user cannot read and write ${resolved_device}; log out and back in after make serial-access"
-  set +u
-  source /opt/ros/humble/setup.bash
-  source "${agent_prefix}/local_setup.bash"
-  source "${host_prefix}/setup.bash"
-  set -u
-  export ROS_DOMAIN_ID="${ros_domain_id}"
-  export MENTOR_PI_DEVELOPMENT_RUNTIME=1
-  export MENTOR_PI_PROJECT_ROOT="${PROJECT_ROOT}"
-  export MENTOR_PI_FIRMWARE_VERIFIER="${FIRMWARE_VERIFIER}"
-  export MENTOR_PI_RRCLITE_AUTORESET=1
-  export MENTOR_PI_HOST_PREFIX="${host_prefix}"
-  export MENTOR_PI_AGENT_PREFIX="${agent_prefix}"
-  export MENTOR_PI_AGENT_EXECUTABLE="${agent_executable}"
-  if [[ -z "${resolved_vehicle_config}" ]]; then
-    exec ros2 launch mentor_pi_bringup controller.launch.py \
-      "serial_device:=${resolved_device}" \
-      "agent_executable:=${agent_executable}"
-  fi
-  exec ros2 launch mentor_pi_hardwares vehicle.launch.py \
-    "vehicle_config:=${resolved_vehicle_config}" \
-    "serial_device:=${resolved_device}" \
-    "agent_executable:=${agent_executable}"
-fi
 
 command -v docker >/dev/null 2>&1 || Fail "Docker is unavailable"
 [[ -d /run/udev ]] || Fail "host udev database is unavailable at /run/udev"
@@ -241,7 +213,7 @@ exec docker run --rm \
   --env MENTOR_PI_AGENT_PREFIX=/opt/mentor_pi/micro_ros_agent \
   --env MENTOR_PI_AGENT_EXECUTABLE=/opt/mentor_pi/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent \
   "${docker_vehicle_arguments[@]}" \
-  --volume "${PROJECT_ROOT}:/workspace" \
+  --volume "${PROJECT_ROOT}:/workspace:ro" \
   --volume "${host_prefix}:/opt/mentor_pi/host:ro" \
   --volume "${agent_prefix}:/opt/mentor_pi/micro_ros_agent:ro" \
   --workdir /workspace \

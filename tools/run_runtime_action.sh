@@ -374,33 +374,4 @@ if [[ "$(docker container inspect "${CONTAINER_NAME}" \
     mentor-pi-runtime-action "${ACTION}" "$@"
 fi
 
-grep -Eq '^ID=ubuntu$' /etc/os-release || Fail "the host must be Ubuntu"
-grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release || \
-  Fail "start make start first; non-22.04 hosts require its Docker runtime"
-if [[ -n "${MENTOR_PI_NATIVE_INSTALL_PREFIX:-}" ]]; then
-  HOST_PREFIX="${MENTOR_PI_NATIVE_INSTALL_PREFIX}"
-elif [[ -r "${PROJECT_ROOT}/mentor_pi_ros2/install/setup.bash" ]]; then
-  HOST_PREFIX="${PROJECT_ROOT}/mentor_pi_ros2/install"
-else
-  HOST_PREFIX="$(${SCRIPT_DIR}/build_host.sh --runtime --print-output)"
-fi
-readonly HOST_PREFIX
-readonly AGENT_PREFIX="$(${SCRIPT_DIR}/build_agent.sh --print-output)"
-[[ -r "${HOST_PREFIX}/setup.bash" ]] || \
-  Fail "native ROS install is missing: ${HOST_PREFIX}; run colcon build first"
-if [[ "${HOST_PREFIX}" == "${PROJECT_ROOT}/mentor_pi_ros2/install" || \
-      -n "${MENTOR_PI_NATIVE_INSTALL_PREFIX:-}" ]]; then
-  MENTOR_PI_NATIVE_INSTALL_PREFIX="${HOST_PREFIX}" \
-    "${SCRIPT_DIR}/onboard_colcon_state.sh" verify >/dev/null
-fi
-set +u
-source /opt/ros/humble/setup.bash
-source "${AGENT_PREFIX}/local_setup.bash"
-source "${HOST_PREFIX}/setup.bash"
-set -u
-export MENTOR_PI_DEVELOPMENT_RUNTIME=1
-export MENTOR_PI_HOST_PREFIX="${HOST_PREFIX}"
-export MENTOR_PI_NATIVE_INSTALL_PREFIX="${HOST_PREFIX}"
-export MENTOR_PI_AGENT_PREFIX="${AGENT_PREFIX}"
-export MENTOR_PI_AGENT_EXECUTABLE="${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
-InsideRuntime "${ACTION}" "$@"
+Fail "start make start first; runtime actions execute only inside its Docker container"

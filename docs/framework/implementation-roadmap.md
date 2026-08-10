@@ -12,7 +12,7 @@ The intended repository products are:
 
 - `mentor_pi_interfaces`: v2 messages and services;
 - `mentor_pi_mcu`: STM32F407 firmware, FreeRTOS application, and micro-ROS client;
-- `mentor_pi_bringup`: native Agent launch/service assets, udev rules, C++
+- `mentor_pi_bringup`: containerized Agent launch/service assets, udev rules, C++
   configuration supervisor, YAML schema, and system tests.
 
 Package names and the public ROS contract are fixed by
@@ -27,7 +27,7 @@ Package names and the public ROS contract are fixed by
 | 2. Platform foundation | Safe boot, static RTOS runtime, transport lifecycle, diagnostics, watchdog | D2 |
 | 3. Hardware drivers | Tested retained hardware behind owner-task interfaces | D3 |
 | 4. ROS contract | All v2 endpoints, validation, QoS, and asynchronous services | D4 |
-| 5. Host integration | Native Agent deployment and C++ configuration supervisor | D4-H |
+| 5. Host integration | Docker Agent deployment and C++ configuration supervisor | D4-H |
 | 6. Qualification | Complete functional, stress, fault, reconnect, and soak evidence | D5 |
 | 7. Release | Reproducible signed-off artifacts and rollback package | D6 |
 
@@ -77,8 +77,9 @@ four-byte encapsulation. That sample shall fit without XRCE fragmentation, and
 stream-framing callback writes shall fit the 1 KiB TX bounce buffer. A
 conflicting hand-calculated size blocks D1.
 
-Use the native Humble Agent on Ubuntu 22.04. Do not use the legacy Python bridge,
-Docker, Snap, USB CDC, or a reduced placeholder interface set.
+Use the compiled Humble Agent inside the pinned architecture-native runtime
+image. Do not use the legacy Python bridge, Snap, USB CDC, or a reduced
+placeholder interface set.
 
 ### D1 exit criteria
 
@@ -225,7 +226,8 @@ request.
 Implement `mentor_pi_bringup` in first-party C++ and declarative system assets:
 
 - stable udev selection for the CH9102F;
-- native Agent launch and systemd service for Ubuntu 22.04 `amd64` and `arm64`;
+- one systemd-managed architecture-native Docker launch for the Agent and
+  supervisor on Ubuntu `amd64` and `arm64` development hosts;
 - a C++ `configuration_supervisor` node;
 - a validated YAML schema for motor model, four PWM offsets, and battery low
   threshold;
@@ -247,10 +249,9 @@ order. After Agent-only recovery it idempotently reapplies those values without
 touching bus-servo persistence or replaying another command. A session change
 invalidates every outstanding future and leaves motion disabled.
 
-For development, use native Humble only on Ubuntu 22.04. On any other Ubuntu
-release, document and use the pinned Ubuntu 22.04/Humble Docker runtime for
-the Agent, host nodes, and reviewed MCU pass-through while keeping ROS out of
-the native OS. macOS-native deployment is not supported.
+For development, use the pinned architecture-native Ubuntu 22.04/Humble Docker
+images for the Agent, host nodes, and reviewed MCU pass-through on every
+supported Ubuntu host. Host ROS and macOS-native deployment are not supported.
 
 ### D4-H exit criteria
 
@@ -303,7 +304,7 @@ Run the complete [Verification](verification.md) matrix on the release candidate
 with the final interface, middleware configuration, firmware optimization,
 Agent build, system service, udev rule, YAML, and representative hardware load.
 Run the machine-generated campaign sequence in
-[normal-computer Tutorial 07](../tutorials/normal-computer/07-run-stress-soak-and-release-gates.md). Keep the
+[Tutorial 07](../tutorials/07-run-stress-soak-and-release-gates.md). Keep the
 software-observed outputs and independent instrument files immutable and
 separately identifiable under the exact candidate identity.
 

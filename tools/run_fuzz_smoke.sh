@@ -7,22 +7,22 @@ readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/firmware-builder.Dockerfile"
 readonly PUBLISHER="${PROJECT_ROOT}/tools/publish_fuzz_evidence.sh"
 readonly VERIFIER="${PROJECT_ROOT}/tools/verify_fuzz_evidence.sh"
-readonly IMAGE="mentor-pi/rrclite-firmware-builder:gcc-13.2.1"
+readonly BUILD_IMAGE_PREPARER="${PROJECT_ROOT}/tools/prepare_build_images.sh"
 readonly BUILD_DIRECTORY_RELATIVE="build/fuzz-smoke-linux"
 readonly EVIDENCE_ROOT_RELATIVE="build/fuzz-evidence"
 readonly MAXIMUM_RUNS_PER_HARNESS=10000000
 readonly HARNESS_COUNT=7
+readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
+readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
+readonly -a ORIGINAL_ARGUMENTS=("$@")
 
-declare -a docker_build_command=(docker build)
-for proxy_variable in HTTP_PROXY HTTPS_PROXY NO_PROXY \
-    http_proxy https_proxy no_proxy; do
-  if [[ -n "${!proxy_variable:-}" ]]; then
-    docker_build_command+=(
-      --build-arg "${proxy_variable}=${!proxy_variable}"
-    )
-  fi
-done
-readonly -a docker_build_command
+case "$(uname -m)" in
+  x86_64 | amd64) readonly ARCHITECTURE=amd64 ;;
+  aarch64 | arm64) readonly ARCHITECTURE=arm64 ;;
+  *) echo "Unsupported host architecture." >&2; exit 1 ;;
+esac
+readonly IMAGE="$("${BUILD_IMAGE_PREPARER}" \
+  --architecture "${ARCHITECTURE}" --print firmware)"
 
 RUNS_PER_HARNESS=10000
 PRINT_PLAN=0
@@ -105,6 +105,9 @@ if ((PRINT_PLAN == 1)); then
   PrintPlan
   exit 0
 fi
+if [[ "${RRCLITE_BUILD_LOCK_HELD:-0}" != 1 ]]; then
+  exec "${BUILD_LOCK}" "${BASH_SOURCE[0]}" "${ORIGINAL_ARGUMENTS[@]}"
+fi
 
 command -v docker >/dev/null 2>&1 || Fail "Docker is not installed"
 docker info >/dev/null 2>&1 || Fail "Docker Desktop/Engine is not running"
@@ -115,17 +118,19 @@ docker info >/dev/null 2>&1 || Fail "Docker Desktop/Engine is not running"
    ! -L "${PROJECT_ROOT}/${EVIDENCE_DIRECTORY_RELATIVE}" ]] || \
   Fail "evidence run already exists and will not be overwritten: ${RUN_ID}"
 
-"${docker_build_command[@]}" \
-  --file "${DOCKERFILE}" --tag "${IMAGE}" \
-  "${PROJECT_ROOT}/tools/docker"
+"${BUILD_IMAGE_PREPARER}" --architecture "${ARCHITECTURE}"
 readonly IMAGE_ID="$(docker image inspect --format '{{.Id}}' "${IMAGE}")"
 [[ "${IMAGE_ID}" == sha256:* ]] || Fail "could not resolve Docker image ID"
+readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
 
 docker run --rm --network=none \
+  --platform "linux/${ARCHITECTURE}" \
   --user "$(id -u):$(id -g)" \
   --env RRCLITE_FUZZ_RUNS="${RUNS_PER_HARNESS}" \
   --env RRCLITE_FUZZ_RUN_ID="${RUN_ID}" \
   --env RRCLITE_FUZZ_IMAGE_ID="${IMAGE_ID}" \
+  --env "RRCLITE_BUILD_JOBS=${BUILD_JOBS}" \
+  --env "CMAKE_BUILD_PARALLEL_LEVEL=${BUILD_JOBS}" \
   --volume "${PROJECT_ROOT}:/workspace" \
   --workdir /workspace \
   "${IMAGE}" \
@@ -182,6 +187,7 @@ docker run --rm --network=none \
       -DMENTOR_PI_MCU_ENABLE_FUZZING=ON \
       -DMENTOR_PI_MCU_FUZZ_SMOKE_RUNS="${RRCLITE_FUZZ_RUNS}"
     cmake --build build/fuzz-smoke-linux \
+      --parallel "${RRCLITE_BUILD_JOBS}" \
       --target mentor_pi_mcu_fuzz_smoke 2>&1 \
       | tee build/fuzz-smoke-linux/campaign.log
     write_production_source_manifest \

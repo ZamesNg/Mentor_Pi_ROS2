@@ -183,13 +183,9 @@ readonly XRCE_AGENT_PATCH_SHA="$(Sha256 "${XRCE_AGENT_PATCH}")"
 readonly EXECUTABLE_SHA="$(Sha256 "${AGENT_EXECUTABLE}")"
 readonly VERIFIER_SHA="$(Sha256 \
   "${PROJECT_ROOT}/tools/verify_microros_agent_build_in_container.sh")"
-readonly INSTALLER_SHA="$(Sha256 \
-  "${PROJECT_ROOT}/tools/install_microros_agent.sh")"
 readonly BUILD_HELPER_SHA="$(Sha256 "${AGENT_BUILD_HELPER}")"
 readonly ORCHESTRATOR_SHA="$(Sha256 \
   "${PROJECT_ROOT}/tools/verify_microros_agent_build_container.sh")"
-readonly WRAPPER_SHA="$(Sha256 \
-  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/scripts/run_micro_ros_agent")"
 
 cat >"${EVIDENCE_ROOT}/AGENT-BUILD-EVIDENCE.txt" <<EOF
 format=rrclite-agent-build-evidence-v1
@@ -216,9 +212,7 @@ install_tree_symlink_manifest_sha256=${SYMLINK_MANIFEST_SHA}
 dpkg_manifest_sha256=${PACKAGE_MANIFEST_SHA}
 verification_script_sha256=${VERIFIER_SHA}
 orchestrator_script_sha256=${ORCHESTRATOR_SHA}
-production_installer_sha256=${INSTALLER_SHA}
 shared_build_helper_sha256=${BUILD_HELPER_SHA}
-runtime_wrapper_sha256=${WRAPPER_SHA}
 loader_smoke_status=${smoke_status}
 result=pass
 EOF

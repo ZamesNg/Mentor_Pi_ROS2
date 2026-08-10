@@ -112,6 +112,10 @@ MakeEvidenceSource() {
 [[ -x "${FINGERPRINT}" ]] || Fail "firmware fingerprint tool is missing or not executable"
 grep -Fq 'tools/firmware_source_fingerprint.sh --manifest firmware' \
   "${RUNNER}" || Fail "runner does not reuse the canonical firmware manifest"
+grep -Fq 'readonly JOB_SELECTOR=' "${RUNNER}" || \
+  Fail "runner does not use the shared build-job selector"
+grep -Fq -- '--parallel "${RRCLITE_BUILD_JOBS}"' "${RUNNER}" || \
+  Fail "runner does not bind Ninja to the shared build-job budget"
 
 if command -v sha256sum >/dev/null 2>&1; then
   readonly MANIFEST_DIGEST="$(
