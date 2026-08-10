@@ -39,6 +39,7 @@ command -v docker >/dev/null 2>&1 || Fail "Docker is unavailable"
 docker info >/dev/null 2>&1 || Fail "Docker Engine is unavailable"
 [[ -x "${SELECTOR}" ]] || Fail "RDK handoff selector is unavailable"
 
+echo "Verifying the complete received RDK handoff; this reads the full bundle and may take several minutes." >&2
 if [[ -n "${handoff}" ]]; then
   [[ "${handoff}" == /* ]] || Fail "--handoff must be an absolute path"
   handoff="$("${SELECTOR}" --verify "${handoff}")"
@@ -57,5 +58,5 @@ printf 'handoff_name=%s\nmanifest_sha256=%s\n' \
 chmod 0644 "${receipt_staging}"
 mv -f "${receipt_staging}" "${receipt}"
 
-echo "Verified received RDK handoff: ${handoff}" >&2
+echo "Received RDK handoff verification complete: ${handoff}" >&2
 printf '%s\n' "${handoff}"

@@ -127,12 +127,14 @@ readonly runtime_image_id="$(ReadSingleValue \
 readonly runtime_archive="${host_handoff}/runtime-image/mentor-pi-runtime.tar"
 [[ -f "${runtime_archive}" && ! -L "${runtime_archive}" ]] || \
   Fail "runtime image archive is missing or symbolic"
+echo "[1/5] Using recorded verified handoff: ${bundle}"
 
 if systemctl is-active --quiet mentor-pi-controller.target; then
   echo "Stopping the active Mentor Pi production target before installation."
   sudo systemctl stop mentor-pi-controller.target
 fi
 
+echo "[2/5] Loading the packaged arm64 Docker image; this may take several minutes."
 docker load --input "${runtime_archive}"
 [[ "$(docker image inspect "${runtime_image_id}" --format '{{.Id}}')" == \
    "${runtime_image_id}" ]] || Fail "loaded runtime image ID does not match"
@@ -147,6 +149,7 @@ readonly agent_sha="$(ReadSingleValue \
 [[ "${agent_sha}" =~ ^[0-9a-f]{64}$ ]] || Fail "Agent hash is malformed"
 readonly agent_destination="${OPT_ROOT}/releases/agent/${release_id}"
 readonly agent_executable="${agent_destination}/lib/micro_ros_agent/micro_ros_agent"
+echo "[3/5] Installing and verifying the packaged micro-ROS Agent."
 if ! sudo test -d "${agent_destination}"; then
   sudo install -d "${agent_destination}"
   sudo cp -a "${agent_source}/." "${agent_destination}/"
@@ -162,6 +165,7 @@ sudo ln -sfn "${agent_destination}" "${active_agent}"
 readonly promoter="${host_handoff}/host/lib/mentor_pi_bringup/promote_host_release"
 [[ -x "${promoter}" && ! -L "${promoter}" ]] || \
   Fail "host release promoter is missing or symbolic"
+echo "[4/5] Promoting the packaged ROS host release."
 if sudo test -d "${OPT_ROOT}/releases/host/${release_id}"; then
   sudo "${promoter}" --activate-release "${release_id}"
 else
@@ -172,6 +176,7 @@ fi
 readonly installer="${OPT_ROOT}/host/lib/mentor_pi_bringup/install_production_assets"
 [[ -x "${installer}" && ! -L "${installer}" ]] || \
   Fail "installed production asset helper is missing or symbolic"
+echo "[5/5] Installing production configuration and verifying systemd units."
 sudo "${installer}" --mode "${mode}" --ros-domain-id "${ros_domain_id}" \
   --identity-kind "${identity_kind}" --identity-value "${identity_value}" \
   --device "${device}" --runtime-image "${runtime_image_id}"
