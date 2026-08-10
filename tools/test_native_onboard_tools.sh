@@ -70,9 +70,12 @@ grep -Fq 'EXTERNAL_SKIP=clang-tidy' \
 grep -Fq 'MICROROS_NATIVE_COLCON_EXECUTABLE=' \
   "${SCRIPT_DIR}/build_microros_library.sh" || \
   Fail "native micro-ROS generation does not preserve the absolute colcon executable"
-grep -Fq 'mentor-pi-micro-ros-setup-scripts' \
+grep -Fq 'prepare_native_microros_setup_launcher.sh' \
   "${PROJECT_ROOT}/firmware/mentor_pi_mcu/config/microros_library_generation.sh" || \
-  Fail "native micro-ROS generation does not use a private upstream launcher"
+  Fail "native micro-ROS generation does not prepare a private upstream launcher"
+grep -Fq 'export PATH="/usr/bin:/bin:${PATH}"' \
+  "${SCRIPT_DIR}/prepare_native_microros_setup_launcher.sh" || \
+  Fail "native micro-ROS cleanup does not restore required system commands"
 grep -Fq 'MICROROS_GENERATOR_WORKSPACE' \
   "${PROJECT_ROOT}/firmware/mentor_pi_mcu/config/microros_library_generation.sh" || \
   Fail "micro-ROS generation still assumes only the container workspace"
@@ -157,7 +160,8 @@ grep -Fq -- '--entrypoint /bin/bash' "${SCRIPT_DIR}/run_runtime.sh" || \
 bash -n "${SCRIPT_DIR}/open_runtime_shell.sh" \
   "${SCRIPT_DIR}/setup_onboard_ros_environment.sh" \
   "${SCRIPT_DIR}/build_host_runtime_image.sh" \
-  "${SCRIPT_DIR}/install_onboard_microros_setup.sh"
+  "${SCRIPT_DIR}/install_onboard_microros_setup.sh" \
+  "${SCRIPT_DIR}/prepare_native_microros_setup_launcher.sh"
 zsh -n "${SCRIPT_DIR}/setup_onboard_ros_environment.zsh" \
   "${SCRIPT_DIR}/docker/host-runtime.zshrc" \
   "${SCRIPT_DIR}/zsh/native/.zshrc"

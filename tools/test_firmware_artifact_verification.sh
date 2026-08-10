@@ -67,6 +67,8 @@ MakeBaseFixture() {
     >"${root}/tools/install_onboard_microros_setup.sh"
   printf 'micro-ROS setup source lock\n' \
     >"${root}/tools/microros_setup_source.lock"
+  printf 'native micro-ROS launcher preparer\n' \
+    >"${root}/tools/prepare_native_microros_setup_launcher.sh"
   printf 'dockerfile\n' >"${root}/tools/docker/firmware-builder.Dockerfile"
   printf 'micro-ROS dockerfile\n' \
     >"${root}/tools/docker/microros-builder.Dockerfile"
