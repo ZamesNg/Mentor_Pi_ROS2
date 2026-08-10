@@ -39,6 +39,24 @@ selected="$("${SELECTOR}" --latest-under "${TEST_ROOT}")"
   "${TEST_ROOT}/rdk-arm64-20260810T010203Z" ]] || \
   Fail "explicit older handoff verification failed"
 
+mkdir -p "${TEST_ROOT}/received"
+tar -C "${TEST_ROOT}" -cpf \
+  "${TEST_ROOT}/received/rdk-arm64-20260810T010203Z.tar" \
+  rdk-arm64-20260810T010203Z
+(cd "${TEST_ROOT}/received" && \
+  sha256sum rdk-arm64-20260810T010203Z.tar > \
+    rdk-arm64-20260810T010203Z.tar.sha256)
+received_selected="$("${SELECTOR}" --latest-received-under \
+  "${TEST_ROOT}/received")"
+[[ "${received_selected}" == \
+   "${TEST_ROOT}/received/rdk-arm64-20260810T010203Z" ]] || \
+  Fail "received selector did not extract and select the archive"
+[[ -d "${received_selected}" ]] || \
+  Fail "received selector did not leave an extracted handoff"
+[[ "$("${SELECTOR}" --latest-received-under "${TEST_ROOT}/received")" == \
+   "${received_selected}" ]] || \
+  Fail "received selector did not reuse the extracted handoff"
+
 mkdir -p "${TEST_ROOT}/fake-bin"
 cat >"${TEST_ROOT}/fake-bin/ssh" <<'EOF'
 #!/usr/bin/env bash

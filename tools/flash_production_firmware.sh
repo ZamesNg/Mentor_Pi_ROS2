@@ -32,18 +32,19 @@ done
 [[ -x "${SELECTOR}" && -x "${PACKAGED_FLASHER}" ]] || \
   Fail "production handoff helpers are unavailable"
 
-if [[ -n "${handoff}" ]]; then
-  handoff="$("${SELECTOR}" --verify "${handoff}")"
-else
-  handoff="$("${SELECTOR}" --latest-under "${DEFAULT_SEARCH_ROOT}")"
-fi
-
 case "$(uname -m)" in
   aarch64 | arm64) ;;
   *) Fail "make flash-production must run on the arm64 RDK X5" ;;
 esac
 "${SCRIPT_DIR}/detect_host_profile.sh" | grep -Fqx 'profile=rdk-x5' || \
   Fail "make flash-production requires the detected RDK X5 profile"
+
+if [[ -n "${handoff}" ]]; then
+  handoff="$("${SELECTOR}" --verify "${handoff}")"
+else
+  handoff="$("${SELECTOR}" --latest-received-under "${DEFAULT_SEARCH_ROOT}")"
+fi
+
 command -v systemctl >/dev/null 2>&1 || Fail "systemctl is unavailable"
 if systemctl is-active --quiet mentor-pi-controller.target; then
   Fail "stop mentor-pi-controller.target before flashing production firmware"

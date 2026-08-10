@@ -98,6 +98,8 @@ acknowledgement. Its target is always arm64. It:
   `build_host_architecture=amd64`, `target_architecture=arm64`, and
   `native_target_validated=0`;
 - keep the handoff loadable on the RDK without rebuilding its host workspace;
+- let `make flash-production` verify and atomically extract the newest received
+  handoff archive when the transferred `.tar` has not yet been unpacked;
 - treat native compilation on the RDK as optional diagnostic work rather than
   release evidence or a prerequisite; and
 - keep native RDK runtime, memory, 30 Hz/25 ms tracker benchmarking, serial,

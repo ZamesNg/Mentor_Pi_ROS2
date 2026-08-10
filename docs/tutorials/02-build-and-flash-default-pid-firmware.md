@@ -28,10 +28,12 @@ metadata, an invalid profile, or any build, hash, vector, or memory failure.
 For a production RDK bundle, skip `make firmware`: the exact verified PID image
 is already under `board-handoff/firmware-pid-release/`. The production flash
 helper selects the newest valid timestamp under `build/received-handoffs/` by
-default and rechecks both manifests before programming.
+default. If only the transferred `.tar` and `.tar.sha256` are present, it
+verifies and atomically extracts the archive first. It then rechecks the outer
+and board manifests before programming.
 
 ```sh
-./tools/select_rdk_handoff.sh --latest-under \
+./tools/select_rdk_handoff.sh --latest-received-under \
   "${HOME}/Mentor_Pi/build/received-handoffs"
 ```
 
