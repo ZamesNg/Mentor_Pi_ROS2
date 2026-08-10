@@ -23,10 +23,10 @@ nonempty unique `ID_SERIAL_SHORT`; use the exact `ID_PATH` with
 `--identity-kind id-path` only when no unique serial exists.
 
 ```sh
-udevadm info --query=property --name=/dev/ttyUSB0 | \
+udevadm info --query=property --name=/dev/mentor_pi_mcu | \
   grep -E '^(ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL_SHORT|ID_PATH)='
 
-make production-install PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=0 \
+make production-install ROS_DOMAIN_ID=0 \
   IDENTITY_KIND=serial IDENTITY_VALUE=RRCLITE_A1B2C3
 ```
 
