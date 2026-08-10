@@ -18,21 +18,31 @@ the controller target is inactive. The compact installer requires Tutorial
 promotes the host release, installs the site configuration and units, and runs
 the systemd unit verifier.
 
-Connect exactly one `1a86:55d4` CH9102F. Inspect its current tty and select its
-nonempty unique `ID_SERIAL_SHORT`; use the exact `ID_PATH` with
-`--identity-kind id-path` only when no unique serial exists.
+Connect exactly one `1a86:55d4` CH9102F and inspect the stable device alias:
 
 ```sh
 udevadm info --query=property --name=/dev/mentor_pi_mcu | \
   grep -E '^(ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL_SHORT|ID_PATH)='
-
-make production-install ROS_DOMAIN_ID=0 \
-  IDENTITY_KIND=serial IDENTITY_VALUE=RRCLITE_A1B2C3
 ```
 
-Replace the identity example with the value just observed. Tutorial 02's
-packaged flash and read-back verification must already have succeeded with all
-actuators disconnected. Only then start production and inspect its logs:
+Use the exact `ID_SERIAL_SHORT` line as the Make argument. For example, if the
+output contains `ID_SERIAL_SHORT=596F060000`, run:
+
+```sh
+make production-install ROS_DOMAIN_ID=0 ID_SERIAL_SHORT=596F060000
+```
+
+If and only if `ID_SERIAL_SHORT` is empty, copy the complete value after
+`ID_PATH=` instead:
+
+```sh
+make production-install ROS_DOMAIN_ID=0 \
+  ID_PATH='platform-xhci-hcd.2.auto-usb-0:1.1:1.0'
+```
+
+Tutorial 02's packaged flash and read-back verification must already have
+succeeded with all actuators disconnected. Only then start production and
+inspect its logs:
 
 ```sh
 sudo systemctl enable --now mentor-pi-controller.target

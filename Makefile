@@ -11,8 +11,8 @@ RDK_HANDOFF ?=
 RDK_LOGIN ?=
 RDK_DEST ?= /home/sunrise/Mentor_Pi/build/received-handoffs
 INSTALL_MODE ?= first-install
-IDENTITY_KIND ?= serial
-IDENTITY_VALUE ?=
+ID_SERIAL_SHORT ?=
+ID_PATH ?=
 VEHICLE_CONFIG ?=
 TRACKING_CONTROLLER ?= none
 SERIAL_USER ?=
@@ -94,9 +94,9 @@ help:
 		'      Low-level manual-boot flash of the default PID firmware.' \
 		'  make flash-production PORT=/dev/mentor_pi_mcu' \
 		'      Flash the newest received RDK production handoff; set RDK_HANDOFF=/absolute/path to override.' \
-		'  make production-install IDENTITY_VALUE=BOARD_SERIAL' \
+		'  make production-install ID_SERIAL_SHORT=BOARD_SERIAL' \
 		'      Verify and install the received production handoff on the RDK.' \
-		'      Optional: INSTALL_MODE=upgrade IDENTITY_KIND=id-path PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=0.' \
+		'      Use ID_PATH only when ID_SERIAL_SHORT is empty; INSTALL_MODE=upgrade updates.' \
 		'  make passive-check | peripheral-smoke' \
 		'      Run the guided passive board operations from the tutorials.' \
 		'' \
@@ -229,9 +229,15 @@ flash-production:
 
 production-install:
 	@args=(--mode "$(INSTALL_MODE)" --device "$(PORT)" \
-			--ros-domain-id "$(ROS_DOMAIN_ID)" \
-			--identity-kind "$(IDENTITY_KIND)" \
-			--identity-value "$(IDENTITY_VALUE)"); \
+			--ros-domain-id "$(ROS_DOMAIN_ID)"); \
+		if [[ -n "$(ID_SERIAL_SHORT)" && -z "$(ID_PATH)" ]]; then \
+			args+=(--identity-kind serial --identity-value "$(ID_SERIAL_SHORT)"); \
+		elif [[ -n "$(ID_PATH)" && -z "$(ID_SERIAL_SHORT)" ]]; then \
+			args+=(--identity-kind id-path --identity-value "$(ID_PATH)"); \
+		else \
+			echo 'Set exactly one of ID_SERIAL_SHORT or ID_PATH.' >&2; \
+			exit 2; \
+		fi; \
 		if [[ -n "$(RDK_HANDOFF)" ]]; then \
 			args+=(--handoff "$(RDK_HANDOFF)"); \
 		fi; \

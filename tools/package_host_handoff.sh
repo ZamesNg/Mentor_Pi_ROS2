@@ -330,12 +330,11 @@ platform before installation:
 
   make rdk-receive
   make flash-production
-  make production-install PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=0 \\
-    IDENTITY_KIND=serial IDENTITY_VALUE=YOUR_BOARD_SERIAL
+  make production-install ROS_DOMAIN_ID=0 ID_SERIAL_SHORT=YOUR_BOARD_SERIAL
   sudo systemctl enable --now mentor-pi-controller.target
 
-Use IDENTITY_KIND=id-path with the exact ID_PATH only when the adapter has no
-unique serial. Do not enable or start production until the exact packaged PID
+Use ID_PATH with its exact value only when ID_SERIAL_SHORT is empty and the
+adapter has no unique serial. Do not enable or start production until the exact packaged PID
 firmware has passed its flash and read-back verification.
 EOF
 

@@ -336,13 +336,12 @@ receive, identity, install, and lifecycle commands:
 
 ```sh
 make rdk-receive
-make production-install PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=37 \
-  IDENTITY_KIND=serial IDENTITY_VALUE=RRCLITE_A1B2C3
+make production-install ROS_DOMAIN_ID=37 ID_SERIAL_SHORT=YOUR_BOARD_SERIAL
 sudo systemctl enable --now mentor-pi-controller.target
 ```
 
-Use `IDENTITY_KIND=id-path` with the exact `ID_PATH` only when the adapter has
-no unique serial. The compact installer verifies the received and host
+Use `ID_PATH` only when `ID_SERIAL_SHORT` is empty because the adapter has no
+unique serial, and copy its exact value. The compact installer verifies the received and host
 manifests, symlinks, image identity/platform, Agent executable, connected
 CH9102F identity, promoted host layout, site files, and systemd units. It
 creates the dedicated `mentor-pi-serial` group and service account, removes the
@@ -362,8 +361,8 @@ Transfer another RDK handoff, select it explicitly only if it is not the newest,
 install in upgrade mode while validating the preserved site state, and restart:
 
 ```sh
-make production-install INSTALL_MODE=upgrade PORT=/dev/ttyUSB0 \
-  ROS_DOMAIN_ID=37 IDENTITY_KIND=serial IDENTITY_VALUE=RRCLITE_A1B2C3
+make production-install INSTALL_MODE=upgrade ROS_DOMAIN_ID=37 \
+  ID_SERIAL_SHORT=YOUR_BOARD_SERIAL
 sudo systemctl start mentor-pi-controller.target
 ```
 
@@ -376,8 +375,7 @@ make rdk-receive \
   RDK_HANDOFF=/absolute/path/to/rdk-arm64-<previous-timestamp>
 make production-install INSTALL_MODE=upgrade \
   RDK_HANDOFF=/absolute/path/to/rdk-arm64-<previous-timestamp> \
-  PORT=/dev/ttyUSB0 ROS_DOMAIN_ID=37 \
-  IDENTITY_KIND=serial IDENTITY_VALUE=RRCLITE_A1B2C3
+  ROS_DOMAIN_ID=37 ID_SERIAL_SHORT=YOUR_BOARD_SERIAL
 sudo systemctl start mentor-pi-controller.target
 ```
 
