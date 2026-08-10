@@ -73,8 +73,12 @@ when intentionally overriding it.
 make setup
 ```
 
-Expected result: `Setup complete`. The command pulls native-architecture
-images, builds the pinned local derivatives once, and verifies their identity.
+Expected result: `Setup complete`. The command pulls each native-architecture
+base once, builds the pinned local derivatives once, and verifies their
+identity. On the RDK this is one Humble base and one project image. On a normal
+computer it is the same project image plus the separate Noble/Clang 18 quality
+image. Firmware, micro-ROS, Agent, host, shell, runtime, and handoff reuse the
+project image; Docker may retain shared parent layers and obsolete images.
 Stop on any OS, architecture, Docker, programmer, checksum, network, or
 dependency error. Generated dependencies and build outputs remain ignored.
 

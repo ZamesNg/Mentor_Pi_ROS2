@@ -117,7 +117,7 @@ tree before execution, so generated mutations do not modify source files:
 
 The repository helper is the recommended local entry point on the clean Ubuntu
 24.04 development host: it builds and runs inside the pinned ROS-free Ubuntu
-24.04/Clang 18 firmware-builder container. `build/fuzz-smoke-linux/` is
+24.04/Clang 18 quality container. `build/fuzz-smoke-linux/` is
 disposable working storage. A passed run is atomically published under a
 unique, read-only
 `build/fuzz-evidence/<run-id>/` directory and an existing run ID is never

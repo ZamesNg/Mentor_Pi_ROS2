@@ -35,6 +35,8 @@ readonly HOST_PREFIX="${TEST_ROOT}/host"
 readonly AGENT_PREFIX="${TEST_ROOT}/agent"
 readonly IMAGE_ARCHIVE="${TEST_ROOT}/runtime.tar"
 mkdir -p "${HOST_PREFIX}/lib/mentor_pi_bringup" \
+  "${HOST_PREFIX}/lib/mentor_pi_tracking" \
+  "${HOST_PREFIX}/share/mentor_pi_tracking/licenses" \
   "${AGENT_PREFIX}/lib/micro_ros_agent"
 
 for executable in configuration_supervisor qualification_campaign \
@@ -45,6 +47,13 @@ for executable in configuration_supervisor qualification_campaign \
     >"${HOST_PREFIX}/lib/mentor_pi_bringup/${executable}"
   chmod +x "${HOST_PREFIX}/lib/mentor_pi_bringup/${executable}"
 done
+for tracker in mecanum_mpc_tracker ackermann_mpc_tracker; do
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+    >"${HOST_PREFIX}/lib/mentor_pi_tracking/${tracker}"
+  chmod +x "${HOST_PREFIX}/lib/mentor_pi_tracking/${tracker}"
+done
+printf 'GNU GENERAL PUBLIC LICENSE\n' \
+  >"${HOST_PREFIX}/share/mentor_pi_tracking/licenses/ALTO-GPL-2.0.txt"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
   >"${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
 chmod +x "${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
@@ -106,6 +115,23 @@ grep -Fqx $'agent/lib/libfixture.so\tlibfixture.so.1' \
   Fail "Agent artifact is missing"
 [[ -s "${HANDOFF}/runtime-image/mentor-pi-runtime.tar" ]] || \
   Fail "runtime image archive is missing"
+[[ -f "${HANDOFF}/THIRD-PARTY-NOTICES.txt" && \
+   -f "${HANDOFF}/corresponding-source/mentor_pi/mentor_pi_ros2/third_party/altro-cpp/LICENSE" && \
+   -f "${HANDOFF}/corresponding-source/mentor_pi/tools/altro_source.lock" && \
+   -f "${HANDOFF}/corresponding-source/mentor_pi/mentor_pi_ros2/src/mentor_pi_tracking/package.xml" && \
+   -f "${HANDOFF}/corresponding-source/mentor_pi/BUILD.txt" ]] || \
+  Fail "handoff omits ALTO or tracking corresponding source"
+readonly CORRESPONDING_ROOT="${HANDOFF}/corresponding-source/mentor_pi"
+readonly TRACKING_CMAKE="${CORRESPONDING_ROOT}/mentor_pi_ros2/src/mentor_pi_tracking/CMakeLists.txt"
+readonly EXPECTED_PATCH="${CORRESPONDING_ROOT}/tools/patches/altro-disable-docs.patch"
+readonly EXPECTED_ALTO="${CORRESPONDING_ROOT}/mentor_pi_ros2/third_party/altro-cpp"
+[[ -f "${TRACKING_CMAKE}" && -f "${EXPECTED_PATCH}" && \
+   -f "${EXPECTED_ALTO}/CMakeLists.txt" ]] || \
+  Fail "corresponding source does not preserve the build-expected layout"
+(cd "${EXPECTED_ALTO}" && patch --dry-run --silent -p1 -i "${EXPECTED_PATCH}") || \
+  Fail "packaged ALTO patch does not apply to packaged corresponding source"
+grep -Eq '^altro_patch_sha256=[0-9a-f]{64}$' \
+  "${HANDOFF}/HOST-HANDOFF.txt" || Fail "handoff omits the ALTO patch checksum"
 [[ "$(find "${HANDOFF}/docs/tutorials" -maxdepth 1 -name '*.md' | wc -l)" == 8 ]] || \
   Fail "handoff does not contain exactly one 01--08 tutorial sequence"
 [[ -z "$(find "${HANDOFF}/docs/tutorials" -mindepth 1 -type d -print -quit)" ]] || \

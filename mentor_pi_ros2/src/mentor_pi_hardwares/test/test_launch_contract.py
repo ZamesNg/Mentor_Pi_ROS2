@@ -189,7 +189,12 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
             for entity in description.entities
             if isinstance(entity, DeclareLaunchArgument)
         }
-        assert {"vehicle_config", "serial_device", "start_bringup"} <= arguments
+        assert {
+            "vehicle_config",
+            "serial_device",
+            "start_bringup",
+            "tracking_controller",
+        } <= arguments
         assert "robot_name" not in arguments
         assert "vehicle_type" not in arguments
 

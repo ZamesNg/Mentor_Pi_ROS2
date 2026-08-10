@@ -95,6 +95,11 @@ def _launch_vehicle(context):
     serial_device = LaunchConfiguration("serial_device")
     agent_executable = LaunchConfiguration("agent_executable")
     start_bringup = LaunchConfiguration("start_bringup")
+    tracking_controller = LaunchConfiguration("tracking_controller").perform(context)
+    if tracking_controller not in ("none", vehicle_type):
+        raise ValueError(
+            "tracking_controller must be none or match the selected vehicle_type"
+        )
 
     description_file = os.path.join(
         hardware_share, "config", vehicle_type, "mentor_pi.urdf.xacro"
@@ -125,6 +130,50 @@ def _launch_vehicle(context):
         else "ackermann_steering_controller"
     )
 
+    delayed_actions = [
+        Node(
+            package="controller_manager",
+            executable="spawner",
+            name="spawner_joint_state_broadcaster",
+            namespace=robot_name,
+            output="screen",
+            arguments=[
+                "joint_state_broadcaster",
+                "--controller-manager",
+                f"/{robot_name}/controller_manager",
+            ],
+        ),
+        Node(
+            package="controller_manager",
+            executable="spawner",
+            name=f"spawner_{controller_name}",
+            namespace=robot_name,
+            output="screen",
+            arguments=[
+                controller_name,
+                "--controller-manager",
+                f"/{robot_name}/controller_manager",
+            ],
+        ),
+    ]
+    if tracking_controller != "none":
+        tracking_parameters = {
+            "horizon": 10,
+            "prediction_step": 0.1,
+            "wheel_radius": 0.0325 if vehicle_type == "mecanum" else 0.0333,
+            "wheelbase": 0.145,
+            "mecanum_radius_sum": 0.14,
+            "max_steering_angle": 0.5,
+        }
+        delayed_actions.append(
+            Node(
+                package="mentor_pi_tracking",
+                executable=f"{vehicle_type}_mpc_tracker",
+                output="screen",
+                parameters=[tracking_parameters],
+            )
+        )
+
     return [
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(bringup_launch),
@@ -152,32 +201,7 @@ def _launch_vehicle(context):
         ),
         TimerAction(
             period=2.0,
-            actions=[
-                Node(
-                    package="controller_manager",
-                    executable="spawner",
-                    name="spawner_joint_state_broadcaster",
-                    namespace=robot_name,
-                    output="screen",
-                    arguments=[
-                        "joint_state_broadcaster",
-                        "--controller-manager",
-                        f"/{robot_name}/controller_manager",
-                    ],
-                ),
-                Node(
-                    package="controller_manager",
-                    executable="spawner",
-                    name=f"spawner_{controller_name}",
-                    namespace=robot_name,
-                    output="screen",
-                    arguments=[
-                        controller_name,
-                        "--controller-manager",
-                        f"/{robot_name}/controller_manager",
-                    ],
-                ),
-            ],
+            actions=delayed_actions,
         ),
     ]
 
@@ -200,6 +224,7 @@ def generate_vehicle_launch(default_vehicle_type="mecanum"):
                 default_value="/opt/mentor_pi/bin/mentor_pi_micro_ros_agent",
             ),
             DeclareLaunchArgument("start_bringup", default_value="true"),
+            DeclareLaunchArgument("tracking_controller", default_value="none"),
             OpaqueFunction(function=_launch_vehicle),
         ]
     )

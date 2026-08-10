@@ -37,7 +37,7 @@ case "$(uname -m)" in
   *) echo "Unsupported host architecture." >&2; exit 1 ;;
 esac
 readonly FIRMWARE_IMAGE="$("${BUILD_IMAGE_PREPARER}" \
-  --architecture "${ARCHITECTURE}" --print firmware)"
+  --architecture "${ARCHITECTURE}" --print project)"
 
 Sha256() {
   if command -v sha256sum >/dev/null 2>&1; then

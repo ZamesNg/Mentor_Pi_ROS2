@@ -80,12 +80,8 @@ case "$(uname -m)" in
   *) Fail "test host architecture is unsupported" ;;
 esac
 "${SCRIPT_DIR}/prepare_build_images.sh" \
-  --architecture "${opposite_architecture}" --print firmware >/dev/null
-"${SCRIPT_DIR}/build_host_runtime_image.sh" \
-  --architecture "${opposite_architecture}" --print-output >/dev/null
+  --architecture "${opposite_architecture}" --print project >/dev/null
 ExpectFailure "${SCRIPT_DIR}/prepare_build_images.sh" \
-  --architecture "${opposite_architecture}"
-ExpectFailure "${SCRIPT_DIR}/build_host_runtime_image.sh" \
   --architecture "${opposite_architecture}"
 
 echo "Docker host-profile and build-job policy tests passed."

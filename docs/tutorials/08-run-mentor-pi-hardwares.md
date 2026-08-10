@@ -22,6 +22,8 @@ cd /home/zames/Mentor_Pi && make host
 
 `make host-hardwares` is an alias for the same adaptive build and test path.
 Interfaces, bringup, and `mentor_pi_hardwares` build together.
+The two tracking interface/controller packages and the pinned ALTO source are
+built in the same workspace and unified project image.
 
 ## 2. Start one vehicle mode
 
@@ -38,6 +40,30 @@ For Ackermann:
 cd /home/zames/Mentor_Pi && make start-ackermann \
   PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0
 ```
+
+Tracking remains disabled in both commands. To run the matching onboard
+lower-level tracker after the RDK timing gate and time-synchronization check:
+
+```sh
+TRACKING_CONTROLLER=mecanum make start-mecanum \
+  PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0
+
+TRACKING_CONTROLLER=ackermann make start-ackermann \
+  PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0
+```
+
+The selector must be `none`, `mecanum`, or `ackermann` and must match the
+vehicle. The tracker runs at 30 Hz onboard. Its high-level input is a reliable,
+volatile `mentor_pi_tracking_interfaces/msg/PolynomialTrajectory` in `odom`:
+
+- `/mentor_pi/mecanum_mpc_tracker/reference_trajectory`, or
+- `/mentor_pi/ackermann_mpc_tracker/reference_trajectory`.
+
+Cancel immediately with the matching
+`/mentor_pi/<vehicle>_mpc_tracker/cancel` `std_srvs/srv/Trigger` service. Status
+and faults appear on `/diagnostics`. The example
+`polynomial_trajectory_publisher` demonstrates the message contract; it is not
+a planner and must not be treated as an approved hardware trajectory source.
 
 The command requests `PID_FIRMWARE_ACTUATORS_PREPARED`, validates the firmware
 artifact and serial device, and starts the Python vehicle launch. The launch

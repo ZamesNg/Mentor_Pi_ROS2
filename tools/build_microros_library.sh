@@ -11,8 +11,7 @@ readonly SOURCE_UTILS_REPOSITORY="https://github.com/micro-ROS/micro_ros_stm32cu
 readonly SOURCE_UTILS_COMMIT="bd531b273c1bcd070b3143c5642128ec75a6f04e"
 readonly BUILD_ROOT="${FIRMWARE_ROOT}/build/microros"
 readonly BUILD_UTILS="${BUILD_ROOT}/micro_ros_stm32cubemx_utils"
-readonly CAPTURE_IMAGE="microros/micro_ros_static_library_builder:humble@sha256:e291f74890e81b31eb1d70731cb79b2d767dd585269325031effc72952b24b9d"
-readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/microros-builder.Dockerfile"
+readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/rrclite.Dockerfile"
 readonly SOURCE_LOCK="${FIRMWARE_ROOT}/config/microros_sources.lock"
 readonly ARTIFACT_HASH="${FIRMWARE_ROOT}/config/microros_artifact.sha256"
 readonly ARTIFACT_TREE_HASH="${FIRMWARE_ROOT}/config/microros_artifact_tree.sha256"
@@ -151,17 +150,9 @@ docker info >/dev/null 2>&1 || {
   exit 1
 }
 
-selected_image=""
-if [[ "${capture_source_lock}" == "1" ]]; then
-  selected_image="${CAPTURE_IMAGE}"
-  if ! docker image inspect "${selected_image}" >/dev/null 2>&1; then
-    docker pull --platform "linux/${ARCHITECTURE}" "${selected_image}"
-  fi
-else
-  "${BUILD_IMAGE_PREPARER}" --architecture "${ARCHITECTURE}"
-  selected_image="$("${BUILD_IMAGE_PREPARER}" \
-    --architecture "${ARCHITECTURE}" --print microros)"
-fi
+"${BUILD_IMAGE_PREPARER}" --architecture "${ARCHITECTURE}"
+selected_image="$("${BUILD_IMAGE_PREPARER}" \
+  --architecture "${ARCHITECTURE}" --print project)"
 readonly selected_image
 readonly IMAGE_ID="$(docker image inspect "${selected_image}" --format '{{.Id}}')"
 readonly IMAGE_ARCHITECTURE="$(docker image inspect "${selected_image}" --format '{{.Architecture}}')"

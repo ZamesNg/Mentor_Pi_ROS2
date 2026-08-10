@@ -23,7 +23,8 @@ Fail() {
 [[ -f "${WORKSPACE_ROOT}/README.md" ]] || \
   Fail "the ROS workspace README is missing"
 
-for package in mentor_pi_interfaces mentor_pi_bringup mentor_pi_hardwares; do
+for package in mentor_pi_interfaces mentor_pi_bringup mentor_pi_hardwares \
+    mentor_pi_tracking_interfaces mentor_pi_tracking; do
   package_root="${WORKSPACE_ROOT}/src/${package}"
   [[ -f "${package_root}/package.xml" && \
     -f "${package_root}/CMakeLists.txt" ]] || \
@@ -41,13 +42,13 @@ if rg -n --pcre2 \
     --glob '!test_ros_workspace_layout.sh' \
     --glob '!**/build/**' --glob '!**/install/**' --glob '!**/log/**' \
     --glob '!**/third_party/**' --glob '!**/generated/**' \
-    '(?<!mentor_pi_ros2/)src/mentor_pi_(interfaces|bringup|hardwares)|src/[*][*]|src/ros_package_schema|ros_package_schema|xml-model' \
+    '(?<!mentor_pi_ros2/)src/mentor_pi_(interfaces|bringup|hardwares|tracking|tracking_interfaces)|src/[*][*]|src/ros_package_schema|ros_package_schema|xml-model' \
     "${ACTIVE_PATHS[@]}" >/dev/null; then
   rg -n --pcre2 \
     --glob '!test_ros_workspace_layout.sh' \
     --glob '!**/build/**' --glob '!**/install/**' --glob '!**/log/**' \
     --glob '!**/third_party/**' --glob '!**/generated/**' \
-    '(?<!mentor_pi_ros2/)src/mentor_pi_(interfaces|bringup|hardwares)|src/[*][*]|src/ros_package_schema|ros_package_schema|xml-model' \
+    '(?<!mentor_pi_ros2/)src/mentor_pi_(interfaces|bringup|hardwares|tracking|tracking_interfaces)|src/[*][*]|src/ros_package_schema|ros_package_schema|xml-model' \
     "${ACTIVE_PATHS[@]}" >&2 || true
   Fail "an active build, runtime, package, CI, or test path uses the old layout"
 fi

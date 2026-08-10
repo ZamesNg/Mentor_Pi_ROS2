@@ -1,5 +1,11 @@
 # Tutorial 07: Run Software, Stress, Soak, and Release Gates
 
+Before enabling either lower-level tracker on hardware, also benchmark its
+selected vehicle model natively on the RDK X5. Record image identity, peak
+memory, sustained 30 Hz behavior, every 25 ms ALTO deadline miss/failure, and
+the duration of any bounded feedback fallback. This benchmark is not part of
+the lightweight amd64 mock and is not a powered-motion qualification claim.
+
 Run software, performance, endurance, and recovery gates for one exact default
 PID candidate. Software-gate qualification does not by itself prove powered
 motion, PID performance, peripheral timing, or physical recovery behavior.

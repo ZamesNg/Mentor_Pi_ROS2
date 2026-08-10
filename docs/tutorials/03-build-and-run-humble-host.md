@@ -41,6 +41,18 @@ an explained `DEGRADED`. LED3 toggles as successful heartbeat publications
 advance without pressing RST. Stop on repeated reset, buzzer alarms, port ownership errors,
 transport failure, or an absent controller.
 
+The lower-level tracker is intentionally not started by `make start`. Before an
+opt-in tracking run, verify that the onboard clock is synchronized; the
+repository only checks synchronization and does not reconfigure NTP or chrony:
+
+```sh
+./tools/check_time_sync.sh
+```
+
+Trajectory planning and frame transforms remain on the high-level computer.
+It sends a future-scheduled trajectory already expressed in `odom`; accepted
+trajectories continue locally through later planner/network loss.
+
 ## 3. Open a second ROS terminal
 
 ```sh

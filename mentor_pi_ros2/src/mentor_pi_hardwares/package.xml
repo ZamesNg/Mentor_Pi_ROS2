@@ -21,6 +21,7 @@
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>mecanum_drive_controller</exec_depend>
   <exec_depend>mentor_pi_bringup</exec_depend>
+  <exec_depend>mentor_pi_tracking</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

@@ -23,6 +23,7 @@ tutorials do not override them.
 | [Docker host ADR](adr/0002-docker-everywhere-host-runtime.md) | Docker-only build, development, handoff, and production deployment. |
 | [Architecture](architecture.md) | Host/MCU components, task ownership, data flow, resource budgets, and session lifecycle. |
 | [ROS interface contract](ros-interface-contract.md) | Exact topics, services, schemas, QoS, units, limits, and validation rules. |
+| [Tracking controller](tracking-controller.md) | Opt-in ALTO MPC trajectory contract, scheduling, fallback, and safety behavior. |
 | [Reliability and safety](reliability-and-safety.md) | Safe states, command leases, overload policy, watchdog, and fault response. |
 | [Verification](verification.md) | Traceable tests and objective acceptance thresholds. |
 | [Development standards](development-standards.md) | Language, Google C++ style, embedded restrictions, review, and CI rules. |

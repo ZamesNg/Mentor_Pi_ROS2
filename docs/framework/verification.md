@@ -1,5 +1,24 @@
 # Verification and Acceptance Plan
 
+## Unified image and tracking-controller gates
+
+`VER-IMG-UNIFIED-001` proves that RDK setup selects one project image and one
+unique Humble base pull, while a normal computer selects that project image
+plus one Noble quality image and two unique base pulls. It verifies native
+architecture enforcement, the 2026-08-07 per-architecture ROS lock, exact
+installed versions, one Arm GNU 13.2.1 installation, content identity, and
+micro-ROS cache reuse.
+
+`VER-TRACK-UNIT-001` covers polynomial evaluation and numerical derivatives,
+message bounds and validation, unwrapped yaw and shortest angle error, both
+vehicle models, geometry/profile constraints, replacement scheduling,
+cancellation, ROS-to-steady clock conversion, stale odometry, solver fallback,
+and every zero-output condition. `VER-TRACK-INT-001` supplies synthetic
+odometry and mocked controller inputs for both stable topic contracts.
+`VER-TRACK-RDK-001` is a native RDK X5 benchmark requiring sustained 30 Hz
+operation and recorded 25 ms solve-deadline behavior. The unit and integration
+tests do not satisfy the RDK benchmark or any powered HIL gate.
+
 ## Purpose and release rule
 
 This plan proves functional parity for the accepted scope and, specifically,
@@ -62,6 +81,10 @@ excerpt.
 | `VER-TRACE-001` | A documentation checker extracts every shall-level ID in `requirements.md` and every included audit ID in `legacy-audit.md`. Each maps to at least one defined `VER-*` case, every referenced case exists, all framework links resolve, and reviewer approval records no open safety/interface decision. |
 | `VER-REVIEW-001` | Review confirms the product is a clean micro-ROS client/Agent design for STM32F407VET6, contains no duplicate legacy packet runtime, and implements the ownership, C/C++ boundaries, timeout, safe-state, and source-of-truth rules in the framework documents. |
 | `VER-BUILD-HOST-001` | In architecture-native pinned Ubuntu 22.04/Humble containers on supported Ubuntu development hosts, debug, release, ASan/UBSan, and TSan jobs build and test all first-party host C++, generated interfaces, `mentor_pi_bringup`, and `mentor_pi_hardwares` with zero first-party warnings. Generated build metadata records `ubuntu=22.04`, `ros_distro=humble`, a content-addressed builder, and the automatically detected `amd64` or `arm64` architecture and rejects an OS, distribution, architecture, source-fingerprint, metadata-schema, or image-architecture mismatch. The hardened runtime passes only the reviewed CH9102F character device and never uses a privileged container. Project-owned production nodes and the control/data path contain no Python node, script, `rclpy` use, or serial translation bridge; ROS launch files may use the upstream Python launch framework. Pinned upstream ROS tools and their Python implementation/dependencies are permitted and reported separately. |
+| `VER-IMG-UNIFIED-001` | RDK setup selects one project image and one unique Humble base pull; normal-computer setup selects that project image plus one Noble quality image and two unique base pulls. Native-architecture enforcement, the signed 2026-08-07 architecture-specific ROS lock, exact installed versions, one verified Arm GNU 13.2.1 installation, complete content identity, and micro-ROS cache reuse all pass. |
+| `VER-TRACK-UNIT-001` | Unit tests cover polynomial evaluation and numerical derivatives, bounded message validation, unwrapped yaw and shortest angle error, both vehicle models, geometry/profile limits including every mecanum wheel bound, scheduling and cancellation, ROS-to-steady conversion, stale state, bounded feedback, solver failure/deadline handling, and all zero-output conditions. |
+| `VER-TRACK-INT-001` | Integration tests supply synthetic odometry, motor profile, authorization, and scheduled trajectories to each tracker; verify its stable trajectory, controller-reference, cancel, and diagnostic contracts; observe bounded nonzero output; and prove stale odometry and cancellation return output to zero. |
+| `VER-TRACK-RDK-001` | A native RDK X5 benchmark records project-image identity, memory, sustained 30 Hz operation, solve duration and every 25 ms miss/failure for both models. It must pass before hardware tracking is enabled and does not replace guarded HIL evidence. |
 | `VER-BUILD-FW-001` | `make firmware` drives the authoritative CMake/Ninja graph in architecture-native pinned Docker. Two clean builds produce identical loadable sections. The target is STM32F407VET6 with the pinned Arm GNU 13.2.1 toolchain, HAL, FreeRTOS, and Humble-compatible micro-ROS client; 33 generated-workspace checkouts are detached at their checked-in Humble source-lock commits, the deferred `libyaml` checkout is required at the lock's 34th commit, and the temporary `geometry2/tf2_msgs` source is pinned separately. Missing or unexpected repositories fail the build. A generated-library cache is reused only when image, lock, interfaces, generator inputs, helper fingerprint, archive hash, and header-tree hash match; corrupt or stale caches are removed and regenerated. The reviewed archive hash, first-party warning policy, ELF/BIN/HEX/map metadata, and memory report remain mandatory. Verification rejects native-path, older, or other-distribution artifacts. |
 | `VER-BUILD-MOTOR-GATE-001` | For SAFE-006, `make firmware`, `make flash`, and `make start` select the single `NORMAL_CLOSED_LOOP_DEFAULT` artifact with `control_mode=CLOSED_LOOP`. Build, metadata, verification, flashing, packaging, and runtime tests reject any alternate classification or control mode, stale metadata, changed source/dependency/artifact hashes, mutated snapshots, programmer failure, and missing read-back success. The artifact reports a 6 RPS implementation ceiling, each lower model limit, and a 1000-permille output clamp. Handoff packaging contains exactly one ELF/Hex/Bin/Map set plus `BUILD-METADATA` and `BUILD-MODE`. Software evidence does not qualify PID performance or powered motion. |
 | `VER-SCOPE-001` | Source, link map, task inventory, and ROS graph contain no legacy `AA 55` protocol, legacy names/types, Gamepad/Joy, SBUS, Bluetooth, USB-host, native-MCU USB transport, LVGL/LCD, or chassis-kinematics runtime. The I2C OLED remains included and is not classified as LCD. |
@@ -235,6 +258,7 @@ Each shall-level requirement has an explicit verification mapping below.
 | `PLAT-002` | `VER-BUILD-FW-001`, `VER-INT-TRN-001` |
 | `PLAT-003` | `VER-ANALYSIS-001`, `VER-RESOURCE-001` |
 | `PLAT-004` | `VER-BUILD-FW-001` |
+| `PLAT-005` | `VER-IMG-UNIFIED-001` |
 | `HW-001` | `VER-HIL-MOT-001` |
 | `HW-002` | `VER-HIL-PWM-001` |
 | `HW-003` | `VER-HIL-BUS-001` |
@@ -249,6 +273,7 @@ Each shall-level requirement has an explicit verification mapping below.
 | `HOST-002` | `VER-CONFIG-001`, `VER-RECONNECT-USB-001`, `VER-RECONNECT-AGENT-001`, `VER-RESET-MCU-001` |
 | `HOST-003` | `VER-CONFIG-001`, `VER-UNIT-SVC-001` |
 | `HOST-004` | `VER-CONFIG-001`, `VER-SCOPE-001` |
+| `HOST-005` | `VER-TRACK-UNIT-001`, `VER-TRACK-INT-001`, `VER-TRACK-RDK-001` |
 | `TRN-001` | `VER-INT-TRN-001`, `VER-CONFIG-001` |
 | `TRN-002` | `VER-CONFIG-001`, `VER-INT-TRN-001` |
 | `TRN-003` | `VER-RECONNECT-USB-001`, `VER-RECONNECT-AGENT-001` |

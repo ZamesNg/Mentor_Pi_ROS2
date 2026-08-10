@@ -7,7 +7,8 @@ readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly HOST_BUILDER="${SCRIPT_DIR}/build_host.sh"
 readonly AGENT_BUILDER="${SCRIPT_DIR}/build_agent.sh"
 readonly FIRMWARE_VERIFIER="${SCRIPT_DIR}/verify_firmware_artifact.sh"
-readonly HOST_RUNTIME_BUILDER="${SCRIPT_DIR}/build_host_runtime_image.sh"
+readonly TIME_SYNC_CHECK="${SCRIPT_DIR}/check_time_sync.sh"
+readonly BUILD_IMAGE_PREPARER="${SCRIPT_DIR}/prepare_build_images.sh"
 readonly CONTAINER_NAME="mentor-pi-runtime"
 readonly REQUIRED_PID_ACK="PID_FIRMWARE_ACTUATORS_PREPARED"
 readonly firmware_mode="PID"
@@ -15,6 +16,7 @@ readonly firmware_mode="PID"
 serial_device=""
 ros_domain_id=""
 vehicle_config=""
+tracking_controller="none"
 resolved_vehicle_config=""
 dry_run=0
 
@@ -27,6 +29,7 @@ Usage() {
   cat >&2 <<'EOF'
 Usage: run_runtime.sh --device /dev/mentor_pi_mcu \
   --ros-domain-id 0..232 [--vehicle-config /absolute/robot.yaml] [--dry-run]
+  [--tracking-controller none|mecanum|ackermann]
 
 Every supported Ubuntu host runs the architecture-matched pinned ROS 2 Humble
 container with only the reviewed MCU character device passed through.
@@ -75,6 +78,11 @@ while (($# > 0)); do
       vehicle_config="$2"
       shift 2
       ;;
+    --tracking-controller)
+      (($# >= 2)) || Usage
+      tracking_controller="$2"
+      shift 2
+      ;;
     --dry-run) dry_run=1; shift ;;
     -h | --help) Usage ;;
     *) Usage ;;
@@ -93,6 +101,11 @@ if [[ -n "${vehicle_config}" ]]; then
     Fail "vehicle config did not resolve to a readable regular file"
 fi
 readonly resolved_vehicle_config
+[[ "${tracking_controller}" == none || "${tracking_controller}" == mecanum || \
+   "${tracking_controller}" == ackermann ]] || \
+  Fail "tracking controller must be none, mecanum, or ackermann"
+[[ -n "${resolved_vehicle_config}" || "${tracking_controller}" == none ]] || \
+  Fail "tracking controller requires a vehicle configuration"
 
 [[ -r /etc/os-release && "$(ReadOsValue ID)" == "ubuntu" ]] || \
   Fail "the host must be Ubuntu"
@@ -150,6 +163,7 @@ if ((dry_run == 1)); then
     "device=${resolved_device}" \
     "ros_domain_id=${ros_domain_id}" \
     "vehicle_config=${resolved_vehicle_config:-none}" \
+    "tracking_controller=${tracking_controller}" \
     "host_prefix=${host_prefix}" \
     "agent_prefix=${agent_prefix}" \
     'result=validated; runtime not started'
@@ -161,6 +175,10 @@ readonly required_ack="${REQUIRED_PID_ACK}"
   Usage
   Fail "set RRCLITE_RUNTIME_ACK=${required_ack} only after completing the required fixture checks"
 }
+
+if [[ "${tracking_controller}" != none ]]; then
+  "${TIME_SYNC_CHECK}"
+fi
 
 printf '%s\n' \
   "Starting Mentor Pi runtime on Ubuntu ${ubuntu_version}." \
@@ -175,8 +193,8 @@ command -v docker >/dev/null 2>&1 || Fail "Docker is unavailable"
 if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
   Fail "container ${CONTAINER_NAME} already exists; stop that exact container first"
 fi
-"${HOST_RUNTIME_BUILDER}" --architecture "${architecture}"
-readonly image="$(${HOST_RUNTIME_BUILDER} --architecture "${architecture}" --print-output)"
+"${BUILD_IMAGE_PREPARER}" --architecture "${architecture}"
+readonly image="$("${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" --print project)"
 readonly device_gid="$(stat -Lc '%g' "${resolved_device}")"
 docker_vehicle_arguments=()
 container_vehicle_config=""
@@ -233,6 +251,7 @@ exec docker run --rm \
    fi
    exec ros2 launch mentor_pi_hardwares vehicle.launch.py \
      vehicle_config:="${1}" \
+     tracking_controller:="${2}" \
      serial_device:=/dev/mentor_pi_mcu \
      agent_executable:="${MENTOR_PI_AGENT_EXECUTABLE}"' \
-  mentor-pi-runtime "${container_vehicle_config}"
+  mentor-pi-runtime "${container_vehicle_config}" "${tracking_controller}"

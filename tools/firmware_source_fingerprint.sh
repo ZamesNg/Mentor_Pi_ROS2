@@ -108,8 +108,9 @@ if [[ "${MODE}" == "firmware" ]]; then
   AppendFile "${PROJECT_ROOT}/tools/prepare_build_images.sh"
   AppendFile "${PROJECT_ROOT}/tools/select_build_jobs.sh"
   AppendFile "${PROJECT_ROOT}/tools/verify_microros_cache.sh"
-  AppendFile "${PROJECT_ROOT}/tools/docker/firmware-builder.Dockerfile"
-  AppendFile "${PROJECT_ROOT}/tools/docker/microros-builder.Dockerfile"
+  AppendFile "${PROJECT_ROOT}/tools/docker/rrclite.Dockerfile"
+  AppendFile "${PROJECT_ROOT}/tools/docker/ros-humble-packages.lock"
+  AppendFile "${PROJECT_ROOT}/tools/docker_image_source_fingerprint.sh"
   AppendFile "${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
   AppendFile "${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
 fi

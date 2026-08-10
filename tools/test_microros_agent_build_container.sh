@@ -26,8 +26,8 @@ ExpectFailure() {
 for architecture in amd64 arm64; do
   image="$(${VERIFIER} --print-default-image \
     --architecture "${architecture}")"
-  [[ "${image}" =~ ^microros/micro_ros_static_library_builder:humble@sha256:[0-9a-f]{64}$ ]] || \
-    Fail "${architecture} Agent builder is not pinned"
+  [[ "${image}" =~ ^mentor-pi/rrclite:humble-${architecture}-[0-9a-f]{16}$ ]] || \
+    Fail "${architecture} Agent builder is not the unified project image"
   output="$(${VERIFIER} --architecture "${architecture}" \
     --evidence-id dry-run --dry-run)"
   [[ "${output}" == *"image=${image}"* ]] || \
@@ -43,7 +43,7 @@ readonly AMD64_IMAGE="$(${VERIFIER} --print-default-image \
 readonly ARM64_IMAGE="$(${VERIFIER} --print-default-image \
   --architecture arm64)"
 [[ "${AMD64_IMAGE}" != "${ARM64_IMAGE}" ]] || \
-  Fail "Agent builder child manifests must differ by architecture"
+  Fail "Agent project images must differ by architecture"
 
 ExpectFailure 'architecture must be amd64 or arm64' \
   "${VERIFIER}" --architecture riscv64 --dry-run

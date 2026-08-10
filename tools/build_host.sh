@@ -8,9 +8,10 @@ readonly BUILD_TOOL="${SCRIPT_DIR}/build_host_release.sh"
 readonly CONTAINER_ENTRYPOINT="${SCRIPT_DIR}/host_build_container_entrypoint.sh"
 readonly FINGERPRINT_TOOL="${SCRIPT_DIR}/host_source_fingerprint.sh"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
-readonly HOST_RUNTIME_BUILDER="${SCRIPT_DIR}/build_host_runtime_image.sh"
+readonly BUILD_IMAGE_PREPARER="${SCRIPT_DIR}/prepare_build_images.sh"
 readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
 readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
+readonly HOST_DEPENDENCY_BOOTSTRAP="${SCRIPT_DIR}/bootstrap_host_dependencies.sh"
 readonly -a ORIGINAL_ARGUMENTS=("$@")
 
 print_output=0
@@ -74,6 +75,7 @@ case "$(uname -m)" in
 esac
 readonly architecture
 readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
+"${HOST_DEPENDENCY_BOOTSTRAP}" --verify-existing >/dev/null
 
 readonly source_sha="$(${FINGERPRINT_TOOL} "${PROJECT_ROOT}")"
 if ((runtime_build == 1)); then
@@ -95,9 +97,9 @@ command -v docker >/dev/null 2>&1 || \
   Fail "Docker is required on Ubuntu ${ubuntu_version}"
 docker info >/dev/null 2>&1 || \
   Fail "Docker is not running or accessible"
-"${HOST_RUNTIME_BUILDER}" --architecture "${architecture}"
-readonly image="$(${HOST_RUNTIME_BUILDER} --architecture "${architecture}" --print-output)"
-readonly base_image="$(${IMAGE_SELECTOR} host "${architecture}")"
+"${BUILD_IMAGE_PREPARER}" --architecture "${architecture}"
+readonly image="$("${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" --print project)"
+readonly base_image="$(${IMAGE_SELECTOR} microros "${architecture}")"
 readonly image_id="$(docker image inspect "${image}" \
   --format '{{.Id}}' 2>/dev/null || true)"
 readonly image_platform="$(docker image inspect "${image}" \

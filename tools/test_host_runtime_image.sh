@@ -18,13 +18,13 @@ case "$(uname -m)" in
 esac
 readonly architecture
 
-"${SCRIPT_DIR}/build_host_runtime_image.sh" --architecture "${architecture}"
+"${SCRIPT_DIR}/prepare_build_images.sh" --architecture "${architecture}"
 "${SCRIPT_DIR}/build_host.sh" --runtime
 "${SCRIPT_DIR}/build_agent.sh"
 
 readonly image="$(
-  "${SCRIPT_DIR}/build_host_runtime_image.sh" \
-    --architecture "${architecture}" --print-output
+  "${SCRIPT_DIR}/prepare_build_images.sh" \
+    --architecture "${architecture}" --print project
 )"
 readonly host_prefix="$(${SCRIPT_DIR}/build_host.sh --runtime --print-output)"
 readonly agent_prefix="$(${SCRIPT_DIR}/build_agent.sh --print-output)"

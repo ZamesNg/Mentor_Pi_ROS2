@@ -48,7 +48,8 @@ done
 [[ -x "${ENVIRONMENT_CHECK}" && -x "${FINGERPRINT_TOOL}" &&
       -x "${RELOCATION_CHECK}" ]] ||
   Fail "host build verification tools are missing"
-for package in mentor_pi_interfaces mentor_pi_bringup mentor_pi_hardwares; do
+for package in mentor_pi_interfaces mentor_pi_bringup mentor_pi_hardwares \
+    mentor_pi_tracking_interfaces mentor_pi_tracking; do
   [[ -f "${project_root}/mentor_pi_ros2/src/${package}/package.xml" ]] ||
     Fail "missing source package ${package}"
 done
@@ -82,7 +83,7 @@ colcon --log-base "${LOG_ROOT}" build \
     "${project_root}/mentor_pi_ros2/src" \
   --build-base "${BUILD_ROOT}" \
   --install-base "${output_prefix}" \
-  --packages-up-to mentor_pi_bringup mentor_pi_hardwares \
+  --packages-up-to mentor_pi_bringup mentor_pi_hardwares mentor_pi_tracking \
   --event-handlers console_direct+ \
   --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING="${BUILD_TESTING}"
 
@@ -97,7 +98,7 @@ if ((skip_tests == 0)); then
     --build-base "${BUILD_ROOT}" \
     --install-base "${output_prefix}" \
     --packages-select mentor_pi_interfaces mentor_pi_bringup \
-      mentor_pi_hardwares \
+      mentor_pi_hardwares mentor_pi_tracking_interfaces mentor_pi_tracking \
     --event-handlers console_direct+
   colcon test-result --test-result-base "${BUILD_ROOT}" --verbose
 fi
@@ -155,6 +156,10 @@ required_paths=(
   share/mentor_pi_hardwares/config/ackermann/hardware.yaml
   share/mentor_pi_hardwares/config/mecanum/mentor_pi.urdf.xacro
   share/mentor_pi_hardwares/config/ackermann/mentor_pi.urdf.xacro
+  lib/mentor_pi_tracking/mecanum_mpc_tracker
+  lib/mentor_pi_tracking/ackermann_mpc_tracker
+  lib/mentor_pi_tracking/polynomial_trajectory_publisher
+  share/mentor_pi_tracking/licenses/ALTO-GPL-2.0.txt
 )
 for relative in "${required_paths[@]}"; do
   [[ -f "${output_prefix}/${relative}" ]] ||

@@ -6,6 +6,10 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly FINGERPRINT_TOOL="${SCRIPT_DIR}/host_source_fingerprint.sh"
 readonly AGENT_SOURCE_LOCK="${SCRIPT_DIR}/microros_agent_source.lock"
+readonly ALTO_SOURCE_LOCK="${SCRIPT_DIR}/altro_source.lock"
+readonly ALTO_CHECKOUT="${PROJECT_ROOT}/mentor_pi_ros2/third_party/altro-cpp"
+readonly ALTO_PATCH="${SCRIPT_DIR}/patches/altro-disable-docs.patch"
+readonly HOST_DEPENDENCY_BOOTSTRAP="${SCRIPT_DIR}/bootstrap_host_dependencies.sh"
 
 host_prefix=""
 agent_prefix=""
@@ -106,6 +110,20 @@ done
   Fail "unsupported Agent source lock metadata"
 [[ "$(ReadMetadataValue "${AGENT_SOURCE_LOCK}" ros_distro)" == "humble" ]] ||
   Fail "Agent source lock targets the wrong ROS distribution"
+[[ -f "${ALTO_SOURCE_LOCK}" && ! -L "${ALTO_SOURCE_LOCK}" ]] || \
+  Fail "ALTO source lock is missing or symbolic"
+if grep -Ev '^[A-Z0-9_]+=[A-Za-z0-9./:+_-]+$|^$' "${ALTO_SOURCE_LOCK}" | grep -q .; then
+  Fail "ALTO source lock contains unsupported syntax"
+fi
+# shellcheck disable=SC1090
+source "${ALTO_SOURCE_LOCK}"
+[[ "${ALTO_REPOSITORY}" == https://github.com/ZamesNg/altro-cpp && \
+   "${ALTO_COMMIT}" =~ ^[0-9a-f]{40}$ && \
+   "${ALTO_LICENSE}" == GPL-2.0-or-later ]] || \
+  Fail "ALTO source lock is invalid"
+"${HOST_DEPENDENCY_BOOTSTRAP}" --verify-existing >/dev/null
+[[ -f "${ALTO_PATCH}" && ! -L "${ALTO_PATCH}" ]] || \
+  Fail "ALTO compatibility patch is missing or symbolic"
 
 readonly BUILD_METADATA="${host_prefix}/HOST-BUILD-METADATA.txt"
 [[ -f "${BUILD_METADATA}" && ! -L "${BUILD_METADATA}" ]] ||
@@ -155,6 +173,12 @@ for executable in "${REQUIRED_EXECUTABLES[@]}"; do
   [[ -x "${host_prefix}/lib/mentor_pi_bringup/${executable}" ]] ||
     Fail "host release is missing executable ${executable}"
 done
+for tracker in mecanum_mpc_tracker ackermann_mpc_tracker; do
+  [[ -x "${host_prefix}/lib/mentor_pi_tracking/${tracker}" ]] || \
+    Fail "host release is missing tracking executable ${tracker}"
+done
+[[ -f "${host_prefix}/share/mentor_pi_tracking/licenses/ALTO-GPL-2.0.txt" ]] || \
+  Fail "host release is missing the ALTO license"
 readonly AGENT_METADATA="${agent_prefix}/AGENT-BUILD-METADATA.txt"
 readonly AGENT_EXECUTABLE="${agent_prefix}/lib/micro_ros_agent/micro_ros_agent"
 [[ -f "${AGENT_METADATA}" && ! -L "${AGENT_METADATA}" && \
@@ -209,13 +233,50 @@ staging_root="$(mktemp -d "${output_parent}/.mentor-pi-host-handoff.XXXXXX")"
 mkdir -p "${staging_root}/host" \
   "${staging_root}/agent" \
   "${staging_root}/runtime-image" \
-  "${staging_root}/docs/tutorials"
+  "${staging_root}/docs/tutorials" \
+  "${staging_root}/corresponding-source/mentor_pi/mentor_pi_ros2/src" \
+  "${staging_root}/corresponding-source/mentor_pi/mentor_pi_ros2/third_party/altro-cpp" \
+  "${staging_root}/corresponding-source/mentor_pi/tools/patches"
 cp -a "${host_prefix}/." "${staging_root}/host/"
 cp -a "${agent_prefix}/." "${staging_root}/agent/"
 install -m 0644 "${runtime_image_archive}" \
   "${staging_root}/runtime-image/mentor-pi-runtime.tar"
 cp -a "${PROJECT_ROOT}/docs/tutorials/." \
   "${staging_root}/docs/tutorials/"
+git -C "${ALTO_CHECKOUT}" archive "${ALTO_COMMIT}" | \
+  tar -xf - -C \
+    "${staging_root}/corresponding-source/mentor_pi/mentor_pi_ros2/third_party/altro-cpp"
+cp -a "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces" \
+  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_tracking" \
+  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_tracking_interfaces" \
+  "${staging_root}/corresponding-source/mentor_pi/mentor_pi_ros2/src/"
+install -m 0644 "${ALTO_PATCH}" \
+  "${staging_root}/corresponding-source/mentor_pi/tools/patches/altro-disable-docs.patch"
+install -m 0644 "${ALTO_SOURCE_LOCK}" \
+  "${staging_root}/corresponding-source/mentor_pi/tools/altro_source.lock"
+cat >"${staging_root}/corresponding-source/mentor_pi/BUILD.txt" <<'EOF'
+This directory is the build-shaped corresponding source for the GPL-linked
+Mentor Pi tracker. In an Ubuntu 22.04/ROS 2 Humble environment with the package
+dependencies installed, build it without network access using:
+
+  source /opt/ros/humble/setup.bash
+  colcon build --base-paths mentor_pi_ros2/src \
+    --packages-up-to mentor_pi_tracking \
+    --cmake-args -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+
+The pinned ALTO source, integration patch, source lock, project interfaces, and
+all CMake/package controls required by that command are included here.
+EOF
+cat >"${staging_root}/THIRD-PARTY-NOTICES.txt" <<EOF
+ALTO C++ trajectory optimization library
+Source: ${ALTO_REPOSITORY}
+Commit: ${ALTO_COMMIT}
+License: GNU GPL version 2 or later
+Corresponding and project integration source: corresponding-source/mentor_pi
+Compatibility patch: corresponding-source/mentor_pi/tools/patches/altro-disable-docs.patch
+Compatibility patch SHA-256: $(Sha256 "${ALTO_PATCH}")
+Source lock: corresponding-source/mentor_pi/tools/altro_source.lock
+EOF
 
 symlink_manifest="${staging_root}/SYMLINKS.txt"
 : >"${symlink_manifest}"
@@ -248,6 +309,11 @@ runtime_image_archive=runtime-image/mentor-pi-runtime.tar
 runtime_image_archive_format=oci-v1
 runtime_image_archive_sha256=${RUNTIME_ARCHIVE_SHA}
 runtime_image_id=${runtime_image_id}
+altro_repository=${ALTO_REPOSITORY}
+altro_commit=${ALTO_COMMIT}
+altro_source_lock_sha256=$(Sha256 "${ALTO_SOURCE_LOCK}")
+altro_patch_sha256=$(Sha256 "${ALTO_PATCH}")
+corresponding_source_directory=corresponding-source
 symlink_manifest=SYMLINKS.txt
 EOF
 cat >"${staging_root}/INSTALL.txt" <<EOF

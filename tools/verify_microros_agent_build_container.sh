@@ -4,7 +4,7 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
+readonly BUILD_IMAGE_PREPARER="${SCRIPT_DIR}/prepare_build_images.sh"
 readonly EVIDENCE_PARENT="${PROJECT_ROOT}/build/microros-agent-verification"
 readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
 readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
@@ -74,7 +74,7 @@ trap Cleanup EXIT
 
 if [[ "$#" -eq 3 && "$1" == "--print-default-image" && \
   "$2" == "--architecture" ]]; then
-  "${IMAGE_SELECTOR}" microros "$3"
+  "${BUILD_IMAGE_PREPARER}" --architecture "$3" --print project
   exit 0
 fi
 while (($# > 0)); do
@@ -100,10 +100,12 @@ done
   Fail "architecture must be amd64 or arm64"
 [[ "${evidence_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || \
   Fail "evidence ID must be 1-64 safe characters"
-[[ -x "${IMAGE_SELECTOR}" ]] || Fail "pinned image selector is unavailable"
-readonly DEFAULT_IMAGE="$("${IMAGE_SELECTOR}" microros "${architecture}")"
-[[ "${DEFAULT_IMAGE}" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] || \
-  Fail "default Agent builder is not digest-pinned"
+[[ -x "${BUILD_IMAGE_PREPARER}" ]] || \
+  Fail "unified image preparer is unavailable"
+readonly DEFAULT_IMAGE="$("${BUILD_IMAGE_PREPARER}" \
+  --architecture "${architecture}" --print project)"
+[[ "${DEFAULT_IMAGE}" =~ ^mentor-pi/rrclite:humble-(amd64|arm64)-[0-9a-f]{16}$ ]] || \
+  Fail "default Agent builder is not a content-addressed project tag"
 
 readonly OUTPUT_ROOT="${EVIDENCE_PARENT}/${evidence_id}-${architecture}"
 if [[ "${dry_run}" == "1" ]]; then
@@ -125,6 +127,7 @@ readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
 
 command -v docker >/dev/null 2>&1 || Fail "Docker is not installed"
 docker info >/dev/null 2>&1 || Fail "Docker is not running or accessible"
+"${BUILD_IMAGE_PREPARER}" --architecture "${architecture}"
 [[ -x "${SCRIPT_DIR}/verify_microros_agent_build_in_container.sh" ]] || \
   Fail "container entry point is missing or not executable"
 [[ ! -e "${OUTPUT_ROOT}" && ! -L "${OUTPUT_ROOT}" ]] || \

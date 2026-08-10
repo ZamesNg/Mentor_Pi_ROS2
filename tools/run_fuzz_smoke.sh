@@ -4,7 +4,7 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/firmware-builder.Dockerfile"
+readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/quality-tests.Dockerfile"
 readonly PUBLISHER="${PROJECT_ROOT}/tools/publish_fuzz_evidence.sh"
 readonly VERIFIER="${PROJECT_ROOT}/tools/verify_fuzz_evidence.sh"
 readonly BUILD_IMAGE_PREPARER="${PROJECT_ROOT}/tools/prepare_build_images.sh"
@@ -22,7 +22,7 @@ case "$(uname -m)" in
   *) echo "Unsupported host architecture." >&2; exit 1 ;;
 esac
 readonly IMAGE="$("${BUILD_IMAGE_PREPARER}" \
-  --architecture "${ARCHITECTURE}" --print firmware)"
+  --architecture "${ARCHITECTURE}" --print quality)"
 
 RUNS_PER_HARNESS=10000
 PRINT_PLAN=0
@@ -33,7 +33,7 @@ Usage() {
 Usage: ./tools/run_fuzz_smoke.sh [--runs RUNS] [--run-id RUN_ID] [--print-plan]
 
 Build and run all seven deterministic RRCLite libFuzzer harnesses inside the
-pinned Linux/Clang 18 firmware-builder container. RUNS is the number of inputs
+pinned normal-computer Linux/Clang 18 quality container. RUNS is the number of inputs
 per harness and must be in the range 1..10000000 (default: 10000).
 
 Each successful run is atomically published under build/fuzz-evidence/RUN_ID.
@@ -118,7 +118,7 @@ docker info >/dev/null 2>&1 || Fail "Docker Desktop/Engine is not running"
    ! -L "${PROJECT_ROOT}/${EVIDENCE_DIRECTORY_RELATIVE}" ]] || \
   Fail "evidence run already exists and will not be overwritten: ${RUN_ID}"
 
-"${BUILD_IMAGE_PREPARER}" --architecture "${ARCHITECTURE}"
+"${BUILD_IMAGE_PREPARER}" --architecture "${ARCHITECTURE}" --include-quality
 readonly IMAGE_ID="$(docker image inspect --format '{{.Id}}' "${IMAGE}")"
 [[ "${IMAGE_ID}" == sha256:* ]] || Fail "could not resolve Docker image ID"
 readonly BUILD_JOBS="$("${JOB_SELECTOR}")"
@@ -151,9 +151,9 @@ docker run --rm --network=none \
     }
     write_toolchain_record() {
       printf "%s\n" \
-        "image=mentor-pi/rrclite-firmware-builder:gcc-13.2.1" \
+        "image=mentor-pi/rrclite-quality:clang-18" \
         "image_id=${RRCLITE_FUZZ_IMAGE_ID}" \
-        "dockerfile_sha256=$(sha256sum tools/docker/firmware-builder.Dockerfile | cut -d " " -f 1)" \
+        "dockerfile_sha256=$(sha256sum tools/docker/quality-tests.Dockerfile | cut -d " " -f 1)" \
         "os_release_sha256=$(sha256sum /etc/os-release | cut -d " " -f 1)"
       clang++-18 --version
       cmake --version

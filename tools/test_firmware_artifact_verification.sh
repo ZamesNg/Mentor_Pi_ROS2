@@ -65,11 +65,12 @@ MakeBaseFixture() {
   printf 'build image preparer\n' >"${root}/tools/prepare_build_images.sh"
   printf 'build job selector\n' >"${root}/tools/select_build_jobs.sh"
   printf 'micro-ROS cache validator\n' >"${root}/tools/verify_microros_cache.sh"
-  printf 'dockerfile\n' >"${root}/tools/docker/firmware-builder.Dockerfile"
-  printf 'micro-ROS dockerfile\n' \
-    >"${root}/tools/docker/microros-builder.Dockerfile"
+  printf 'dockerfile\n' >"${root}/tools/docker/rrclite.Dockerfile"
+  printf 'ros lock\n' >"${root}/tools/docker/ros-humble-packages.lock"
+  cp "${SCRIPT_DIR}/docker_image_source_fingerprint.sh" "${root}/tools/"
   cp "${SCRIPT_DIR}/firmware_source_fingerprint.sh" "${root}/tools/"
-  chmod +x "${root}/tools/firmware_source_fingerprint.sh"
+  chmod +x "${root}/tools/docker_image_source_fingerprint.sh" \
+    "${root}/tools/firmware_source_fingerprint.sh"
 
   local library_root="${root}/firmware/mentor_pi_mcu/build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros"
   mkdir -p "${library_root}/include/mentor_pi_interfaces/msg"

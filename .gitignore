@@ -13,6 +13,7 @@ __pycache__/
 build/
 install/
 log/
+*.log
 
 # CMake and native test outputs.
 cmake-build-*/
@@ -30,6 +31,7 @@ tmp/
 firmware/mentor_pi_mcu/third_party/
 firmware/mentor_pi_mcu/generated/
 firmware/mentor_pi_mcu/.deps/
+mentor_pi_ros2/third_party/
 
 # Compiler and analysis artifacts.
 compile_commands.json

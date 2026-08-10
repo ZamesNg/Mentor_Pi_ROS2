@@ -77,6 +77,8 @@ bash -n "${PROJECT_ROOT}"/tools/*.sh
 "${PROJECT_ROOT}/tools/test_package_board_handoff.sh"
 "${PROJECT_ROOT}/tools/test_flash_firmware.sh"
 "${PROJECT_ROOT}/tools/test_pull_pinned_build_images.sh"
+"${PROJECT_ROOT}/tools/test_check_time_sync.sh"
+"${PROJECT_ROOT}/tools/test_unified_image_policy.sh"
 
 RunCmakeSuite() {
   local name="$1"

@@ -32,7 +32,7 @@ case "$(uname -m)" in
 esac
 "${BUILD_IMAGE_PREPARER}" --architecture "${ARCHITECTURE}"
 readonly IMAGE="$("${BUILD_IMAGE_PREPARER}" \
-  --architecture "${ARCHITECTURE}" --print firmware)"
+  --architecture "${ARCHITECTURE}" --print project)"
 readonly IMAGE_ID="$(docker image inspect "${IMAGE}" --format '{{.Id}}' \
   2>/dev/null || true)"
 readonly IMAGE_PLATFORM="$(docker image inspect "${IMAGE}" \

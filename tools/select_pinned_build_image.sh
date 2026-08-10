@@ -8,7 +8,7 @@ Fail() {
 }
 
 [[ "$#" == "2" ]] || \
-  Fail "usage: select_pinned_build_image.sh host|microros|ubuntu amd64|arm64"
+  Fail "usage: select_pinned_build_image.sh microros|ubuntu amd64|arm64"
 readonly COMPONENT="$1"
 readonly ARCHITECTURE="$2"
 [[ "${ARCHITECTURE}" == "amd64" || "${ARCHITECTURE}" == "arm64" ]] || \
@@ -18,12 +18,6 @@ readonly ARCHITECTURE="$2"
 # multi-platform indexes. Child digests avoid Docker Desktop's inability to
 # bind one index-digest reference to two local platform images at once.
 case "${COMPONENT}:${ARCHITECTURE}" in
-  host:amd64)
-    echo 'ros:humble-ros-base@sha256:09da889006b4d4f120ada9b788394d566818f9e451f59a3a9246a1f9eecf849b'
-    ;;
-  host:arm64)
-    echo 'ros:humble-ros-base@sha256:da735406a84643be3ad3fe3b8ff4888683ac38457c97f14f8099cb8567dd2ec6'
-    ;;
   microros:amd64)
     echo 'microros/micro_ros_static_library_builder:humble@sha256:8dbeecd73df7a36327259321596755eebda27c1c760eded49720745bf909516a'
     ;;
@@ -37,6 +31,6 @@ case "${COMPONENT}:${ARCHITECTURE}" in
     echo 'ubuntu:24.04@sha256:b17516cd982bf06bdd5d5600253d12a8de017b9eb831cc052b532a0363d294f9'
     ;;
   *)
-    Fail "component must be host, microros, or ubuntu"
+    Fail "component must be microros or ubuntu"
     ;;
 esac

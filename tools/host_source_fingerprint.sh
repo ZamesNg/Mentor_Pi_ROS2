@@ -52,9 +52,12 @@ AppendFile() {
 AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces"
 AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup"
 AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_hardwares"
+AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_tracking_interfaces"
+AppendDirectory "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_tracking"
 AppendDirectory "${PROJECT_ROOT}/docs/tutorials"
 for file in \
     Makefile \
+    tools/altro_source.lock \
     tools/build_agent.sh \
     tools/detect_host_profile.sh \
     tools/export_oci_image_archive.py \
@@ -62,18 +65,22 @@ for file in \
     tools/build_host_handoff_container.sh \
     tools/build_microros_agent_from_lock.sh \
     tools/build_host.sh \
-    tools/build_host_runtime_image.sh \
+    tools/bootstrap_host_dependencies.sh \
     tools/build_host_release.sh \
+    tools/check_time_sync.sh \
     tools/host_build_container_entrypoint.sh \
     tools/host_handoff_container_entrypoint.sh \
     tools/host_source_fingerprint.sh \
-    tools/docker/host-runtime.Dockerfile \
+    tools/docker/rrclite.Dockerfile \
+    tools/docker/ros-humble-packages.lock \
     tools/docker/host-runtime.zshrc \
+    tools/docker_image_source_fingerprint.sh \
     tools/install_onboard_stm32cubeprogrammer.sh \
     tools/microros_agent_source.lock \
     tools/open_runtime_shell.sh \
     tools/package_host_handoff.sh \
     tools/patches/micro_xrce_agent_rrclite_modem_lines.patch \
+    tools/patches/altro-disable-docs.patch \
     tools/prepare_build_images.sh \
     tools/run_runtime.sh \
     tools/run_with_build_lock.sh \

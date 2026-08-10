@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<package format="3">
+  <name>mentor_pi_tracking</name>
+  <version>0.1.0</version>
+  <description>Onboard ALTO MPC trajectory tracking for Mentor Pi vehicles.</description>
+  <maintainer email="maintainers@mentor-pi.dev">Mentor Pi maintainers</maintainer>
+  <license>GPL-2.0-or-later</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>diagnostic_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>mentor_pi_interfaces</depend>
+  <depend>mentor_pi_tracking_interfaces</depend>
+  <depend>nav_msgs</depend>
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_lint_cmake</test_depend>
+  <test_depend>ament_cmake_xmllint</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

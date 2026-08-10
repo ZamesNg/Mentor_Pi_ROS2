@@ -152,9 +152,9 @@ env RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
   FAKE_START_LOG="${TEST_ROOT}/start.log" \
   "${TEST_ROOT}/tools/tutorial_action.sh" start-hardware
 grep -Fqx -- \
-  '--device /dev/mentor_pi_mcu --ros-domain-id 0 --vehicle-config /opt/robots/robot_two.yaml' \
+  '--device /dev/mentor_pi_mcu --ros-domain-id 0 --vehicle-config /opt/robots/robot_two.yaml --tracking-controller none' \
   "${TEST_ROOT}/start.log" || \
-  Fail "hardware start did not forward only the selected YAML profile"
+  Fail "hardware start did not forward the selected YAML profile and disabled tracker"
 env ROS_DOMAIN_ID=37 PERIPHERAL_SMOKE_ACK=PASSIVE_OUTPUTS_GUARDED \
   OLED_PRESENT=1 \
   FAKE_RUNTIME_LOG="${TEST_ROOT}/runtime.log" \

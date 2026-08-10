@@ -5,9 +5,14 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
-readonly HOST_RUNTIME_BUILDER="${SCRIPT_DIR}/build_host_runtime_image.sh"
-readonly HOST_RUNTIME_DOCKERFILE="${SCRIPT_DIR}/docker/host-runtime.Dockerfile"
-readonly HOST_RUNTIME_ZSHRC="${SCRIPT_DIR}/docker/host-runtime.zshrc"
+readonly BUILD_IMAGE_PREPARER="${SCRIPT_DIR}/prepare_build_images.sh"
+readonly PROJECT_DOCKERFILE="${SCRIPT_DIR}/docker/rrclite.Dockerfile"
+readonly IMAGE_FINGERPRINT="${SCRIPT_DIR}/docker_image_source_fingerprint.sh"
+readonly PROJECT_ZSHRC="${SCRIPT_DIR}/docker/host-runtime.zshrc"
+readonly ROS_LOCK="${SCRIPT_DIR}/docker/ros-humble-packages.lock"
+readonly ALTO_LOCK="${SCRIPT_DIR}/altro_source.lock"
+readonly AGENT_LOCK="${SCRIPT_DIR}/microros_agent_source.lock"
+readonly MICROROS_LOCK="${PROJECT_ROOT}/firmware/mentor_pi_mcu/config/microros_sources.lock"
 readonly AGENT_BUILDER="${SCRIPT_DIR}/build_agent.sh"
 readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
 readonly OCI_EXPORTER="${SCRIPT_DIR}/export_oci_image_archive.sh"
@@ -34,7 +39,7 @@ EOF
 
 if [[ "$#" -eq 3 && "$1" == "--print-default-image" && \
   "$2" == "--architecture" ]]; then
-  "${HOST_RUNTIME_BUILDER}" --architecture "$3" --print-output
+  "${BUILD_IMAGE_PREPARER}" --architecture "$3" --print project
   exit 0
 fi
 
@@ -66,13 +71,15 @@ esac
 [[ "${architecture}" == "${native_architecture}" ]] || \
   Fail "cross-architecture handoff builds are forbidden; requested ${architecture} on ${native_architecture}"
 [[ -x "${IMAGE_SELECTOR}" ]] || Fail "pinned image selector is unavailable"
-[[ -x "${HOST_RUNTIME_BUILDER}" && -f "${HOST_RUNTIME_DOCKERFILE}" && \
-   -f "${HOST_RUNTIME_ZSHRC}" ]] || \
-  Fail "Humble host runtime image tooling is unavailable"
+[[ -x "${BUILD_IMAGE_PREPARER}" && -x "${IMAGE_FINGERPRINT}" && \
+   -f "${PROJECT_DOCKERFILE}" && \
+   -f "${PROJECT_ZSHRC}" && -f "${ROS_LOCK}" && -f "${ALTO_LOCK}" && \
+   -f "${AGENT_LOCK}" && -f "${MICROROS_LOCK}" ]] || \
+  Fail "unified Humble image tooling is unavailable"
 readonly DEFAULT_RUNTIME_IMAGE="$(
-  "${HOST_RUNTIME_BUILDER}" --architecture "${architecture}" --print-output
+  "${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" --print project
 )"
-readonly PINNED_BASE_IMAGE="$("${IMAGE_SELECTOR}" host "${architecture}")"
+readonly PINNED_BASE_IMAGE="$("${IMAGE_SELECTOR}" microros "${architecture}")"
 if [[ -z "${image}" ]]; then
   image="${MENTOR_PI_HOST_RUNTIME_IMAGE:-${DEFAULT_RUNTIME_IMAGE}}"
 fi
@@ -89,22 +96,17 @@ readonly IMAGE_PLATFORM="$(docker image inspect "${image}" \
   Fail "prepared image platform ${IMAGE_PLATFORM} does not match linux/${architecture}"
 builder_identity=""
 if [[ "${image}" == "${DEFAULT_RUNTIME_IMAGE}" ]]; then
-  readonly RUNTIME_DOCKERFILE_SHA="$(sha256sum \
-    "${HOST_RUNTIME_DOCKERFILE}" | awk '{print $1}')"
-  readonly RUNTIME_ZSHRC_SHA="$(sha256sum \
-    "${HOST_RUNTIME_ZSHRC}" | awk '{print $1}')"
+  readonly PROJECT_SOURCE_SHA="$(
+    "${IMAGE_FINGERPRINT}" project "${PINNED_BASE_IMAGE}" "${PROJECT_ROOT}"
+  )"
   [[ "$(docker image inspect "${image}" \
-      --format '{{index .Config.Labels "org.mentor-pi.host-runtime.base"}}')" == \
+      --format '{{index .Config.Labels "org.mentor-pi.image.base"}}')" == \
       "${PINNED_BASE_IMAGE}" ]] || \
     Fail "prepared runtime image has the wrong pinned base"
   [[ "$(docker image inspect "${image}" \
-      --format '{{index .Config.Labels "org.mentor-pi.host-runtime.dockerfile-sha256"}}')" == \
-      "${RUNTIME_DOCKERFILE_SHA}" ]] || \
-    Fail "prepared runtime image has the wrong Dockerfile fingerprint"
-  [[ "$(docker image inspect "${image}" \
-      --format '{{index .Config.Labels "org.mentor-pi.host-runtime.zshrc-sha256"}}')" == \
-      "${RUNTIME_ZSHRC_SHA}" ]] || \
-    Fail "prepared runtime image has the wrong zsh configuration fingerprint"
+      --format '{{index .Config.Labels "org.mentor-pi.image.source-sha256"}}')" == \
+      "${PROJECT_SOURCE_SHA}" ]] || \
+    Fail "prepared runtime image has the wrong unified source fingerprint"
   builder_identity="${PINNED_BASE_IMAGE}"
 elif [[ "${image}" =~ @sha256:[0-9a-f]{64}$ ]]; then
   builder_identity="${image}"

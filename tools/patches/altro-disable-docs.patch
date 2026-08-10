@@ -1,0 +1,14 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -33,1 +33,2 @@
+ option(ALTRO_BUILD_SHARED_LIBS "Build shared libraries" OFF)
++option(ALTRO_BUILD_DOCS "Build Doxygen documentation" ON)
+@@ -36,1 +37,1 @@
+-set(LOGDIR "${PROJECT_BINARY_DIR}/logs" CACHE FILESTRING "Location of log files")
++set(LOGDIR "${PROJECT_BINARY_DIR}/logs" CACHE PATH "Location of log files")
+@@ -87,1 +88,3 @@
+-add_subdirectory(docs)
++if(ALTRO_BUILD_DOCS)
++  add_subdirectory(docs)
++endif()

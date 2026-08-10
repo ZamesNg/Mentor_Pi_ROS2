@@ -9,16 +9,18 @@ board evidence.
 
 The active host policy is Docker-only:
 
-- the RDK X5 onboard computer and normal Ubuntu computers use
-  architecture-native pinned Ubuntu 22.04/Humble images for micro-ROS
-  generation, Agent, host, shell, development runtime, and production, plus
-  pinned Ubuntu 24.04 images for the non-ROS firmware cross-compiler and
-  normal-computer quality tools;
+- the RDK X5 onboard computer and normal Ubuntu computers use one
+  content-addressed, architecture-native Ubuntu 22.04/Humble project image for
+  firmware, micro-ROS generation, Agent, host, shell, lightweight tests,
+  development runtime, handoff, and production;
+- normal computers additionally use one pinned Ubuntu 24.04/Clang 18 quality
+  image; the RDK never pulls it;
 - host ROS installations are left untouched and are never installed or sourced;
 - only udev serial configuration and STM32CubeProgrammer flashing remain on the
   host, including the checked arm64 CubeProgrammer package for the RDK X5;
 - `make setup` detects the RDK X5 from device-tree identity, prepares only its
-  required images, and omits the normal-computer quality/fuzzing image;
+  one required project image, pulls each unique base once, and omits the
+  normal-computer quality/fuzzing image;
 - one memory-aware job budget is shared by colcon, CMake, Ninja, Agent, and
   micro-ROS generation; `RRCLITE_BUILD_JOBS` provides a validated override;
 - generated micro-ROS libraries are reused only with matching image, source,
@@ -31,6 +33,14 @@ The active host policy is Docker-only:
 - the operator path is one Docker-first Tutorial 01--08 sequence. Tutorial 07
   keeps a lightweight RDK gate without fuzzing, coverage, or the full Clang
   suite and a complete normal-computer gate.
+
+The opt-in `mentor_pi_tracking` package runs the ALTO-based mecanum or
+Ackermann lower-level tracker onboard the RDK X5. It uses the GPL-2.0-or-later
+`ZamesNg/altro-cpp` fork at commit
+`7336800baa3f2f6e0c8edfad472c1ea51c54321a`; distributable handoffs include the
+license, patch, provenance, and corresponding source. Tracking remains disabled
+unless `TRACKING_CONTROLLER=mecanum|ackermann` matches the selected vehicle.
+High-level planning and frame transforms remain offboard.
 
 The firmware remains one `NORMAL_CLOSED_LOOP_DEFAULT` PID artifact with
 `control_mode=CLOSED_LOOP`, a 6 RPS implementation ceiling, a
@@ -56,13 +66,13 @@ fixture requirements in Tutorials 01--06 are actually satisfied.
 
 Focused policy fixtures validate the memory-aware job algorithm, invalid job
 overrides, normal-host routing, RDK device-tree detection, native-architecture
-image selection, and rejection of cross-architecture builds. On native amd64,
-the Docker mock generated the locked Humble micro-ROS library, built and
-memory-checked the firmware, built and tested all three host packages, reused
-the pinned Agent, loaded every ROS overlay in the read-only enhanced-zsh
-runtime, and reused the verified micro-ROS cache on the next firmware build.
-The content-identified RDK compiler and normal quality images also passed
-focused toolchain smokes. No QEMU or cross-architecture execution was used.
+image selection, strict per-architecture ROS locks, unique base pulls, and
+rejection of cross-architecture builds. On native amd64, a network-isolated
+cached Humble container built and passed the tracking-interface and tracking
+package tests, including both model contracts and safe zero output. The new
+unified image itself has not yet completed a native build, and the prior
+three-package Docker evidence predates this consolidation; it must be repeated
+before release. No QEMU or cross-architecture execution was used.
 RDK X5 serial, flash, runtime, memory, and performance gates remain to be
 recorded; mocks never establish hardware behavior.
 
@@ -70,12 +80,16 @@ recorded; mocks never establish hardware behavior.
 
 1. Run the focused Docker host, tutorial, runtime/systemd, micro-ROS cache, and
    host-handoff contract tests for any subsequent edits.
-2. On the RDK X5, follow Tutorials 01--03 and record memory use, build duration,
-   architecture identities, cache reuse, and runtime behavior.
-3. With actuator power disconnected, flash that exact artifact and complete
+2. Build and smoke the unified image natively on amd64, recording its identity
+   and firmware, micro-ROS, Agent, host, zsh, runtime, handoff, and cache-reuse
+   results.
+3. On the RDK X5, follow Tutorials 01--03 and record image identity, memory use,
+   build duration, micro-ROS cache reuse, and runtime behavior. Benchmark both
+   trackers at 30 Hz with the 25 ms solve deadline before hardware use.
+4. With actuator power disconnected, flash that exact artifact and complete
    Tutorials 01--05. Verify the graph, supervisor `READY`, heartbeat,
    diagnostics, passive encoder signs, IMU samples, and Agent restart recovery.
-4. Only after every passive gate passes, follow Tutorial 06 with guarded wheels,
+5. Only after every passive gate passes, follow Tutorial 06 with guarded wheels,
    a current-limited supply, and a reachable stop. Use Tutorial 07 for campaign
    evidence and Tutorial 08 only after hardware checkout is complete.
 

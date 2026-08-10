@@ -154,7 +154,8 @@ case "${ACTION}" in
     exec env RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
       "${SCRIPT_DIR}/run_runtime.sh" --device "${PORT}" \
       --ros-domain-id "${ROS_DOMAIN_ID}" \
-      --vehicle-config "${vehicle_config}"
+      --vehicle-config "${vehicle_config}" \
+      --tracking-controller "${TRACKING_CONTROLLER:-none}"
     ;;
   passive-check)
     RequireExact "${PASSIVE_CHECK_ACK:-}" ACTUATORS_DISCONNECTED \

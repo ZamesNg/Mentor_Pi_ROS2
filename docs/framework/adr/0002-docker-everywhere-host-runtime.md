@@ -19,15 +19,24 @@ before normal Linux workloads.
 
 ## Decision
 
-Micro-ROS library generation, the compiled Agent, ROS host packages,
-interactive development, and production runtime shall use pinned,
-content-identified, architecture-native Ubuntu 22.04/ROS 2 Humble Docker images
-on both the RDK X5 and normal computers. Firmware cross-compilation and the
-normal-computer quality suite use pinned, content-identified,
-architecture-native Ubuntu 24.04 compiler images; those non-ROS images produce
-MCU artifacts or test the Humble-compatible source tree and never become a
-production runtime. Existing host ROS installations are not installed,
+Firmware cross-compilation, micro-ROS library generation, the compiled Agent,
+ROS host packages, lightweight GCC sanitizer checks, interactive development,
+handoff, and production runtime shall use one pinned, content-identified,
+architecture-native Ubuntu 22.04/ROS 2 Humble project image per architecture
+on both the RDK X5 and normal computers. The image is based on the matching
+pinned `micro_ros_static_library_builder` architecture child. It installs the
+Arm GNU 13.2.1 toolchain once and verifies its architecture-specific checksum.
+Normal computers additionally use one pinned, architecture-native Ubuntu 24.04
+Clang 18 quality image for formatting, tidy, coverage, and fuzzing. The RDK X5
+never pulls that image. Existing host ROS installations are not installed,
 removed, or sourced.
+
+The project image consumes the signed Humble snapshot dated 2026-08-07 and a
+strict `amd64`/`arm64` package lock. A build fails when its architecture has no
+entry or an installed package differs. Its content identity covers the
+Dockerfile, zsh configuration, ROS lock, dependency locks, and base-image
+digest. `make setup` pulls each unique base once; it does not delete obsolete
+images already present in Docker's local store.
 
 The host retains only operations that require direct host integration:
 
@@ -56,8 +65,12 @@ settings, ROS interfaces, firmware safety behavior, or HIL evidence boundary.
 
 ## Consequences
 
-One build/runtime model replaces host-package variations and makes the exact
-Humble environment transferable. Image storage and Docker Engine become host
-requirements. RDK memory use must be controlled through the shared job budget
-and lightweight release gate. Mocks may validate routing and build behavior,
-but serial, flash, performance, and hardware claims still require the RDK X5.
+One project image replaces the former firmware-builder, micro-ROS-builder, and
+host-runtime image roles and makes the exact Humble environment transferable.
+The RDK has one project image; a normal computer has that project image plus the
+quality image. Ephemeral build containers and the single persistent production
+container reuse that image and its parent layers. Image storage and Docker
+Engine remain host requirements. RDK memory use must be controlled through the
+shared job budget and lightweight release gate. Mocks may validate routing and
+build behavior, but serial, flash, tracker timing, performance, and hardware
+claims still require native RDK X5 evidence.

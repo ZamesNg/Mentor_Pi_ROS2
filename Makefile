@@ -8,6 +8,7 @@ AGENT_EVIDENCE_ID ?=
 
 PORT ?= /dev/mentor_pi_mcu
 VEHICLE_CONFIG ?=
+TRACKING_CONTROLLER ?= none
 SERIAL_USER ?=
 FLASH_ACK ?=
 ROS_DOMAIN_ID ?= 0
@@ -61,6 +62,7 @@ help:
 		'      Start Agent, supervisor, and the YAML-selected ros2_control adapter.' \
 		'  make start-mecanum | make start-ackermann' \
 		'      Convenience wrappers using the checked-in YAML profiles.' \
+		'      Add TRACKING_CONTROLLER=mecanum|ackermann to opt in to the matching onboard MPC tracker.' \
 		'  make shell ROS_DOMAIN_ID=0' \
 		'      Open a sourced interactive zsh for the running runtime.' \
 		'  make agent-check' \
@@ -92,6 +94,7 @@ setup: doctor
 		exit 1; \
 	fi
 	@./tools/bootstrap_firmware_dependencies.sh
+	@./tools/bootstrap_host_dependencies.sh
 	@if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
 		./tools/pull_pinned_build_images.sh --architecture "$(SYSTEM_ARCH)"; \
 	else \
@@ -107,6 +110,7 @@ firmware:
 	@./tools/build_firmware.sh
 
 host:
+	@./tools/bootstrap_host_dependencies.sh
 	@./tools/build_host.sh
 
 host-hardwares: host
@@ -138,18 +142,21 @@ start:
 
 start-hardware:
 	@PORT="$(PORT)" ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
-		VEHICLE_CONFIG="$(VEHICLE_CONFIG)" RRCLITE_RUNTIME_ACK="$(RUNTIME_ACK)" \
+		VEHICLE_CONFIG="$(VEHICLE_CONFIG)" TRACKING_CONTROLLER="$(TRACKING_CONTROLLER)" \
+		RRCLITE_RUNTIME_ACK="$(RUNTIME_ACK)" \
 		./tools/tutorial_action.sh start-hardware
 
 start-mecanum:
 	@PORT="$(PORT)" ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
 		VEHICLE_CONFIG="$(CURDIR)/mentor_pi_ros2/src/mentor_pi_hardwares/config/mecanum/hardware.yaml" \
+		TRACKING_CONTROLLER="$(TRACKING_CONTROLLER)" \
 		RRCLITE_RUNTIME_ACK="$(RUNTIME_ACK)" \
 		./tools/tutorial_action.sh start-mecanum
 
 start-ackermann:
 	@PORT="$(PORT)" ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
 		VEHICLE_CONFIG="$(CURDIR)/mentor_pi_ros2/src/mentor_pi_hardwares/config/ackermann/hardware.yaml" \
+		TRACKING_CONTROLLER="$(TRACKING_CONTROLLER)" \
 		RRCLITE_RUNTIME_ACK="$(RUNTIME_ACK)" \
 		./tools/tutorial_action.sh start-ackermann
 

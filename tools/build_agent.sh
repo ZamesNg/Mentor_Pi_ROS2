@@ -7,7 +7,7 @@ readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly BUILD_HELPER="${SCRIPT_DIR}/build_microros_agent_from_lock.sh"
 readonly SOURCE_LOCK="${SCRIPT_DIR}/microros_agent_source.lock"
 readonly XRCE_AGENT_PATCH="${SCRIPT_DIR}/patches/micro_xrce_agent_rrclite_modem_lines.patch"
-readonly IMAGE_SELECTOR="${SCRIPT_DIR}/select_pinned_build_image.sh"
+readonly BUILD_IMAGE_PREPARER="${SCRIPT_DIR}/prepare_build_images.sh"
 readonly JOB_SELECTOR="${SCRIPT_DIR}/select_build_jobs.sh"
 readonly BUILD_LOCK="${SCRIPT_DIR}/run_with_build_lock.sh"
 readonly -a ORIGINAL_ARGUMENTS=("$@")
@@ -81,7 +81,8 @@ readonly patch_sha="$(Sha256 "${XRCE_AGENT_PATCH}")"
 
 command -v docker >/dev/null 2>&1 || Fail "Docker is required"
 docker info >/dev/null 2>&1 || Fail "Docker is not running or accessible"
-image="$(${IMAGE_SELECTOR} microros "${architecture}")"
+"${BUILD_IMAGE_PREPARER}" --architecture "${architecture}"
+image="$("${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" --print project)"
 image_id="$(docker image inspect "${image}" --format '{{.Id}}' \
   2>/dev/null || true)"
 image_architecture="$(docker image inspect "${image}" \

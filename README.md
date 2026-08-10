@@ -17,8 +17,9 @@ transport.
 ## Start here
 
 Follow the single tutorial sequence in numerical order on either the RDK X5
-onboard computer or a normal Ubuntu development computer. Docker supplies ROS
-2 Humble, the Agent, firmware tools, builds, and runtime on both. Only udev
+onboard computer or a normal Ubuntu development computer. One content-addressed
+project image per native architecture supplies ROS 2 Humble, the Agent,
+firmware tools, builds, lightweight tests, and runtime on both. Only udev
 serial configuration and STM32CubeProgrammer flashing remain host operations.
 `make shell` opens a zsh runtime with pinned Oh My Zsh, completion,
 autosuggestions, and syntax highlighting.
@@ -71,6 +72,9 @@ hardware-sensitive step.
   Engine; architecture-native pinned Ubuntu 22.04/Humble images are used.
 - Existing host ROS installations are left untouched and never sourced.
 - Firmware, micro-ROS, Agent, host, and runtime builds are Docker-only.
+- The RDK X5 stores one project image. Normal computers additionally store one
+  optional Ubuntu 24.04/Clang 18 quality image for formatting, tidy, coverage,
+  and fuzzing. Ephemeral build containers do not create additional image roles.
 - The RDK X5 release gate excludes fuzzing, coverage, and the full Clang suite;
   `make release-software-gates` retains those normal-computer checks.
 - UART flashing: STM32CubeProgrammer CLI through CH9102F/USART1.
@@ -98,8 +102,10 @@ does not substitute for an unobserved physical metric.
 - [`firmware/mentor_pi_mcu/`](firmware/mentor_pi_mcu/) — STM32 firmware,
   drivers, controller workers, and micro-ROS runtime.
 - [`mentor_pi_ros2/`](mentor_pi_ros2/) — directly buildable ROS 2 Humble
-  workspace containing `mentor_pi_interfaces`, `mentor_pi_bringup`, and the
-  mecanum/Ackermann `mentor_pi_hardwares` ros2_control adapters.
+  workspace containing the firmware interfaces, tracking interfaces, bringup,
+  mecanum/Ackermann `mentor_pi_hardwares` adapters, and opt-in GPL ALTO MPC
+  trackers. The trackers run onboard; trajectory planning and transforms remain
+  offboard.
 - [`tools/`](tools/) — pinned setup, build, verification, packaging, flash, and
   developer serial-access helpers.
 - [`thirdpart/`](thirdpart/) — the checked repository copy of the licensed

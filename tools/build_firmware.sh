@@ -13,7 +13,7 @@ readonly MICROROS_INTERFACE_FINGERPRINT="${MICROROS_ROOT}/mentor_pi_interfaces.s
 readonly MICROROS_ARCHIVE_HASH="${FIRMWARE_ROOT}/config/microros_artifact.sha256"
 readonly MICROROS_TREE_HASH="${FIRMWARE_ROOT}/config/microros_artifact_tree.sha256"
 readonly TOOLCHAIN_FILE="${TARGET_ROOT}/arm-none-eabi-toolchain.cmake"
-readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/firmware-builder.Dockerfile"
+readonly DOCKERFILE="${PROJECT_ROOT}/tools/docker/rrclite.Dockerfile"
 readonly FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/firmware_source_fingerprint.sh"
 readonly MICROROS_FINGERPRINT_TOOL="${PROJECT_ROOT}/tools/microros_artifact_fingerprint.sh"
 readonly ARTIFACT_VERIFIER="${PROJECT_ROOT}/tools/verify_firmware_artifact.sh"
@@ -149,7 +149,7 @@ case "$(uname -m)" in
   aarch64 | arm64) readonly architecture=arm64 ;;
   *) Fail "the host architecture must be amd64 or arm64" ;;
 esac
-readonly IMAGE="$("${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" --print firmware)"
+readonly IMAGE="$("${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" --print project)"
 readonly IMAGE_ID="$(docker image inspect "${IMAGE}" --format '{{.Id}}' \
   2>/dev/null || true)"
 [[ "${IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
