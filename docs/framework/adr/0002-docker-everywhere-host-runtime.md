@@ -32,11 +32,15 @@ never pulls that image. Existing host ROS installations are not installed,
 removed, or sourced.
 
 The project image consumes the signed Humble snapshot dated 2026-08-07 and a
-strict `amd64`/`arm64` package lock. A build fails when its architecture has no
-entry or an installed package differs. Its content identity covers the
-Dockerfile, zsh configuration, ROS lock, dependency locks, and base-image
-digest. `make setup` pulls each unique base once; it does not delete obsolete
-images already present in Docker's local store.
+strict `amd64`/`arm64` package lock. The snapshot source uses only the
+checksum-pinned ROS Snapshot Builder key with full fingerprint
+`4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA`; it does not inherit the separate
+normal ROS repository key. A build fails when its architecture has no entry,
+the key fingerprint/checksum differs, or an installed package differs. Its
+content identity covers the Dockerfile, zsh configuration, ROS lock,
+dependency locks, and base-image digest. `make setup` pulls each unique base
+once; it does not delete obsolete images already present in Docker's local
+store.
 
 The host retains only operations that require direct host integration:
 

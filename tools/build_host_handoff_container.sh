@@ -148,7 +148,7 @@ readonly AGENT_RELATIVE="${AGENT_PREFIX#"${PROJECT_ROOT}/"}"
 [[ "${AGENT_RELATIVE}" != "${AGENT_PREFIX}" && \
    -x "${AGENT_PREFIX}/lib/micro_ros_agent/micro_ros_agent" ]] || \
   Fail "verified Agent prefix is unavailable"
-readonly RUNTIME_IMAGE_ID="$(docker image inspect "${image}" --format '{{.Id}}')"
+readonly RUNTIME_IMAGE_SOURCE_ID="$(docker image inspect "${image}" --format '{{.Id}}')"
 readonly IMAGE_ARCHIVE_RELATIVE="build/host-handoff-images/${release_id}-${architecture}.tar"
 readonly IMAGE_ARCHIVE="${PROJECT_ROOT}/${IMAGE_ARCHIVE_RELATIVE}"
 mkdir -p "$(dirname "${IMAGE_ARCHIVE}")"
@@ -161,7 +161,8 @@ CleanupArchive() {
   fi
 }
 trap CleanupArchive EXIT
-"${OCI_EXPORTER}" "${image}" "${IMAGE_ARCHIVE}"
+readonly RUNTIME_IMAGE_ID="$("${OCI_EXPORTER}" --print-runtime-id \
+  "${image}" "${IMAGE_ARCHIVE}")"
 
 docker run --rm --network=none \
   --platform "${CONTAINER_PLATFORM}" \
@@ -169,7 +170,7 @@ docker run --rm --network=none \
   --env MENTOR_PI_CALLER_UID="${CALLER_UID}" \
   --env MENTOR_PI_CALLER_GID="${CALLER_GID}" \
   --env MENTOR_PI_HOST_BUILDER_IMAGE="${builder_identity}" \
-  --env MENTOR_PI_HOST_BUILDER_IMAGE_ID="${RUNTIME_IMAGE_ID}" \
+  --env MENTOR_PI_HOST_BUILDER_IMAGE_ID="${RUNTIME_IMAGE_SOURCE_ID}" \
   --env MENTOR_PI_OUTPUT_RELATIVE="${OUTPUT_RELATIVE}" \
   --env MENTOR_PI_PREFIX_RELATIVE="${PREFIX_RELATIVE}" \
   --env MENTOR_PI_BUILD_RELATIVE="${BUILD_RELATIVE}" \
@@ -177,6 +178,7 @@ docker run --rm --network=none \
   --env MENTOR_PI_AGENT_RELATIVE="${AGENT_RELATIVE}" \
   --env MENTOR_PI_RUNTIME_IMAGE_ARCHIVE_RELATIVE="${IMAGE_ARCHIVE_RELATIVE}" \
   --env MENTOR_PI_RUNTIME_IMAGE_ID="${RUNTIME_IMAGE_ID}" \
+  --env MENTOR_PI_RUNTIME_IMAGE_SOURCE_ID="${RUNTIME_IMAGE_SOURCE_ID}" \
   --env "RRCLITE_BUILD_JOBS=${BUILD_JOBS}" \
   --volume "${PROJECT_ROOT}:/workspace" \
   --workdir /workspace \

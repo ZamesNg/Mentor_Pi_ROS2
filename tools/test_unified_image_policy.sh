@@ -7,6 +7,8 @@ readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly DOCKERFILE="${SCRIPT_DIR}/docker/rrclite.Dockerfile"
 readonly ROS_LOCK="${SCRIPT_DIR}/docker/ros-humble-packages.lock"
 readonly IMAGE_FINGERPRINT="${SCRIPT_DIR}/docker_image_source_fingerprint.sh"
+readonly MICROROS_BUILDER="${SCRIPT_DIR}/build_microros_library.sh"
+readonly AGENT_BUILDER="${SCRIPT_DIR}/build_agent.sh"
 
 Fail() {
   echo "Unified-image policy test failure: $*" >&2
@@ -29,6 +31,26 @@ done
   Fail "Arm GNU download must occur exactly once"
 rg -Fq 'snapshots.ros.org/humble/${ROS_SNAPSHOT_DATE}/ubuntu' \
   "${DOCKERFILE}" || Fail "signed Humble snapshot source is absent"
+rg -Fq '4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA' \
+  "${DOCKERFILE}" || Fail "ROS snapshot signing-key fingerprint is absent"
+rg -Fq '6d2ff4af9d56b304213de7664551f6986174a68bae76476b7ad21469b27a28c4' \
+  "${DOCKERFILE}" || Fail "ROS snapshot signing-key checksum is absent"
+rg -Uq 'test "\$\{ROS_SNAPSHOT_KEY_SHA256\}" = \\\n[[:space:]]+"6d2ff4af9d56b304213de7664551f6986174a68bae76476b7ad21469b27a28c4"' \
+  "${DOCKERFILE}" || Fail "ROS snapshot signing-key checksum is overridable"
+rg -Fq 'Signed-By: /usr/share/keyrings/ros-snapshot-key.asc' \
+  "${DOCKERFILE}" || Fail "snapshot source does not use its dedicated key"
+rg -Fq "'Types: deb'" "${DOCKERFILE}" || \
+  Fail "snapshot source must request binary packages only"
+[[ "$(rg -c 'keyserver[.]ubuntu[.]com/pks/lookup' "${DOCKERFILE}")" == 1 ]] || \
+  Fail "ROS snapshot key must be downloaded exactly once"
+rg -Uq '"\$\{selected_image\}" \\\n[[:space:]]+/entrypoint[.]sh' \
+  "${MICROROS_BUILDER}" || \
+  Fail "micro-ROS generation must explicitly invoke the inherited generator"
+rg -Fq -- '--env HOME=/root' "${MICROROS_BUILDER}" || \
+  Fail "micro-ROS generation must use the image's offline rosdep cache"
+rg -Fq '"${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" >&2' \
+  "${AGENT_BUILDER}" || \
+  Fail "Agent output discovery must keep preparer progress off stdout"
 
 readonly expected_lock="$(cat <<'EOF'
 ROS_SNAPSHOT_DATE=2026-08-07

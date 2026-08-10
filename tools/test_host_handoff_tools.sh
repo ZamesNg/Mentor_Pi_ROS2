@@ -9,6 +9,7 @@ readonly FINGERPRINT="${SCRIPT_DIR}/host_source_fingerprint.sh"
 readonly OCI_EXPORTER="${SCRIPT_DIR}/export_oci_image_archive.sh"
 readonly TEST_ROOT="$(mktemp -d)"
 readonly IMAGE_ID="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+readonly IMAGE_SOURCE_ID="sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 Cleanup() {
   [[ ! -d "${TEST_ROOT}" ]] || rm -rf -- "${TEST_ROOT}"
@@ -34,6 +35,69 @@ ExpectFailure() {
 readonly HOST_PREFIX="${TEST_ROOT}/host"
 readonly AGENT_PREFIX="${TEST_ROOT}/agent"
 readonly IMAGE_ARCHIVE="${TEST_ROOT}/runtime.tar"
+readonly EXPORT_FIXTURE_ARCHIVE="${TEST_ROOT}/docker-save.tar"
+readonly EXPORT_FIXTURE_OUTPUT="${TEST_ROOT}/exported-runtime.tar"
+readonly FAKE_DOCKER_DIRECTORY="${TEST_ROOT}/fake-bin"
+mkdir -p "${FAKE_DOCKER_DIRECTORY}"
+readonly EXPORT_FIXTURE_IMAGE_ID="$(python3 - "${EXPORT_FIXTURE_ARCHIVE}" <<'PY'
+import hashlib
+import io
+import json
+import sys
+import tarfile
+
+archive_path = sys.argv[1]
+config = json.dumps({"architecture": "amd64", "os": "linux"}).encode()
+digest = hashlib.sha256(config).hexdigest()
+manifest = json.dumps([{
+    "Config": f"{digest}.json",
+    "Layers": ["fixture/layer.tar"],
+    "RepoTags": ["fixture:latest"],
+}]).encode()
+with tarfile.open(archive_path, "w") as archive:
+    for name, data in (("manifest.json", manifest),
+                       (f"{digest}.json", config),
+                       ("fixture/layer.tar", b"layer")):
+        info = tarfile.TarInfo(name)
+        info.size = len(data)
+        archive.addfile(info, io.BytesIO(data))
+print(f"sha256:{digest}")
+PY
+)"
+cat >"${FAKE_DOCKER_DIRECTORY}/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == image && "$2" == inspect ]]; then
+  case "$5" in
+    '{{.Id}}') printf '%s\n' "${EXPORT_FIXTURE_IMAGE_ID}" ;;
+    '{{.Os}}') printf '%s\n' linux ;;
+    '{{.Architecture}}') printf '%s\n' amd64 ;;
+    '{{index .RepoTags 0}}') printf '%s\n' fixture:latest ;;
+    *) exit 2 ;;
+  esac
+elif [[ "$1" == save && "$2" == --output ]]; then
+  cp "${EXPORT_FIXTURE_ARCHIVE}" "$3"
+else
+  exit 2
+fi
+EOF
+chmod +x "${FAKE_DOCKER_DIRECTORY}/docker"
+normal_export_output="$(PATH="${FAKE_DOCKER_DIRECTORY}:${PATH}" env \
+  EXPORT_FIXTURE_ARCHIVE="${EXPORT_FIXTURE_ARCHIVE}" \
+  EXPORT_FIXTURE_IMAGE_ID="${EXPORT_FIXTURE_IMAGE_ID}" \
+  "${OCI_EXPORTER}" fixture:latest "${EXPORT_FIXTURE_OUTPUT}")"
+[[ "${normal_export_output}" == \
+  "Exported OCI runtime image ${EXPORT_FIXTURE_IMAGE_ID} (source ${EXPORT_FIXTURE_IMAGE_ID}): ${EXPORT_FIXTURE_OUTPUT}" ]] || \
+  Fail "OCI image exporter normal output does not remain informational"
+rm -f -- "${EXPORT_FIXTURE_OUTPUT}"
+machine_export_output="$(PATH="${FAKE_DOCKER_DIRECTORY}:${PATH}" env \
+  EXPORT_FIXTURE_ARCHIVE="${EXPORT_FIXTURE_ARCHIVE}" \
+  EXPORT_FIXTURE_IMAGE_ID="${EXPORT_FIXTURE_IMAGE_ID}" \
+  "${OCI_EXPORTER}" --print-runtime-id fixture:latest "${EXPORT_FIXTURE_OUTPUT}")"
+[[ "${machine_export_output}" == "${EXPORT_FIXTURE_IMAGE_ID}" ]] || \
+  Fail "OCI image exporter machine output is not exactly one runtime ID"
+tar -tf "${EXPORT_FIXTURE_OUTPUT}" oci-layout index.json >/dev/null || \
+  Fail "OCI image exporter does not retain direct archive member checks"
 mkdir -p "${HOST_PREFIX}/lib/mentor_pi_bringup" \
   "${HOST_PREFIX}/lib/mentor_pi_tracking" \
   "${HOST_PREFIX}/share/mentor_pi_tracking/licenses" \
@@ -94,6 +158,7 @@ readonly HANDOFF="${TEST_ROOT}/handoff"
   --agent-prefix "${AGENT_PREFIX}" \
   --runtime-image-archive "${IMAGE_ARCHIVE}" \
   --runtime-image-id "${IMAGE_ID}" \
+  --runtime-image-source-id "${IMAGE_SOURCE_ID}" \
   --output-directory "${HANDOFF}" \
   --release-id fixture-r1 >/dev/null
 
@@ -103,6 +168,8 @@ grep -Fqx 'package_format=rrclite-host-handoff-v2' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "handoff format is missing"
 grep -Fqx "runtime_image_id=${IMAGE_ID}" "${HANDOFF}/HOST-HANDOFF.txt" || \
   Fail "runtime image identity is missing"
+grep -Fqx "runtime_image_source_id=${IMAGE_SOURCE_ID}" \
+  "${HANDOFF}/HOST-HANDOFF.txt" || Fail "runtime image source identity is missing"
 grep -Eq '^runtime_image_archive_sha256=[0-9a-f]{64}$' \
   "${HANDOFF}/HOST-HANDOFF.txt" || Fail "runtime archive hash is missing"
 grep -Fqx 'runtime_image_archive_format=oci-v1' \
@@ -145,6 +212,7 @@ ExpectFailure 'unpinned builder identity' "${PACKAGER}" \
   --agent-prefix "${AGENT_PREFIX}" \
   --runtime-image-archive "${IMAGE_ARCHIVE}" \
   --runtime-image-id "${IMAGE_ID}" \
+  --runtime-image-source-id "${IMAGE_SOURCE_ID}" \
   --output-directory "${TEST_ROOT}/bad-output" \
   --release-id bad
 
@@ -156,6 +224,7 @@ ExpectFailure 'builder image ID is not content-addressed' "${PACKAGER}" \
   --agent-prefix "${AGENT_PREFIX}" \
   --runtime-image-archive "${IMAGE_ARCHIVE}" \
   --runtime-image-id "${IMAGE_ID}" \
+  --runtime-image-source-id "${IMAGE_SOURCE_ID}" \
   --output-directory "${TEST_ROOT}/bad-image-id-output" \
   --release-id bad-image-id
 
@@ -177,12 +246,17 @@ for obsolete in setup_onboard_ros_environment install_onboard_microros_setup \
     Fail "host fingerprint retains obsolete ${obsolete} input"
 done
 
-grep -Fq '"${OCI_EXPORTER}" "${image}" "${IMAGE_ARCHIVE}"' \
+grep -Fq '"${OCI_EXPORTER}" --print-runtime-id' \
   "${SCRIPT_DIR}/build_host_handoff_container.sh" || \
-  Fail "container handoff does not export the runtime image as OCI"
+  Fail "container handoff does not capture the exported runtime image ID"
 [[ -x "${OCI_EXPORTER}" ]] || Fail "OCI image exporter is not executable"
 grep -Fq 'oci-layout' "${OCI_EXPORTER}" || \
   Fail "OCI image exporter does not validate the OCI layout marker"
+grep -Fq "printf '%s\\n' \"\${runtime_image_id}\"" "${OCI_EXPORTER}" || \
+  Fail "OCI image exporter has no machine-readable runtime ID output"
+grep -Fq 'MENTOR_PI_RUNTIME_IMAGE_SOURCE_ID' \
+  "${SCRIPT_DIR}/host_handoff_container_entrypoint.sh" || \
+  Fail "container handoff does not propagate runtime image source provenance"
 grep -Fq 'RRCLITE_BUILD_JOBS' "${SCRIPT_DIR}/host_handoff_container_entrypoint.sh" || \
   Fail "container handoff does not propagate the shared build budget"
 

@@ -245,8 +245,10 @@ EOF
   --env MICROROS_SOURCE_LOCK_CANDIDATE=build/microros_sources.humble.candidate.lock \
   --env MICROROS_CALLER_UID="$(id -u)" \
   --env MICROROS_CALLER_GID="$(id -g)" \
+  --env HOME=/root \
   --env PYTHONHASHSEED=0 \
-  "${selected_image}"
+  "${selected_image}" \
+  /entrypoint.sh
 
 if [[ "${capture_source_lock}" == "1" ]]; then
   test -s "${SOURCE_LOCK_CANDIDATE}"

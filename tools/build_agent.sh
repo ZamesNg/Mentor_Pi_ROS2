@@ -81,7 +81,7 @@ readonly patch_sha="$(Sha256 "${XRCE_AGENT_PATCH}")"
 
 command -v docker >/dev/null 2>&1 || Fail "Docker is required"
 docker info >/dev/null 2>&1 || Fail "Docker is not running or accessible"
-"${BUILD_IMAGE_PREPARER}" --architecture "${architecture}"
+"${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" >&2
 image="$("${BUILD_IMAGE_PREPARER}" --architecture "${architecture}" --print project)"
 image_id="$(docker image inspect "${image}" --format '{{.Id}}' \
   2>/dev/null || true)"

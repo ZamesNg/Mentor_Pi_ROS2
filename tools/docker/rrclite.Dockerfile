@@ -10,6 +10,8 @@ ARG MECANUM_CONTROLLER_VERSION
 ARG ACKERMANN_CONTROLLER_VERSION
 ARG FOXGLOVE_BRIDGE_VERSION
 ARG XACRO_VERSION
+ARG ROS_SNAPSHOT_KEY_FINGERPRINT=4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA
+ARG ROS_SNAPSHOT_KEY_SHA256=6d2ff4af9d56b304213de7664551f6986174a68bae76476b7ad21469b27a28c4
 ARG OH_MY_ZSH_COMMIT=97b27bb2ec0701330b18c2d3e340b22e742b3fa8
 
 RUN test -n "${ROS_SNAPSHOT_DATE}" \
@@ -19,11 +21,39 @@ RUN test -n "${ROS_SNAPSHOT_DATE}" \
     && test -n "${ACKERMANN_CONTROLLER_VERSION}" \
     && test -n "${FOXGLOVE_BRIDGE_VERSION}" \
     && test -n "${XACRO_VERSION}" \
-    && sed -i \
-       "s#http://packages.ros.org/ros2/ubuntu#http://snapshots.ros.org/humble/${ROS_SNAPSHOT_DATE}/ubuntu#g" \
+    && test "${ROS_SNAPSHOT_KEY_FINGERPRINT}" = \
+       "4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA" \
+    && test "${ROS_SNAPSHOT_KEY_SHA256}" = \
+       "6d2ff4af9d56b304213de7664551f6986174a68bae76476b7ad21469b27a28c4" \
+    && curl -fL --retry 5 --retry-all-errors --retry-delay 2 \
+       --connect-timeout 30 --max-time 300 \
+       "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${ROS_SNAPSHOT_KEY_FINGERPRINT}" \
+       -o /tmp/ros-snapshot-key.asc \
+    && echo "${ROS_SNAPSHOT_KEY_SHA256}  /tmp/ros-snapshot-key.asc" \
+       | sha256sum --check --strict - \
+    && mkdir -m 0700 /tmp/ros-snapshot-gnupg \
+    && test "$(GNUPGHOME=/tmp/ros-snapshot-gnupg \
+       gpg --no-options --batch --show-keys --with-colons \
+       /tmp/ros-snapshot-key.asc \
+       | awk -F: '$1 == "fpr" { print $10; exit }')" = \
+       "${ROS_SNAPSHOT_KEY_FINGERPRINT}" \
+    && install -m 0644 /tmp/ros-snapshot-key.asc \
+       /usr/share/keyrings/ros-snapshot-key.asc \
+    && rm -rf /tmp/ros-snapshot-gnupg \
+    && rm -f /tmp/ros-snapshot-key.asc \
        /etc/apt/sources.list.d/ros2.sources \
+    && printf '%s\n' \
+       'Types: deb' \
+       "URIs: http://snapshots.ros.org/humble/${ROS_SNAPSHOT_DATE}/ubuntu" \
+       'Suites: jammy' \
+       'Components: main' \
+       'Signed-By: /usr/share/keyrings/ros-snapshot-key.asc' \
+       >/etc/apt/sources.list.d/ros2.sources \
     && grep -Fq \
        "http://snapshots.ros.org/humble/${ROS_SNAPSHOT_DATE}/ubuntu" \
+       /etc/apt/sources.list.d/ros2.sources \
+    && grep -Fqx \
+       'Signed-By: /usr/share/keyrings/ros-snapshot-key.asc' \
        /etc/apt/sources.list.d/ros2.sources \
     && apt-get update \
     && apt-get install -y --no-install-recommends \

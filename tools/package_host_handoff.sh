@@ -15,6 +15,7 @@ host_prefix=""
 agent_prefix=""
 runtime_image_archive=""
 runtime_image_id=""
+runtime_image_source_id=""
 output_directory=""
 release_id=""
 staging_root=""
@@ -24,7 +25,8 @@ Usage() {
   cat >&2 <<'EOF'
 Usage: package_host_handoff.sh --host-prefix ABSOLUTE_PATH
   --agent-prefix ABSOLUTE_PATH --runtime-image-archive ABSOLUTE_PATH
-  --runtime-image-id sha256:HEX --output-directory PATH --release-id SAFE_ID
+  --runtime-image-id sha256:HEX --runtime-image-source-id sha256:HEX
+  --output-directory PATH --release-id SAFE_ID
 EOF
   exit 2
 }
@@ -89,6 +91,7 @@ while (($# > 0)); do
     --agent-prefix) agent_prefix="${2:-}"; shift 2 ;;
     --runtime-image-archive) runtime_image_archive="${2:-}"; shift 2 ;;
     --runtime-image-id) runtime_image_id="${2:-}"; shift 2 ;;
+    --runtime-image-source-id) runtime_image_source_id="${2:-}"; shift 2 ;;
     --output-directory) output_directory="${2:-}"; shift 2 ;;
     --release-id) release_id="${2:-}"; shift 2 ;;
     *) Usage ;;
@@ -99,6 +102,7 @@ done
 [[ "${agent_prefix}" == /* && -d "${agent_prefix}" ]] || Usage
 [[ "${runtime_image_archive}" == /* && -s "${runtime_image_archive}" ]] || Usage
 [[ "${runtime_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]] || Usage
+[[ "${runtime_image_source_id}" =~ ^sha256:[0-9a-f]{64}$ ]] || Usage
 [[ -n "${output_directory}" ]] || Usage
 [[ "${release_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] ||
   Fail "release ID must contain 1-64 safe filename characters"
@@ -309,6 +313,7 @@ runtime_image_archive=runtime-image/mentor-pi-runtime.tar
 runtime_image_archive_format=oci-v1
 runtime_image_archive_sha256=${RUNTIME_ARCHIVE_SHA}
 runtime_image_id=${runtime_image_id}
+runtime_image_source_id=${runtime_image_source_id}
 altro_repository=${ALTO_REPOSITORY}
 altro_commit=${ALTO_COMMIT}
 altro_source_lock_sha256=$(Sha256 "${ALTO_SOURCE_LOCK}")
