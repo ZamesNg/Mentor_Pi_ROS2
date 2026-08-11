@@ -14,6 +14,11 @@ choosing `ID_SERIAL_SHORT`, falling back to `ID_PATH`:
 sudo ROS_DOMAIN_ID=0 make -C micro_ros_agent install-service
 ```
 
+This same installation step is safe to rerun when applying an Agent service
+definition update: it reuses an existing release only after verifying it still
+matches the current build, refreshes the service files, and restarts the
+service.
+
 If multiple matching adapters are connected, select the intended board with
 `ID_SERIAL_SHORT=YOUR_SERIAL` or `ID_PATH=YOUR_STABLE_PATH`; do not pass a
 guessed tty number. The installer creates

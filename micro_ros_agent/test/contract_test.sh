@@ -51,6 +51,35 @@ grep -Fq '/.dockerenv' "${COMPONENT_ROOT}/tools/install_service.sh" || {
   exit 1
 }
 
+installer="${COMPONENT_ROOT}/tools/install_service.sh"
+release_test_root="$(mktemp -d)"
+trap 'rm -rf -- "${release_test_root}"' EXIT
+current_metadata="${release_test_root}/current-metadata"
+release_path="${release_test_root}/release"
+mkdir -p "${release_path}/lib/micro_ros_agent" "${release_path}/bin"
+printf 'build=verified\n' >"${current_metadata}"
+cp "${current_metadata}" "${release_path}/AGENT-BUILD-METADATA.txt"
+printf '#!/bin/sh\nexit 0\n' >"${release_path}/lib/micro_ros_agent/micro_ros_agent"
+cp "${release_path}/lib/micro_ros_agent/micro_ros_agent" \
+  "${release_path}/bin/mentor-pi-agent"
+chmod 0755 "${release_path}/lib/micro_ros_agent/micro_ros_agent" \
+  "${release_path}/bin/mentor-pi-agent"
+executable_sha="$(sha256sum "${release_path}/lib/micro_ros_agent/micro_ros_agent" | awk '{print $1}')"
+launcher_sha="$(sha256sum "${release_path}/bin/mentor-pi-agent" | awk '{print $1}')"
+bash -c 'source "$1"; VerifyExistingRelease "$2" "$3" "$4" "$5"' bash \
+  "${installer}" "${release_path}" "${current_metadata}" \
+  "${executable_sha}" "${launcher_sha}"
+printf 'build=mismatch\n' >"${release_path}/AGENT-BUILD-METADATA.txt"
+if bash -c 'source "$1"; VerifyExistingRelease "$2" "$3" "$4" "$5"' bash \
+    "${installer}" "${release_path}" "${current_metadata}" \
+    "${executable_sha}" "${launcher_sha}" 2>/dev/null; then
+  echo "existing Agent release metadata mismatch was accepted" >&2
+  exit 1
+fi
+grep -Eq '^[[:space:]]*systemctl enable mentor-pi-agent\.service$' "${installer}"
+grep -Eq '^[[:space:]]*systemctl restart mentor-pi-agent\.service$' "${installer}"
+! grep -Fq 'systemctl enable --now mentor-pi-agent.service' "${installer}"
+
 executable="${COMPONENT_ROOT}/build/native/install/lib/micro_ros_agent/micro_ros_agent"
 launcher="${COMPONENT_ROOT}/build/native/install/bin/mentor-pi-agent"
 metadata="${COMPONENT_ROOT}/build/native/install/AGENT-BUILD-METADATA.txt"
