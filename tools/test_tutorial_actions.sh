@@ -11,12 +11,13 @@ Fail() { echo "Tutorial action contract failure: $*" >&2; exit 1; }
 
 for command in \
     'make -C firmware setup' 'make -C firmware build' \
-    'make -C ros2_ws build'; do
+    'make -C micro_ros_agent find-device' 'make -C ros2_ws build'; do
   rg -Fq "${command}" "${PROJECT_ROOT}/docs/tutorials/host" || \
     Fail "host tutorial track omits ${command}"
 done
 for command in \
     'make -C firmware build' 'make -C micro_ros_agent build' \
+    'make -C micro_ros_agent find-device' \
     'make -C micro_ros_agent install-service' 'make -C ros2_ws build' \
     'systemctl is-active mentor-pi-agent.service'; do
   rg -Fq "${command}" "${PROJECT_ROOT}/docs/tutorials/onboard" || \

@@ -33,8 +33,8 @@ make -C firmware build verify
 Run SDK generation as the normal developer user, never through `sudo`. The VS
 Code Dev Container initializes rosdep for that user and copies any micro-ROS
 helper that must be adjusted into the disposable generation tree. If rosdep is
-reported unavailable, choose **Dev Containers: Rebuild and Reopen in
-Container** before retrying.
+reported unavailable, or the preflight reports that colcon is missing, choose
+**Dev Containers: Rebuild and Reopen in Container** before retrying.
 
 Commit the interface change and regenerated SDK in the same commit. Do not
 accept a stale SDK by copying generated headers into the firmware source tree.

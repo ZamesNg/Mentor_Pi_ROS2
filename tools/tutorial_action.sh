@@ -128,12 +128,8 @@ case "${ACTION}" in
   serial-setup)
     RequireExact "${SERIAL_SETUP_ACK:-}" CONFIGURE_SERIAL_ACCESS \
       "This installs a udev rule and adds ${USER} to mentor-pi-serial."
-    mapfile -t candidates < <(find /dev/serial/by-id -maxdepth 1 -type l \
-      -name 'usb-1a86_USB_Single_Serial_*-if00' -print 2>/dev/null | sort)
-    [[ "${#candidates[@]}" == 1 ]] || \
-      Fail "expected exactly one Mentor Pi CH9102F under /dev/serial/by-id"
     sudo "${SCRIPT_DIR}/configure_dev_serial_access.sh" \
-      --device "${candidates[0]}" --user "${USER}"
+      --user "${USER}"
     ;;
   passive-check)
     RequireExact "${PASSIVE_CHECK_ACK:-}" ACTUATORS_DISCONNECTED \

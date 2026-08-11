@@ -143,6 +143,9 @@ if(BUILD_TESTING)
       geometry_msgs mentor_pi_interfaces mentor_pi_tracking_interfaces nav_msgs
       rclcpp std_msgs std_srvs)
     target_link_libraries(tracker_node_contract_test mentor_pi_tracker_node)
+    set_tests_properties(tracker_node_contract_test PROPERTIES
+      ENVIRONMENT "ROS_DOMAIN_ID=152"
+    )
   endif()
 endif()
 

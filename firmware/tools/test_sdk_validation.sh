@@ -6,6 +6,9 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 readonly SOURCE="${PROJECT_ROOT}/ros2_ws/src/mentor_pi_interfaces"
 readonly GENERATOR="${PROJECT_ROOT}/firmware/mentor_pi_mcu/config/microros_library_generation.sh"
+readonly SDK_GENERATOR="${PROJECT_ROOT}/firmware/tools/generate_microros_sdk.sh"
+readonly FLASHER="${PROJECT_ROOT}/firmware/tools/flash.sh"
+readonly BOOT_CONTROL="${PROJECT_ROOT}/firmware/mentor_pi_mcu/host/ch9102_boot_control.cc"
 readonly TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf -- "${TEST_ROOT}"' EXIT
 
@@ -22,6 +25,16 @@ grep -Fq 'SDK is stale relative to mentor_pi_interfaces' "${TEST_ROOT}/output"
 grep -Fq 'LOCAL_MICROROS_TOOLS=' "${GENERATOR}"
 grep -Fq 'cp -a "${INSTALLED_MICROROS_TOOLS}" "${LOCAL_MICROROS_TOOLS}"' \
   "${GENERATOR}"
+grep -Fq 'MICROROS_HOST_TOOLS_DIR=' "${GENERATOR}"
+grep -Fq 'export PATH="${MICROROS_HOST_TOOLS_DIR}:$(clean "$PATH")"' \
+  "${GENERATOR}"
+grep -Fq -- "--mode='u+rwX,go=rX'" "${SDK_GENERATOR}"
+grep -Fq 'TIOCMBIS' "${BOOT_CONTROL}"
+grep -Fq 'TIOCMBIC' "${BOOT_CONTROL}"
+grep -Fq -- '--mode bootloader' "${FLASHER}"
+grep -Fq -- '--mode application' "${FLASHER}"
+grep -Fq 'automatic bootloader activation failed before programming' \
+  "${FLASHER}"
 if grep -F 'sed -i' -A2 "${GENERATOR}" | \
     grep -Fq 'INSTALLED_MICROROS_TOOLS'; then
   echo "SDK generator patches the installed micro-ROS overlay" >&2

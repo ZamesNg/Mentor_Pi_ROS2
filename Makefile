@@ -20,7 +20,7 @@ RECOVERY_MODE ?=
 RUNTIME_CONTEXT ?= development
 PACKAGED_FIRMWARE_SHA256 ?=
 
-.PHONY: help doctor check-compatibility install-evidence-tools serial-setup passive-check \
+.PHONY: help doctor check-compatibility find-device install-evidence-tools serial-setup passive-check \
 	peripheral-smoke characterize-board qualification-preflight \
 	campaign-load campaign-soak campaign-recovery
 
@@ -36,6 +36,7 @@ help:
 		'Integration commands:' \
 		'  make doctor' \
 		'  make check-compatibility' \
+		'  make find-device' \
 		'  sudo make install-evidence-tools' \
 		'  make serial-setup' \
 		'  make passive-check | peripheral-smoke | characterize-board' \
@@ -49,6 +50,9 @@ doctor:
 
 check-compatibility:
 	@./tools/check_compatibility.sh
+
+find-device:
+	@$(MAKE) --no-print-directory -C micro_ros_agent find-device
 
 install-evidence-tools:
 	@./tools/install_evidence_tools.sh

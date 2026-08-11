@@ -132,4 +132,10 @@ WORKDIR /workspaces/Mentor_Pi
 ENTRYPOINT []
 CMD ["sleep", "infinity"]
 
+# Keep small developer-tool additions after the checksummed Arm toolchain and
+# shell setup so changing them does not invalidate those download-heavy layers.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+
 USER ${USERNAME}

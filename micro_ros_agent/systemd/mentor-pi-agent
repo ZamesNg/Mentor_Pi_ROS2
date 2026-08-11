@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly INSTALL_PREFIX="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly ROS_SETUP=/opt/ros/humble/setup.bash
+readonly LOCAL_SETUP="${INSTALL_PREFIX}/local_setup.bash"
+readonly AGENT_EXECUTABLE="${INSTALL_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
+
+[[ -r "${ROS_SETUP}" ]] || {
+  echo "Mentor Pi Agent launcher: missing ${ROS_SETUP}" >&2
+  exit 1
+}
+[[ -r "${LOCAL_SETUP}" && -x "${AGENT_EXECUTABLE}" ]] || {
+  echo "Mentor Pi Agent launcher: incomplete install prefix ${INSTALL_PREFIX}" >&2
+  exit 1
+}
+
+# ROS environment hooks are not guaranteed to be nounset-safe.
+set +u
+# shellcheck disable=SC1090
+source "${ROS_SETUP}"
+# shellcheck disable=SC1090
+source "${LOCAL_SETUP}"
+set -u
+
+exec "${AGENT_EXECUTABLE}" "$@"

@@ -1,0 +1,2 @@
+# Pinned non-ROS source dependencies live below this directory. Keep plain
+# colcon list/build/test discovery limited to ros2_ws/src.

@@ -108,7 +108,7 @@ readonly TEST_ROOT="${MENTOR_PI_CAPTURE_TEST_ROOT:-}"
 readonly STARTED_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 readonly ALLOW_MISSING_OLED="${allow_missing_oled}"
 readonly DEVELOPMENT_RUNTIME="${MENTOR_PI_DEVELOPMENT_RUNTIME:-0}"
-readonly AGENT_EXECUTABLE="${MENTOR_PI_AGENT_EXECUTABLE:-/opt/mentor_pi/agent/current/lib/micro_ros_agent/micro_ros_agent}"
+readonly AGENT_EXECUTABLE="${MENTOR_PI_AGENT_EXECUTABLE:-/opt/mentor_pi/agent/current/bin/mentor-pi-agent}"
 [[ "${DEVELOPMENT_RUNTIME}" == "0" || "${DEVELOPMENT_RUNTIME}" == "1" ]] || {
   echo "MENTOR_PI_DEVELOPMENT_RUNTIME must be 0 or 1." >&2
   exit 1
@@ -215,6 +215,7 @@ if [[ "${DEVELOPMENT_RUNTIME}" == "1" ]]; then
 else
   CaptureCommand installed-paths ls -ld \
     "$(RootPath /opt/mentor_pi/agent/current)" \
+    "$(RootPath /opt/mentor_pi/agent/current/bin/mentor-pi-agent)" \
     "$(RootPath /opt/mentor_pi/agent/current/lib/micro_ros_agent/micro_ros_agent)" \
     "$(RootPath /dev/mentor_pi_mcu)"
   CaptureCommand installed-link-targets readlink -f \
@@ -255,7 +256,7 @@ else
   RecordStatus serial-owner 127
 fi
 
-agent_wrapper="$(RootPath /opt/mentor_pi/agent/current/lib/micro_ros_agent/micro_ros_agent)"
+agent_wrapper="$(RootPath /opt/mentor_pi/agent/current/bin/mentor-pi-agent)"
 if [[ "${DEVELOPMENT_RUNTIME}" == "1" ]]; then
   agent_wrapper="${AGENT_EXECUTABLE}"
 fi

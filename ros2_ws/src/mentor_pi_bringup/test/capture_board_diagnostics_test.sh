@@ -11,6 +11,8 @@ readonly FAKE_BIN="${TEST_ROOT}/bin"
 readonly OUTPUT="${TEST_ROOT}/capture"
 readonly FAKE_AGENT="${TEST_ROOT}/micro_ros_agent"
 
+grep -Fq '/opt/mentor_pi/agent/current/bin/mentor-pi-agent' "${CAPTURE}"
+
 mkdir -p "${FAKE_BIN}" "${SYSTEM_ROOT}/etc/systemd/system" \
   "${SYSTEM_ROOT}/etc/udev/rules.d" "${SYSTEM_ROOT}/dev"
 printf '%s\n' '[Unit]' 'Description=test Agent' \

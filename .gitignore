@@ -33,7 +33,8 @@ firmware/mentor_pi_mcu/generated/
 firmware/mentor_pi_mcu/.deps/
 firmware/mentor_pi_mcu/build/
 micro_ros_agent/build/
-ros2_ws/third_party/
+ros2_ws/third_party/*
+!ros2_ws/third_party/COLCON_IGNORE
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/

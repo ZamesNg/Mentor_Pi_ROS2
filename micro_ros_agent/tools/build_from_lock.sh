@@ -118,10 +118,12 @@ CloneAndVerify() {
 
 RestoreUnmodifiedXrceAgent() {
   local repository="${SOURCE_ROOT}/Micro-XRCE-DDS-Agent"
-  if git -C "${repository}" apply --check "${XRCE_AGENT_PATCH}"; then
+  if git -C "${repository}" apply --check "${XRCE_AGENT_PATCH}" \
+      >/dev/null 2>&1; then
     return
   fi
-  if git -C "${repository}" apply --reverse --check "${XRCE_AGENT_PATCH}"; then
+  if git -C "${repository}" apply --reverse --check "${XRCE_AGENT_PATCH}" \
+      >/dev/null 2>&1; then
     git -C "${repository}" apply --reverse "${XRCE_AGENT_PATCH}"
     return
   fi

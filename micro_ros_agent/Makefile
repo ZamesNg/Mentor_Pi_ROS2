@@ -2,28 +2,32 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 ROS_DOMAIN_ID ?= 0
-DEVICE ?= /dev/mentor_pi_mcu
+DEVICE ?=
 ID_SERIAL_SHORT ?=
 ID_PATH ?=
 RELEASE_ID ?=
 BUILD_JOBS ?= $(shell nproc 2>/dev/null || echo 1)
 
-.PHONY: help doctor setup build test install-service clean
+.PHONY: help doctor find-device setup build test install-service clean
 
 help:
 	@printf '%s\n' \
 		'Mentor Pi micro-ROS Agent (Ubuntu 22.04 / Humble)' \
 		'' \
 		'  make doctor         Verify the supported environment.' \
+		'  make find-device    Locate exactly one connected Mentor Pi CH9102F.' \
 		'  make setup          Fetch sources and install ROS dependencies.' \
 		'  make build          Build the patched, pinned Agent natively.' \
 		'  make test           Validate locks, patch, metadata, and executable.' \
-		'  sudo make install-service DEVICE=/dev/ttyUSB0 ID_SERIAL_SHORT=VALUE' \
+		'  sudo make install-service' \
 		'                       Install and enable mentor-pi-agent.service.' \
 		'  make clean          Remove this component build directory.'
 
 doctor:
 	@./tools/check_environment.sh
+
+find-device:
+	@./tools/find_device.sh --path
 
 setup: doctor
 	@RRCLITE_BUILD_JOBS="$(BUILD_JOBS)" ./tools/build.sh --setup
@@ -32,6 +36,7 @@ build: doctor
 	@RRCLITE_BUILD_JOBS="$(BUILD_JOBS)" ./tools/build.sh
 
 test: build
+	@./test/device_discovery_test.sh
 	@./test/contract_test.sh
 
 install-service:

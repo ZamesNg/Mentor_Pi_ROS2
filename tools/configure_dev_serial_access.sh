@@ -8,6 +8,7 @@ readonly DEVICE_ALIAS="/dev/mentor_pi_mcu"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly UDEV_TEMPLATE="${PROJECT_ROOT}/micro_ros_agent/udev/99-mentor-pi-mcu.rules.in"
+readonly DEVICE_FINDER="${PROJECT_ROOT}/micro_ros_agent/tools/find_device.sh"
 readonly UDEVADM="${RRCLITE_SERIAL_ACCESS_UDEVADM:-/usr/bin/udevadm}"
 readonly SYS_CLASS_TTY="${RRCLITE_SERIAL_ACCESS_SYS_CLASS_TTY:-/sys/class/tty}"
 readonly TEST_ROOT="${RRCLITE_SERIAL_ACCESS_TEST_ROOT:-}"
@@ -24,13 +25,13 @@ Fail() {
 
 Usage() {
   cat >&2 <<'EOF'
-Usage: configure_dev_serial_access.sh \
-  --device /dev/serial/by-id/EXACT_CH9102F_DEVICE \
+Usage: configure_dev_serial_access.sh [--device /dev/EXPLICIT_DEVICE] \
   --user LOGIN_NAME [--dry-run]
 
 This Ubuntu development-host helper verifies exactly one CH9102F,
 installs /dev/mentor_pi_mcu, and grants LOGIN_NAME access through the dedicated
-mentor-pi-serial group. It never grants broad dialout membership.
+mentor-pi-serial group. Without --device it discovers the adapter by USB
+vendor/product identity. It never grants broad dialout membership.
 EOF
   exit 2
 }
@@ -95,15 +96,21 @@ while (($# > 0)); do
   esac
 done
 
-[[ "${selected_device}" =~ ^/dev/[A-Za-z0-9._/+:-]+$ &&
-  "${selected_device}" != *"/../"* && "${selected_device}" != */.. &&
-  "${selected_device}" != *"/./"* && "${selected_device}" != */. ]] || \
+[[ -z "${selected_device}" || \
+  ("${selected_device}" =~ ^/dev/[A-Za-z0-9._/+:-]+$ &&
+   "${selected_device}" != *"/../"* && "${selected_device}" != */.. &&
+   "${selected_device}" != *"/./"* && "${selected_device}" != */.) ]] || \
   Fail "device must be an explicit, well-formed /dev path"
 [[ "${target_user}" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || \
   Fail "user must be a valid local login name"
 [[ -x "${UDEVADM}" ]] || Fail "udevadm is required at ${UDEVADM}"
 [[ -f "${UDEV_TEMPLATE}" && ! -L "${UDEV_TEMPLATE}" ]] || \
   Fail "udev rule template is missing or symbolic: ${UDEV_TEMPLATE}"
+[[ -x "${DEVICE_FINDER}" ]] || Fail "device discovery helper is unavailable"
+if [[ -z "${selected_device}" ]]; then
+  selected_device="$("${DEVICE_FINDER}" --path)" || \
+    Fail "automatic CH9102F discovery did not select one device"
+fi
 
 if [[ -n "${TEST_ROOT}" ]]; then
   case "${TEST_ROOT}" in
@@ -175,6 +182,7 @@ grep -Fq '@MENTOR_PI_DEVICE_IDENTITY@' "${rendered_rule}" && \
   Fail "udev rule template rendering failed"
 
 echo "Validated CH9102F ${identity_kind} identity: ${identity_value}"
+echo "Selected CH9102F device: ${selected_device}"
 if [[ "${dry_run}" == "1" ]]; then
   echo "Would ensure group ${SERIAL_GROUP} and add user ${target_user}."
   echo "Would install $(Destination /etc/udev/rules.d/${UDEV_RULE_NAME}):"

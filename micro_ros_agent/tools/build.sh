@@ -7,6 +7,7 @@ readonly COMPONENT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly WORK_ROOT="${COMPONENT_ROOT}/build/native"
 readonly INSTALL_ROOT="${WORK_ROOT}/install"
 readonly EXECUTABLE="${INSTALL_ROOT}/lib/micro_ros_agent/micro_ros_agent"
+readonly LAUNCHER="${INSTALL_ROOT}/bin/mentor-pi-agent"
 readonly METADATA="${INSTALL_ROOT}/AGENT-BUILD-METADATA.txt"
 readonly SOURCE_LOCK="${COMPONENT_ROOT}/sources.lock"
 readonly PATCH="${COMPONENT_ROOT}/patches/micro_xrce_agent_rrclite_modem_lines.patch"
@@ -42,6 +43,7 @@ fi
   echo "Agent executable was not produced" >&2
   exit 1
 }
+install -D -m 0755 "${COMPONENT_ROOT}/systemd/mentor-pi-agent" "${LAUNCHER}"
 
 Sha256() {
   sha256sum "$1" | awk '{print $1}'
@@ -49,6 +51,7 @@ Sha256() {
 
 readonly ARCHITECTURE="$(dpkg --print-architecture)"
 readonly EXECUTABLE_SHA="$(Sha256 "${EXECUTABLE}")"
+readonly LAUNCHER_SHA="$(Sha256 "${LAUNCHER}")"
 readonly TEMP_METADATA="${METADATA}.tmp.$$"
 printf '%s\n' \
   'format=mentor-pi-native-agent-v1' \
@@ -58,6 +61,7 @@ printf '%s\n' \
   "source_lock_sha256=$(Sha256 "${SOURCE_LOCK}")" \
   "rrclite_patch_sha256=$(Sha256 "${PATCH}")" \
   "executable_sha256=${EXECUTABLE_SHA}" \
+  "launcher_sha256=${LAUNCHER_SHA}" \
   >"${TEMP_METADATA}"
 mv "${TEMP_METADATA}" "${METADATA}"
 echo "Native Agent build ready: ${EXECUTABLE}"

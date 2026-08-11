@@ -110,8 +110,16 @@ set -u
 readonly MICROROS_SETUP_PREFIX="$(ros2 pkg prefix micro_ros_setup)"
 readonly INSTALLED_MICROROS_TOOLS="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup"
 readonly LOCAL_MICROROS_TOOLS="${MICROROS_GENERATOR_WORKSPACE}/micro_ros_setup-tools"
+command -v colcon >/dev/null 2>&1 || {
+  echo "colcon is unavailable before micro-ROS environment cleanup." >&2
+  exit 1
+}
+MICROROS_HOST_TOOLS_DIR="$(dirname "$(command -v colcon)")"
+readonly MICROROS_HOST_TOOLS_DIR
+export MICROROS_HOST_TOOLS_DIR
 [[ -x "${INSTALLED_MICROROS_TOOLS}/create_firmware_ws.sh" &&
-   -x "${INSTALLED_MICROROS_TOOLS}/create_ws.sh" ]] || {
+   -x "${INSTALLED_MICROROS_TOOLS}/create_ws.sh" &&
+   -r "${INSTALLED_MICROROS_TOOLS}/clean_env.sh" ]] || {
   echo "Pinned micro-ROS workspace scripts are missing under ${MICROROS_SETUP_PREFIX}." >&2
   exit 1
 }
@@ -122,9 +130,21 @@ cp -a "${INSTALLED_MICROROS_TOOLS}" "${LOCAL_MICROROS_TOOLS}"
 chmod -R u+rwX "${LOCAL_MICROROS_TOOLS}"
 readonly CREATE_FIRMWARE_WORKSPACE_SCRIPT="${LOCAL_MICROROS_TOOLS}/create_firmware_ws.sh"
 readonly CREATE_WORKSPACE_SCRIPT="${LOCAL_MICROROS_TOOLS}/create_ws.sh"
+readonly CLEAN_ENV_SCRIPT="${LOCAL_MICROROS_TOOLS}/clean_env.sh"
 sed -i \
   "s#ros2 run micro_ros_setup create_ws.sh#${CREATE_WORKSPACE_SCRIPT}#g" \
   "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
+# Upstream removes every PATH entry matching AMENT_PREFIX_PATH. An inherited
+# broad prefix such as /usr therefore hides colcon and rosdep mid-generation.
+# Keep the directory containing the verified host colcon after that cleanup.
+sed -i \
+  's#^  export PATH=$(clean $PATH)$#  export PATH="${MICROROS_HOST_TOOLS_DIR}:$(clean "$PATH")"#' \
+  "${CLEAN_ENV_SCRIPT}"
+grep -Fq 'export PATH="${MICROROS_HOST_TOOLS_DIR}:$(clean "$PATH")"' \
+  "${CLEAN_ENV_SCRIPT}" || {
+  echo "Pinned micro-ROS environment cleanup has an unexpected format." >&2
+  exit 1
+}
 readonly create_firmware_workspace_command="${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
 readonly -a build_firmware_command=(ros2 run micro_ros_setup build_firmware.sh)
 if ! "${create_firmware_workspace_command}" generate_lib; then

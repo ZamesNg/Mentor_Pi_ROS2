@@ -54,10 +54,12 @@ The project requires direct udev ownership by a dedicated
 `mentor-pi-serial` group, a hardened non-root systemd service, and host-visible
 journald logs. Agent sources shall be checked out at the immutable revisions in
 `micro_ros_agent/sources.lock`, then installed under a versioned
-`/opt/mentor_pi/agent/` prefix. The service executes the compiled binary:
+`/opt/mentor_pi/agent/` prefix. The service executes a checked launcher that
+activates the Humble and versioned Agent environments before replacing itself
+with the compiled binary:
 
 ```sh
-/opt/mentor_pi/agent/current/lib/micro_ros_agent/micro_ros_agent serial \
+/opt/mentor_pi/agent/current/bin/mentor-pi-agent serial \
   --dev /dev/mentor_pi_mcu --baudrate 1000000 -v4
 ```
 

@@ -4,31 +4,32 @@ Keep motor and servo power disconnected. Do not run ROS applications yet.
 
 Inspect the board for damaged wiring, reversed polarity, loose conductors, and
 unintended contact. Verify the controller and CH9102F adapter are the devices
-you intend to use. With the board connected over USB, list candidate ports:
+you intend to use. With the board connected over USB, locate it by USB
+identity:
 
 ```sh
 # Linux
-ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || true
+MENTOR_PI_PORT="$(make -s -C micro_ros_agent find-device)"
+printf '%s\n' "${MENTOR_PI_PORT}"
+udevadm info --query=property --name="${MENTOR_PI_PORT}"
 
 # macOS
 ls -l /dev/cu.*
 ```
 
-On Linux, inspect the selected device without opening it:
-
-```sh
-udevadm info --query=property --name=/dev/ttyUSB0
-```
-
-The expected USB identity is vendor `1a86`, product `55d4`. If more than one
-matching adapter exists, record its `ID_SERIAL_SHORT` or stable `ID_PATH` and
-do not proceed until the intended board is unambiguous.
+The Linux discovery command requires vendor `1a86`, product `55d4`, and
+exactly one matching tty. If it lists multiple candidates and stops, identify
+the intended board by its reported `ID_SERIAL_SHORT` or stable `ID_PATH` and
+disconnect the others before continuing.
 
 On Ubuntu, install the stable development alias and dedicated serial group:
 
 ```sh
 SERIAL_SETUP_ACK=CONFIGURE_SERIAL_ACCESS make serial-setup
 ```
+
+This repeats identity-based discovery and creates `/dev/mentor_pi_mcu`; it
+does not depend on the transient kernel tty number.
 
 Log out and back in after the first group change. The Agent service installer
 performs its own production identity and udev installation onboard.

@@ -693,10 +693,11 @@ before installation or upgrade.
 A single hardened systemd unit shall execute the versioned native Agent with
 the deployment's authoritative `ROS_DOMAIN_ID`. It runs as the unprivileged
 `mentor-pi` user with only the `mentor-pi-serial` supplementary group. The
-compiled Agent receives:
+service launcher receives these arguments and passes them unchanged to the
+compiled Agent:
 
 ```sh
-/opt/mentor_pi/agent/current/lib/micro_ros_agent/micro_ros_agent serial \
+/opt/mentor_pi/agent/current/bin/mentor-pi-agent serial \
   --dev /dev/mentor_pi_mcu --baudrate 1000000 -v4
 ```
 

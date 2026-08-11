@@ -13,6 +13,11 @@ Fail() {
   exit 1
 }
 
+CanonicalGitUrl() {
+  local url="${1%/}"
+  printf '%s' "${url%.git}"
+}
+
 "${SCRIPT_DIR}/check_environment.sh" >/dev/null
 mkdir -p "${WORKSPACE_ROOT}/third_party"
 if [[ ! -d "${ALTO_ROOT}/.git" ]]; then
@@ -20,8 +25,10 @@ if [[ ! -d "${ALTO_ROOT}/.git" ]]; then
   vcs import --input "${WORKSPACE_ROOT}/dependencies.repos" \
     "${WORKSPACE_ROOT}"
 fi
-[[ "$(git -C "${ALTO_ROOT}" config --get remote.origin.url)" == \
-  "${ALTO_URL}" ]] || Fail "ALTO origin differs from dependencies.repos"
+[[ "$(CanonicalGitUrl \
+  "$(git -C "${ALTO_ROOT}" config --get remote.origin.url)")" == \
+  "$(CanonicalGitUrl "${ALTO_URL}")" ]] || \
+  Fail "ALTO origin differs from dependencies.repos"
 [[ "$(git -C "${ALTO_ROOT}" rev-parse HEAD)" == "${ALTO_COMMIT}" ]] || \
   Fail "ALTO is not at the pinned commit"
 [[ -z "$(git -C "${ALTO_ROOT}" status --porcelain=v1 \

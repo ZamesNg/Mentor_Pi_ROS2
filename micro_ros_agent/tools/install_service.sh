@@ -7,10 +7,12 @@ readonly COMPONENT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly BUILD_PREFIX="${COMPONENT_ROOT}/build/native/install"
 readonly METADATA="${BUILD_PREFIX}/AGENT-BUILD-METADATA.txt"
 readonly EXECUTABLE="${BUILD_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
-readonly DEVICE="${DEVICE:-/dev/mentor_pi_mcu}"
+readonly LAUNCHER="${BUILD_PREFIX}/bin/mentor-pi-agent"
+readonly DEVICE_FINDER="${COMPONENT_ROOT}/tools/find_device.sh"
+DEVICE="${DEVICE:-}"
 readonly ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
-readonly ID_SERIAL_SHORT="${ID_SERIAL_SHORT:-}"
-readonly ID_PATH="${ID_PATH:-}"
+ID_SERIAL_SHORT="${ID_SERIAL_SHORT:-}"
+ID_PATH="${ID_PATH:-}"
 
 Fail() {
   echo "Agent service installation error: $*" >&2
@@ -21,32 +23,56 @@ Fail() {
 [[ ! -f /.dockerenv ]] || \
   Fail "service installation requires native Ubuntu 22.04, not a container"
 "${SCRIPT_DIR}/check_environment.sh" >/dev/null
-[[ -x "${EXECUTABLE}" && -f "${METADATA}" && ! -L "${METADATA}" ]] || \
+[[ -x "${EXECUTABLE}" && -x "${LAUNCHER}" && -f "${METADATA}" && \
+   ! -L "${METADATA}" ]] || \
   Fail "run make build before installing the service"
+[[ -x "${DEVICE_FINDER}" ]] || Fail "device discovery helper is unavailable"
 [[ "${ROS_DOMAIN_ID}" =~ ^(0|[1-9][0-9]{0,2})$ ]] && \
   ((ROS_DOMAIN_ID <= 232)) || Fail "ROS_DOMAIN_ID must be in [0,232]"
+[[ -z "${ID_SERIAL_SHORT}" || -z "${ID_PATH}" ]] || \
+  Fail "set at most one of ID_SERIAL_SHORT or ID_PATH"
+if [[ -z "${DEVICE}" ]]; then
+  discovery_arguments=(--path)
+  if [[ -n "${ID_SERIAL_SHORT}" ]]; then
+    discovery_arguments+=(--id-serial-short "${ID_SERIAL_SHORT}")
+  elif [[ -n "${ID_PATH}" ]]; then
+    discovery_arguments+=(--id-path "${ID_PATH}")
+  fi
+  DEVICE="$("${DEVICE_FINDER}" "${discovery_arguments[@]}")" || \
+    Fail "automatic CH9102F discovery did not select one device"
+fi
+readonly DEVICE
 [[ "${DEVICE}" =~ ^/dev/[A-Za-z0-9._/+:-]+$ && -c "${DEVICE}" ]] || \
   Fail "DEVICE must be a connected character device"
-if [[ -n "${ID_SERIAL_SHORT}" && -z "${ID_PATH}" ]]; then
-  identity_kind=ID_SERIAL_SHORT
-  identity_value="${ID_SERIAL_SHORT}"
-  selector="ATTRS{serial}==\"${ID_SERIAL_SHORT}\""
-elif [[ -n "${ID_PATH}" && -z "${ID_SERIAL_SHORT}" ]]; then
-  identity_kind=ID_PATH
-  identity_value="${ID_PATH}"
-  selector="ENV{ID_PATH}==\"${ID_PATH}\""
-else
-  Fail "set exactly one of ID_SERIAL_SHORT or ID_PATH"
-fi
-readonly identity_kind identity_value selector
-[[ "${identity_value}" =~ ^[A-Za-z0-9._:+/@-]+$ ]] || \
-  Fail "device identity contains unsupported characters"
 
 properties="$(udevadm info --query=property --name="${DEVICE}")" || \
   Fail "udevadm could not inspect ${DEVICE}"
 grep -Fqx 'ID_VENDOR_ID=1a86' <<<"${properties}" && \
   grep -Fqx 'ID_MODEL_ID=55d4' <<<"${properties}" || \
   Fail "${DEVICE} is not the Mentor Pi CH9102F"
+
+if [[ -z "${ID_SERIAL_SHORT}" && -z "${ID_PATH}" ]]; then
+  ID_SERIAL_SHORT="$(sed -n 's/^ID_SERIAL_SHORT=//p' <<<"${properties}" | head -n 1)"
+  if [[ -z "${ID_SERIAL_SHORT}" ]]; then
+    ID_PATH="$(sed -n 's/^ID_PATH=//p' <<<"${properties}" | head -n 1)"
+  fi
+fi
+readonly ID_SERIAL_SHORT ID_PATH
+if [[ -n "${ID_SERIAL_SHORT}" ]]; then
+  identity_kind=ID_SERIAL_SHORT
+  identity_value="${ID_SERIAL_SHORT}"
+  selector="ATTRS{serial}==\"${ID_SERIAL_SHORT}\""
+elif [[ -n "${ID_PATH}" ]]; then
+  identity_kind=ID_PATH
+  identity_value="${ID_PATH}"
+  selector="ENV{ID_PATH}==\"${ID_PATH}\""
+else
+  Fail "the selected device has no stable ID_SERIAL_SHORT or ID_PATH"
+fi
+readonly identity_kind identity_value selector
+[[ "${identity_value}" =~ ^[A-Za-z0-9._:+/@-]+$ ]] || \
+  Fail "device identity contains unsupported characters"
+
 grep -Fqx "${identity_kind}=${identity_value}" <<<"${properties}" || \
   Fail "${DEVICE} does not match the requested stable identity"
 
@@ -66,6 +92,9 @@ ReadMetadata() {
 executable_sha="$(sha256sum "${EXECUTABLE}" | awk '{print $1}')"
 [[ "${executable_sha}" == "$(ReadMetadata executable_sha256)" ]] || \
   Fail "Agent executable changed after its build"
+launcher_sha="$(sha256sum "${LAUNCHER}" | awk '{print $1}')"
+[[ "${launcher_sha}" == "$(ReadMetadata launcher_sha256)" ]] || \
+  Fail "Agent launcher changed after its build"
 
 release_id="${RELEASE_ID:-${executable_sha:0:16}}"
 [[ "${release_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || \

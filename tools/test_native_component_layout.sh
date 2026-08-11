@@ -11,6 +11,14 @@ for component in firmware micro_ros_agent ros2_ws; do
   [[ -f "${PROJECT_ROOT}/${component}/Makefile" ]] || \
     Fail "${component} has no component Makefile"
 done
+[[ -x "${PROJECT_ROOT}/micro_ros_agent/tools/find_device.sh" ]] || \
+  Fail "CH9102F identity-based discovery helper is missing"
+[[ -x "${PROJECT_ROOT}/firmware/tools/build_boot_control.sh" && \
+   -f "${PROJECT_ROOT}/firmware/mentor_pi_mcu/host/ch9102_boot_control.cc" ]] || \
+  Fail "firmware CH9102F automatic boot-control tooling is missing"
+grep -Fqx 'AUTOMATIC_BOOT_CONTROL ?= 1' \
+  "${PROJECT_ROOT}/firmware/Makefile" || \
+  Fail "firmware automatic boot control is not the default"
 [[ ! -e "${PROJECT_ROOT}/mentor_pi_ros2" && \
    ! -L "${PROJECT_ROOT}/mentor_pi_ros2" ]] || \
   Fail "the legacy mentor_pi_ros2 path exists"
@@ -32,6 +40,8 @@ readonly -a expected_packages=(
   Fail "ros2_ws/src does not contain exactly the five project packages"
 grep -Fq -- '--base-paths src' "${PROJECT_ROOT}/ros2_ws/tools/colcon.sh" || \
   Fail "colcon is not explicitly limited to ros2_ws/src"
+[[ -f "${PROJECT_ROOT}/ros2_ws/third_party/COLCON_IGNORE" ]] || \
+  Fail "plain colcon discovery does not ignore third-party sources"
 
 [[ -f "${PROJECT_ROOT}/firmware/mentor_pi_mcu/sdk/humble/libmicroros.tar.xz" && \
    -f "${PROJECT_ROOT}/firmware/mentor_pi_mcu/sdk/humble/manifest.txt" ]] || \
@@ -92,7 +102,14 @@ if grep -Eq '^(start|host|firmware|agent|build|shell):' \
     "${PROJECT_ROOT}/Makefile"; then
   Fail "the root Makefile exposes a component build/runtime target"
 fi
-for target in doctor check-compatibility passive-check characterize-board \
+if rg -n '/dev/tty(USB|ACM)[0-9]+' \
+    "${PROJECT_ROOT}/README.md" \
+    "${PROJECT_ROOT}/docs/tutorials" \
+    "${PROJECT_ROOT}/micro_ros_agent/README.md" \
+    "${PROJECT_ROOT}/micro_ros_agent/Makefile" >/dev/null; then
+  Fail "operator instructions assume a transient Linux tty number"
+fi
+for target in doctor check-compatibility find-device passive-check characterize-board \
     qualification-preflight; do
   grep -Eq "^${target}:" "${PROJECT_ROOT}/Makefile" || \
     Fail "root integration target is missing: ${target}"

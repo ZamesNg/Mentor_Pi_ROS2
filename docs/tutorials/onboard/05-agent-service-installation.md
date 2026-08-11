@@ -3,18 +3,19 @@
 Identify exactly one connected CH9102F:
 
 ```sh
-udevadm info --query=property --name=/dev/ttyUSB0
+make -C micro_ros_agent find-device
 ```
 
-Install the built Agent using one stable selector:
+Install the built Agent. It repeats discovery, verifies the live USB identity,
+and automatically chooses `ID_SERIAL_SHORT`, falling back to `ID_PATH`:
 
 ```sh
-sudo DEVICE=/dev/ttyUSB0 ID_SERIAL_SHORT=YOUR_SERIAL \
-  ROS_DOMAIN_ID=0 make -C micro_ros_agent install-service
+sudo ROS_DOMAIN_ID=0 make -C micro_ros_agent install-service
 ```
 
-If no unique serial exists, use `ID_PATH=YOUR_STABLE_PATH` and omit
-`ID_SERIAL_SHORT`. The installer verifies the live identity, creates
+If multiple matching adapters are connected, select the intended board with
+`ID_SERIAL_SHORT=YOUR_SERIAL` or `ID_PATH=YOUR_STABLE_PATH`; do not pass a
+guessed tty number. The installer creates
 `/dev/mentor_pi_mcu`, installs a versioned root-owned release below
 `/opt/mentor_pi/agent/`, and enables the non-root service.
 

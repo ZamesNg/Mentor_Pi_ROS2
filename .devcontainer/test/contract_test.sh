@@ -21,6 +21,7 @@ grep -Fq '"updateRemoteUserUID": true' \
   "${DEVCONTAINER_ROOT}/devcontainer.json"
 grep -Fq 'sudo -H -u "${USERNAME}" rosdep update' "${DOCKERFILE}"
 grep -Fq '.ros/rosdep/sources.cache/index' "${DOCKERFILE}"
+grep -Fq 'apt-get install -y --no-install-recommends ripgrep' "${DOCKERFILE}"
 grep -Fq 'zsh-autosuggestions' "${ZSHRC}"
 grep -Fq 'zsh-syntax-highlighting' "${ZSHRC}"
 grep -Fq 'terminal.integrated.defaultProfile.linux' \

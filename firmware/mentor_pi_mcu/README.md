@@ -87,6 +87,14 @@ unverified artifact and debugger-initiated firmware loads are intentionally
 unsupported. Source-level debugging requires a separate SWD probe; the
 CH9102F/USART1 ROM-bootloader path provides flashing only.
 
+On Linux, `make -C firmware flash` builds the host-side CH9102F helper through
+CMake/Ninja and uses separate RTS/DTR set/clear ioctls. It asserts reset with
+BOOT0 high, enters the ROM bootloader, probes it, programs and verifies the
+immutable snapshot, and only then resets with BOOT0 low into the application.
+An ioctl, preflight, programming, or verification failure never performs the
+final application reset. `AUTOMATIC_BOOT_CONTROL=0` is reserved for the
+documented physical BOOT/RST fallback.
+
 ## Traceability
 
 | Domain area | Requirements / audit | Native evidence |

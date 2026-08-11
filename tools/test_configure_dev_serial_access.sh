@@ -38,6 +38,11 @@ grep -Fq 'chgrp -- "${SERIAL_GROUP}" "${resolved_device}"' "${HELPER}" || \
   Fail "serial-access setup does not repair the current device group"
 grep -Fq 'chmod 0660 "${resolved_device}"' "${HELPER}" || \
   Fail "serial-access setup does not repair the current device mode"
+grep -Fq 'DEVICE_FINDER=' "${HELPER}" || \
+  Fail "serial-access setup does not use identity-based discovery"
+if grep -Fq '/dev/serial/by-id' "${PROJECT_ROOT}/tools/tutorial_action.sh"; then
+  Fail "tutorial serial setup still assumes a by-id filename pattern"
+fi
 
 ExpectFailure() {
   local expected_text="$1"
@@ -58,7 +63,7 @@ RunHelper() {
     "${HELPER}" "$@"
 }
 
-mkdir -p "${SYS_CLASS_TTY}/ttyACM0" "${SYS_CLASS_TTY}/ttyACM1"
+mkdir -p "${SYS_CLASS_TTY}/ttyACM0"
 cat >"${FAKE_UDEVADM}" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -92,6 +97,11 @@ esac
 EOF
 chmod +x "${FAKE_UDEVADM}"
 
+readonly AUTO_OUTPUT="$(RunHelper --user "${TEST_USER}" --dry-run)"
+[[ "${AUTO_OUTPUT}" == *'Selected CH9102F device: /dev/ttyACM0'* ]] || \
+  Fail "automatic discovery did not select the verified CH9102F"
+
+mkdir -p "${SYS_CLASS_TTY}/ttyACM1"
 readonly DRY_OUTPUT="$(RunHelper \
   --device /dev/ttyACM0 --user "${TEST_USER}" --dry-run)"
 [[ "${DRY_OUTPUT}" == *'Validated CH9102F serial identity: RRCLITE-DEV-A'* ]] || \

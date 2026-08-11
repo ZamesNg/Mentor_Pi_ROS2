@@ -38,6 +38,8 @@ set -u
 export ROS_DISTRO=humble
 ros2 pkg prefix micro_ros_setup >/dev/null 2>&1 || \
   Fail "a Humble micro_ros_setup overlay is required; use the VS Code Dev Container"
+command -v colcon >/dev/null 2>&1 || \
+  Fail "colcon is required; rebuild and reopen the VS Code Dev Container"
 command -v vcs >/dev/null 2>&1 || Fail "python3-vcstool is required"
 command -v rosdep >/dev/null 2>&1 || Fail "python3-rosdep is required"
 rosdep db >/dev/null 2>&1 || \
@@ -118,6 +120,7 @@ mkdir -p "$(dirname "${ARCHIVE}")"
 temporary_archive="${ARCHIVE}.tmp.$$"
 trap 'rm -f -- "${temporary_archive}"' EXIT
 tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+  --mode='u+rwX,go=rX' \
   -cJf "${temporary_archive}" -C "${LIBRARY_ROOT}" .
 archive_sha="$("${SCRIPT_DIR}/sha256.sh" "${temporary_archive}")"
 mv "${temporary_archive}" "${ARCHIVE}"

@@ -25,6 +25,12 @@ a built ROS workspace.
 - Firmware flashing: run STM32CubeProgrammer on the physical host, using
   `/dev/tty*` on Linux or `/dev/cu.*` on macOS.
 
+On Linux, identity-based setup creates the stable `/dev/mentor_pi_mcu` alias.
+The default firmware flash path uses separate CH9102F RTS/DTR set/clear ioctls
+to enter the STM32 ROM bootloader and, only after read-back verification,
+reset into the application. The Agent uses the corresponding normal-boot
+sequence whenever it opens the runtime serial transport.
+
 The Dev Container is development-only. It cannot be used onboard, manage
 systemd, own the production serial transport, flash hardware, or generate
 release/HIL evidence. There are no production Docker images or Docker runtime.
@@ -63,10 +69,15 @@ colcon test-result --verbose
 Onboard, install the Agent as a versioned, non-root boot service:
 
 ```sh
-sudo DEVICE=/dev/ttyUSB0 ID_SERIAL_SHORT=YOUR_SERIAL \
-  make -C micro_ros_agent install-service
+make -C micro_ros_agent find-device
+sudo make -C micro_ros_agent install-service
 systemctl status mentor-pi-agent.service
 ```
+
+Discovery scans udev for USB identity `1a86:55d4` and succeeds only when one
+CH9102F tty is unambiguous. With multiple connected adapters, select the
+intended board using `ID_SERIAL_SHORT=...` or `ID_PATH=...`; never guess a
+`ttyUSB` number.
 
 ROS applications always start manually. The Agent service never starts them:
 

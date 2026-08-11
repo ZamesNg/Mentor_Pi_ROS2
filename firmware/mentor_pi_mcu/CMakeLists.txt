@@ -280,6 +280,51 @@ if(MENTOR_PI_MCU_ENABLE_FUZZING)
   )
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING)
+  add_executable(mentor_pi_ch9102_boot_control
+    host/ch9102_boot_control.cc)
+  target_include_directories(mentor_pi_ch9102_boot_control PRIVATE host)
+  target_compile_features(mentor_pi_ch9102_boot_control PRIVATE cxx_std_17)
+  target_compile_options(mentor_pi_ch9102_boot_control PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -Wconversion
+    -Wsign-conversion
+    -Wshadow
+    -Wformat=2
+    -Werror
+  )
+  set_target_properties(mentor_pi_ch9102_boot_control PROPERTIES
+    OUTPUT_NAME ch9102_boot_control)
+
+  if(BUILD_TESTING)
+    add_executable(mentor_pi_ch9102_boot_control_tests
+      host/ch9102_boot_control.cc
+      tests/ch9102_boot_control_tests.cc)
+    target_include_directories(mentor_pi_ch9102_boot_control_tests PRIVATE host)
+    target_compile_definitions(mentor_pi_ch9102_boot_control_tests PRIVATE
+      MENTOR_PI_CH9102_BOOT_CONTROL_NO_MAIN)
+    target_compile_features(mentor_pi_ch9102_boot_control_tests PRIVATE cxx_std_17)
+    target_compile_options(mentor_pi_ch9102_boot_control_tests PRIVATE
+      -Wall
+      -Wextra
+      -Wpedantic
+      -Wconversion
+      -Wsign-conversion
+      -Wshadow
+      -Wformat=2
+      -Werror
+    )
+    add_test(NAME mentor_pi_ch9102_boot_control_tests
+             COMMAND mentor_pi_ch9102_boot_control_tests)
+    add_test(NAME mentor_pi_ch9102_boot_control_rejects_non_ch9102
+      COMMAND ${CMAKE_COMMAND}
+        -DBOOT_CONTROL=$<TARGET_FILE:mentor_pi_ch9102_boot_control>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ch9102_cli_rejection.cmake)
+  endif()
+endif()
+
 if(BUILD_TESTING)
   if(MENTOR_PI_MCU_ENABLE_SANITIZERS AND
      NOT CMAKE_CROSSCOMPILING AND

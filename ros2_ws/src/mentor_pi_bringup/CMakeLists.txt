@@ -232,7 +232,10 @@ if(MENTOR_PI_BUILD_ROS2)
       NAME configuration_supervisor_ros_test
       COMMAND configuration_supervisor_ros_test
     )
-    set_tests_properties(configuration_supervisor_ros_test PROPERTIES TIMEOUT 15)
+    set_tests_properties(configuration_supervisor_ros_test PROPERTIES
+      TIMEOUT 15
+      ENVIRONMENT "ROS_DOMAIN_ID=151"
+    )
 
     add_executable(configuration_supervisor_middleware_fault_test
       test/configuration_supervisor_middleware_fault_test.cc
