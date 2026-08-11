@@ -693,8 +693,11 @@ before installation or upgrade.
 A single hardened systemd unit shall execute the versioned native Agent with
 the deployment's authoritative `ROS_DOMAIN_ID`. It runs as the unprivileged
 `mentor-pi` user with only the `mentor-pi-serial` supplementary group. The
-service launcher receives these arguments and passes them unchanged to the
-compiled Agent:
+unit retains `ProtectClock=true` and explicitly grants `char-ttyACM` read/write
+access so the clock protection's implicit device allowlist does not block the
+serial transport. Unix ownership and mode still restrict the selected device
+to `mentor-pi-serial`. The service launcher receives these arguments and
+passes them unchanged to the compiled Agent:
 
 ```sh
 /opt/mentor_pi/agent/current/bin/mentor-pi-agent serial \

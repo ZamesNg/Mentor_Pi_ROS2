@@ -26,9 +26,13 @@ Verify boot and reconnect handling:
 ```sh
 systemctl is-enabled mentor-pi-agent.service
 systemctl is-active mentor-pi-agent.service
+systemctl show mentor-pi-agent.service -p DevicePolicy -p DeviceAllow
 systemctl status mentor-pi-agent.service --no-pager
 journalctl -u mentor-pi-agent.service -n 100 --no-pager
 ```
+
+The device policy must include `char-ttyACM rw`; this preserves clock
+protection without blocking `/dev/mentor_pi_mcu` inside the service cgroup.
 
 Unplug/replug USB once while actuators remain disconnected. The service must
 restart and reconnect without starting any ROS application. A device identity
