@@ -8,10 +8,14 @@ make -C micro_ros_agent find-device
 
 Install the built Agent. It revalidates the live USB identity and reuses the
 same Agent-owned device-access policy configured in Tutorial 03, automatically
-choosing `ID_SERIAL_SHORT`, falling back to `ID_PATH`:
+choosing `ID_SERIAL_SHORT`, falling back to `ID_PATH`. The installer requires
+the deployment's `ROS_DOMAIN_ID` to already be exported and refuses to choose a
+default:
 
 ```zsh
-sudo ROS_DOMAIN_ID=0 make -C micro_ros_agent install-service
+: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
+sudo --preserve-env=ROS_DOMAIN_ID \
+  make -C micro_ros_agent install-service
 ```
 
 This same installation step is safe to rerun when applying an Agent service

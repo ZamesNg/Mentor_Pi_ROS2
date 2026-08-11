@@ -9,6 +9,13 @@ bash -n "${COMPONENT_ROOT}"/tools/*.sh
 grep -Eq '^find-device:' "${COMPONENT_ROOT}/Makefile"
 grep -Fq 'SERIAL_ACCESS_HELPER=' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
+! grep -Fq 'ROS_DOMAIN_ID ?= 0' "${COMPONENT_ROOT}/Makefile"
+grep -Fq 'sudo --preserve-env=ROS_DOMAIN_ID make install-service' \
+  "${COMPONENT_ROOT}/Makefile"
+grep -Fq 'ROS_DOMAIN_ID must be exported before service installation' \
+  "${COMPONENT_ROOT}/tools/install_service.sh"
+! grep -Fq 'ROS_DOMAIN_ID:-0' \
+  "${COMPONENT_ROOT}/tools/install_service.sh"
 grep -Fq 'automatic CH9102F discovery' \
   "${COMPONENT_ROOT}/tools/configure_serial_access.sh"
 grep -Fqx 'ros_distro=humble' "${COMPONENT_ROOT}/sources.lock"

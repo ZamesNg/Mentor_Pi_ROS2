@@ -16,7 +16,9 @@ With exactly one connected CH9102F, install by stable identity:
 
 ```zsh
 make -C micro_ros_agent find-device
-sudo make -C micro_ros_agent install-service
+: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
+sudo --preserve-env=ROS_DOMAIN_ID \
+  make -C micro_ros_agent install-service
 systemctl is-enabled mentor-pi-agent.service
 systemctl is-active mentor-pi-agent.service
 journalctl -u mentor-pi-agent.service -n 50 --no-pager

@@ -1,7 +1,6 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-ROS_DOMAIN_ID ?= 0
 DEVICE ?=
 ID_SERIAL_SHORT ?=
 ID_PATH ?=
@@ -19,8 +18,8 @@ help:
 		'  make setup          Fetch sources and install ROS dependencies.' \
 		'  make build          Build the patched, pinned Agent natively.' \
 		'  make test           Validate locks, patch, metadata, and executable.' \
-		'  sudo make install-service' \
-		'                       Install and enable mentor-pi-agent.service.' \
+		'  sudo --preserve-env=ROS_DOMAIN_ID make install-service' \
+		'                       Install using the exported deployment domain.' \
 		'  make clean          Remove this component build directory.'
 
 doctor:

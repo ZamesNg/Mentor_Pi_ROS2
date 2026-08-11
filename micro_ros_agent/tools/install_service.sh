@@ -11,7 +11,7 @@ readonly LAUNCHER="${BUILD_PREFIX}/bin/mentor-pi-agent"
 readonly SERIAL_ACCESS_HELPER="${COMPONENT_ROOT}/tools/configure_serial_access.sh"
 readonly RELEASE_ROOT="/opt/mentor_pi/agent/releases"
 DEVICE="${DEVICE:-}"
-readonly ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+readonly ROS_DOMAIN_ID="${ROS_DOMAIN_ID-}"
 ID_SERIAL_SHORT="${ID_SERIAL_SHORT:-}"
 ID_PATH="${ID_PATH:-}"
 temporary_release=""
@@ -157,6 +157,8 @@ Main() {
      -f "${METADATA}" && ! -L "${METADATA}" ]] || \
     Fail "run make build before installing the service"
   [[ -x "${SERIAL_ACCESS_HELPER}" ]] || Fail "serial-access helper is unavailable"
+  [[ -n "${ROS_DOMAIN_ID}" ]] || \
+    Fail "ROS_DOMAIN_ID must be exported before service installation"
   [[ "${ROS_DOMAIN_ID}" =~ ^(0|[1-9][0-9]{0,2})$ ]] && \
     ((ROS_DOMAIN_ID <= 232)) || Fail "ROS_DOMAIN_ID must be in [0,232]"
   [[ -z "${ID_SERIAL_SHORT}" || -z "${ID_PATH}" ]] || \

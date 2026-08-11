@@ -11,7 +11,8 @@ make setup
 make build
 make test
 make find-device
-sudo make install-service
+: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
+sudo --preserve-env=ROS_DOMAIN_ID make install-service
 ```
 
 `find-device` identifies the connected CH9102F by USB vendor/product identity
@@ -21,6 +22,10 @@ serial-access policy used by the root tutorial façade: it uses stable
 different existing udev rule. If multiple matching adapters are connected,
 rerun installation with the intended `ID_SERIAL_SHORT=...` or `ID_PATH=...`
 selector.
+
+Service installation never selects a default ROS domain. Export the
+deployment's `ROS_DOMAIN_ID` before invoking the installer; the validated value
+is then written to `/etc/mentor-pi/agent.env` for subsequent runtime shells.
 
 macOS and other Linux distributions use the repository VS Code Dev Container
 for build and test. Service installation is supported only on the native

@@ -70,7 +70,9 @@ Onboard, install the Agent as a versioned, non-root boot service:
 
 ```sh
 make -C micro_ros_agent find-device
-sudo make -C micro_ros_agent install-service
+: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
+sudo --preserve-env=ROS_DOMAIN_ID \
+  make -C micro_ros_agent install-service
 systemctl status mentor-pi-agent.service
 ```
 
