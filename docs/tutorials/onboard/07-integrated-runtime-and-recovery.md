@@ -10,10 +10,16 @@ systemctl is-active mentor-pi-agent.service
 Start applications manually:
 
 ```sh
-make -C ros2_ws run \
-  VEHICLE=mecanum \
-  RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED
+source /opt/ros/humble/setup.bash
+source ros2_ws/install/setup.bash
+source /etc/mentor-pi/agent.env
+export ROS_DOMAIN_ID
+RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
+ros2 launch mentor_pi_hardwares mecanum.launch.py
 ```
+
+For the Ackermann model, substitute `ackermann.launch.py`. The Agent remains a
+separately managed service and does not start this launch.
 
 In another terminal, source the workspace and inspect the safety endpoints:
 

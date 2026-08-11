@@ -26,11 +26,13 @@ def _validate_development_artifact():
     verifier = os.environ.get("MENTOR_PI_FIRMWARE_VERIFIER", "")
     if not os.path.isabs(project_root) or not os.path.isdir(project_root):
         raise RuntimeError(
-            "MENTOR_PI_PROJECT_ROOT is missing; use make -C ros2_ws run"
+            "MENTOR_PI_PROJECT_ROOT is missing; set it before enabling "
+            "MENTOR_PI_DEVELOPMENT_RUNTIME"
         )
     if not os.path.isabs(verifier) or not os.access(verifier, os.X_OK):
         raise RuntimeError(
-            "MENTOR_PI_FIRMWARE_VERIFIER is missing; use make -C ros2_ws run"
+            "MENTOR_PI_FIRMWARE_VERIFIER is missing; set it before enabling "
+            "MENTOR_PI_DEVELOPMENT_RUNTIME"
         )
     try:
         subprocess.run([verifier], check=True, cwd=project_root)

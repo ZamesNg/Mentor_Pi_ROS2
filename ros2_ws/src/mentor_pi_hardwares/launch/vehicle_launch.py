@@ -27,6 +27,14 @@ _ROBOT_NAME_PATTERN = re.compile(
 _VEHICLE_TYPES = frozenset(("mecanum", "ackermann"))
 
 
+def _validate_native_runtime():
+    if os.path.exists("/.dockerenv"):
+        raise RuntimeError(
+            "ROS hardware runtime must run on native Ubuntu 22.04, not the "
+            "Dev Container"
+        )
+
+
 def _shutdown_on_exit(action, label):
     return RegisterEventHandler(
         OnProcessExit(
@@ -96,6 +104,7 @@ def load_vehicle_profile(path):
 
 
 def _launch_vehicle(context):
+    _validate_native_runtime()
     profile = load_vehicle_profile(
         LaunchConfiguration("vehicle_config").perform(context)
     )

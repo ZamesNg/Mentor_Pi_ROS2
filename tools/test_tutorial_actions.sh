@@ -49,6 +49,29 @@ grep -Fq 'RRCLITE_RUNTIME_ACK' "${CONTROLLER_LAUNCH}" || \
   Fail "manual supervisor launch lacks its safety acknowledgement"
 grep -Fq 'OnProcessExit' "${CONTROLLER_LAUNCH}" || \
   Fail "manual launch no longer shuts down on supervisor exit"
+! rg -Fq 'make -C ros2_ws run' \
+  "${PROJECT_ROOT}/README.md" "${PROJECT_ROOT}/docs" "${PROJECT_ROOT}/ros2_ws" || \
+  Fail "obsolete ROS workspace run interface remains advertised"
+! rg -Fq 'make run' "${PROJECT_ROOT}/ros2_ws" || \
+  Fail "obsolete workspace-local run interface remains advertised"
+for runtime_tutorial in \
+    "${PROJECT_ROOT}/docs/tutorials/host/07-connect-and-run.md" \
+    "${PROJECT_ROOT}/docs/tutorials/onboard/07-integrated-runtime-and-recovery.md"; do
+  grep -Fq 'source /opt/ros/humble/setup.bash' "${runtime_tutorial}" || \
+    Fail "runtime tutorial does not source Humble: ${runtime_tutorial}"
+  grep -Fq 'source ros2_ws/install/setup.bash' "${runtime_tutorial}" || \
+    Fail "runtime tutorial does not source the workspace: ${runtime_tutorial}"
+  grep -Fq 'source /etc/mentor-pi/agent.env' "${runtime_tutorial}" || \
+    Fail "runtime tutorial does not source the Agent domain: ${runtime_tutorial}"
+  grep -Fqx 'export ROS_DOMAIN_ID' "${runtime_tutorial}" || \
+    Fail "runtime tutorial does not export the Agent domain: ${runtime_tutorial}"
+  grep -Fq 'RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \' \
+    "${runtime_tutorial}" || \
+    Fail "runtime tutorial lacks the safety acknowledgement: ${runtime_tutorial}"
+  grep -Fq 'ros2 launch mentor_pi_hardwares mecanum.launch.py' \
+    "${runtime_tutorial}" || \
+    Fail "runtime tutorial lacks the direct mecanum launch: ${runtime_tutorial}"
+done
 PYTHONPYCACHEPREFIX="${TEST_ROOT}/pycache" python3 -m py_compile \
   "${CONTROLLER_LAUNCH}" \
   "${PROJECT_ROOT}"/ros2_ws/src/*/launch/*.py

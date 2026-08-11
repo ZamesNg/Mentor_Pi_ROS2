@@ -22,6 +22,18 @@ def vehicle_launch_module(share):
     return load_launch(share / "launch" / "vehicle_launch.py")
 
 
+def test_vehicle_launch_rejects_the_dev_container(monkeypatch):
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    module = vehicle_launch_module(share)
+    monkeypatch.setattr(
+        module.os.path, "exists", lambda path: path == "/.dockerenv"
+    )
+    with pytest.raises(
+        RuntimeError, match="native Ubuntu 22.04, not the Dev Container"
+    ):
+        module._validate_native_runtime()
+
+
 def render_description(share, mode):
     profile = vehicle_launch_module(share).load_vehicle_profile(
         str(share / "config" / mode / "hardware.yaml")

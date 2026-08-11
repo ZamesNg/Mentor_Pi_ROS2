@@ -19,8 +19,10 @@ make -C ros2_ws test
 separate boot service on the onboard computer, while ROS applications are
 started manually.
 
-Tracking is disabled by default. After building, opt in with
-`make run VEHICLE=mecanum TRACKING_CONTROLLER=mecanum` or the corresponding
-Ackermann values. The host clock must be
-synchronized, and the publisher must provide future-scheduled `odom`-frame
-polynomial trajectories.
+Tracking is disabled by default. Onboard runtime uses the checked-in ROS launch
+files directly after sourcing Humble, this workspace, and
+`/etc/mentor-pi/agent.env`, then exporting its `ROS_DOMAIN_ID`. Select
+`mecanum.launch.py` or `ackermann.launch.py`; opt into tracking with the matching
+`tracking_controller` launch argument. The host clock must be synchronized, and
+the publisher must provide future-scheduled `odom`-frame polynomial
+trajectories.

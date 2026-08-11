@@ -3,11 +3,7 @@ SHELL := /usr/bin/env bash
 
 ROS_DISTRO ?= humble
 BUILD_JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
-VEHICLE ?= mecanum
-TRACKING_CONTROLLER ?= none
-RUNTIME_ACK ?=
-
-.PHONY: help doctor deps build test run clean
+.PHONY: help doctor deps build test clean
 
 help:
 	@printf '%s\n' \
@@ -17,8 +13,6 @@ help:
 		'  make deps    Import pinned ALTO sources and run rosdep.' \
 		'  make build   Build only packages below ros2_ws/src.' \
 		'  make test    Run package tests and report their results.' \
-		'  make run     Manually launch VEHICLE=mecanum|ackermann.' \
-		'               Set RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED.' \
 		'  make clean   Remove this workspace build/install/log output.'
 
 doctor:
@@ -34,10 +28,6 @@ build: doctor
 test: build
 	@./tools/colcon.sh test --parallel-workers "$(BUILD_JOBS)"
 	@./tools/colcon.sh test-result --verbose
-
-run: doctor
-	@RRCLITE_RUNTIME_ACK="$(RUNTIME_ACK)" \
-		./tools/run.sh "$(VEHICLE)" "$(TRACKING_CONTROLLER)"
 
 clean:
 	@./tools/clean.sh

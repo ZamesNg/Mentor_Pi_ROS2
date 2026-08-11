@@ -156,7 +156,6 @@ if rg -n 'mentor_pi_bringup|configuration_supervisor|vehicle.launch' \
 fi
 for native_only_script in \
     "${PROJECT_ROOT}/micro_ros_agent/tools/install_service.sh" \
-    "${PROJECT_ROOT}/ros2_ws/tools/run.sh" \
     "${PROJECT_ROOT}/tools/install_evidence_tools.sh" \
     "${PROJECT_ROOT}/tools/run_runtime_action.sh"; do
   grep -Fq '/.dockerenv' "${native_only_script}" || \
