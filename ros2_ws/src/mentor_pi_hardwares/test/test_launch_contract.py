@@ -217,5 +217,6 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
         'LaunchConfiguration("robot_name")',
         'LaunchConfiguration("vehicle_type")',
         'LaunchConfiguration("start_bringup")',
+        'name="controller_manager"',
     ):
         assert forbidden not in launch_sources

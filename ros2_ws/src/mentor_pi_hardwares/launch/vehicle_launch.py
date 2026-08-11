@@ -159,7 +159,6 @@ def _launch_vehicle(context):
     controller_manager = Node(
         package="controller_manager",
         executable="ros2_control_node",
-        name="controller_manager",
         namespace=robot_name,
         output="screen",
         parameters=[controllers_file, robot_description],
