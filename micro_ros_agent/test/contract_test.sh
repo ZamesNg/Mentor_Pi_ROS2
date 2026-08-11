@@ -5,20 +5,17 @@ set -euo pipefail
 readonly TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly COMPONENT_ROOT="$(cd "${TEST_DIR}/.." && pwd)"
 
-command -v rg >/dev/null 2>&1 || {
-  echo "micro-ROS Agent contract requires ripgrep" >&2
-  exit 1
-}
 bash -n "${COMPONENT_ROOT}"/tools/*.sh
 grep -Eq '^find-device:' "${COMPONENT_ROOT}/Makefile"
-grep -Fq 'DEVICE_FINDER=' "${COMPONENT_ROOT}/tools/install_service.sh"
-grep -Fq 'automatic CH9102F discovery' \
+grep -Fq 'SERIAL_ACCESS_HELPER=' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
+grep -Fq 'automatic CH9102F discovery' \
+  "${COMPONENT_ROOT}/tools/configure_serial_access.sh"
 grep -Fqx 'ros_distro=humble' "${COMPONENT_ROOT}/sources.lock"
 grep -Fq 'MENTOR_PI_RRCLITE_AUTORESET' \
   "${COMPONENT_ROOT}/patches/micro_xrce_agent_rrclite_modem_lines.patch"
-rg -Uq '(?s)bits = TIOCM_RTS;.*TIOCMBIS.*bits = TIOCM_DTR;.*TIOCMBIC.*milliseconds\(100\).*bits = TIOCM_RTS;.*TIOCMBIC.*milliseconds\(100\)' \
-  "${COMPONENT_ROOT}/patches/micro_xrce_agent_rrclite_modem_lines.patch" || {
+normal_boot_sequence="$(tr '\n' ' ' <"${COMPONENT_ROOT}/patches/micro_xrce_agent_rrclite_modem_lines.patch")"
+[[ "${normal_boot_sequence}" =~ bits\ =\ TIOCM_RTS\;.*TIOCMBIS.*bits\ =\ TIOCM_DTR\;.*TIOCMBIC.*milliseconds\(100\).*bits\ =\ TIOCM_RTS\;.*TIOCMBIC.*milliseconds\(100\) ]] || {
   echo "micro-ROS Agent patch lost the separate normal-boot RTS/DTR sequence" >&2
   exit 1
 }
@@ -36,7 +33,7 @@ grep -Fqx 'StartLimitIntervalSec=0' \
   "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service"
 grep -Fq 'ATTRS{idVendor}=="1a86"' \
   "${COMPONENT_ROOT}/udev/99-mentor-pi-mcu.rules.in"
-if rg -n 'docker (run|build|exec|pull|load)|mentor-pi-runtime|configuration_supervisor' \
+if grep -R -n -E 'docker (run|build|exec|pull|load)|mentor-pi-runtime|configuration_supervisor' \
     "${COMPONENT_ROOT}/Makefile" "${COMPONENT_ROOT}/tools" \
     "${COMPONENT_ROOT}/systemd"; then
   echo "Agent component contains forbidden runtime/container coupling" >&2

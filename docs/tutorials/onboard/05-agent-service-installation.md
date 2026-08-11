@@ -6,8 +6,9 @@ Identify exactly one connected CH9102F:
 make -C micro_ros_agent find-device
 ```
 
-Install the built Agent. It repeats discovery, verifies the live USB identity,
-and automatically chooses `ID_SERIAL_SHORT`, falling back to `ID_PATH`:
+Install the built Agent. It revalidates the live USB identity and reuses the
+same Agent-owned device-access policy configured in Tutorial 03, automatically
+choosing `ID_SERIAL_SHORT`, falling back to `ID_PATH`:
 
 ```sh
 sudo ROS_DOMAIN_ID=0 make -C micro_ros_agent install-service
@@ -16,7 +17,8 @@ sudo ROS_DOMAIN_ID=0 make -C micro_ros_agent install-service
 If multiple matching adapters are connected, select the intended board with
 `ID_SERIAL_SHORT=YOUR_SERIAL` or `ID_PATH=YOUR_STABLE_PATH`; do not pass a
 guessed tty number. The installer creates
-`/dev/mentor_pi_mcu`, installs a versioned root-owned release below
+`/dev/mentor_pi_mcu`, grants the non-login `mentor-pi` service user access,
+installs a versioned root-owned release below
 `/opt/mentor_pi/agent/`, and enables the non-root service.
 
 Verify boot and reconnect handling:

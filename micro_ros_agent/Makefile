@@ -37,6 +37,7 @@ build: doctor
 
 test: build
 	@./test/device_discovery_test.sh
+	@./test/configure_serial_access_test.sh
 	@./test/contract_test.sh
 
 install-service:

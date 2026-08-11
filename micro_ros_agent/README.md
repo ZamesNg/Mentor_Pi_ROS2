@@ -15,10 +15,12 @@ sudo make install-service
 ```
 
 `find-device` identifies the connected CH9102F by USB vendor/product identity
-instead of assuming a tty name. Installation automatically uses its stable
-`ID_SERIAL_SHORT`, falling back to `ID_PATH`. If multiple matching adapters are
-connected, rerun installation with the intended `ID_SERIAL_SHORT=...` or
-`ID_PATH=...` selector.
+instead of assuming a tty name. Installation revalidates the same shared
+serial-access policy used by the root tutorial façade: it uses stable
+`ID_SERIAL_SHORT`, falling back to `ID_PATH`, and refuses a semantically
+different existing udev rule. If multiple matching adapters are connected,
+rerun installation with the intended `ID_SERIAL_SHORT=...` or `ID_PATH=...`
+selector.
 
 macOS and other Linux distributions use the repository VS Code Dev Container
 for build and test. Service installation is supported only on the native

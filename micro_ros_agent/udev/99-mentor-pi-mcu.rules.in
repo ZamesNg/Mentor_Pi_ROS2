@@ -1,2 +1,2 @@
-# install_service.sh replaces the identity token after validating one CH9102F.
+# configure_serial_access.sh replaces the identity token after validating one CH9102F.
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d4", @MENTOR_PI_DEVICE_IDENTITY@, SYMLINK+="mentor_pi_mcu", GROUP="mentor-pi-serial", MODE="0660", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_PORT_IGNORE}="1", TAG+="systemd"

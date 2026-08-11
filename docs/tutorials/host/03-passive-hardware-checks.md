@@ -28,8 +28,8 @@ On Ubuntu, install the stable development alias and dedicated serial group:
 SERIAL_SETUP_ACK=CONFIGURE_SERIAL_ACCESS make serial-setup
 ```
 
-This repeats identity-based discovery and creates `/dev/mentor_pi_mcu`; it
-does not depend on the transient kernel tty number.
+This invokes the Agent-owned identity-based device-access policy and creates
+`/dev/mentor_pi_mcu`; it does not depend on the transient kernel tty number.
 
 After the first group change, activate it immediately in a new shell and
 confirm that shell's groups:
@@ -40,8 +40,8 @@ id -nG
 ```
 
 Run the remaining commands inside that shell. Type `exit` when finished to
-return to the original shell. The Agent service installer performs its own
-production identity and udev installation onboard.
+return to the original shell. Onboard service installation revalidates and
+reuses this same device-access policy for its non-login service user.
 
 Check encoder channel continuity and direction mechanically with actuator power
 off. Record each wheel's observed sign. A mismatch is a wiring/configuration

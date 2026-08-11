@@ -128,8 +128,8 @@ case "${ACTION}" in
   serial-setup)
     RequireExact "${SERIAL_SETUP_ACK:-}" CONFIGURE_SERIAL_ACCESS \
       "This installs a udev rule and adds ${USER} to mentor-pi-serial."
-    sudo "${SCRIPT_DIR}/configure_dev_serial_access.sh" \
-      --user "${USER}"
+    sudo "${PROJECT_ROOT}/micro_ros_agent/tools/configure_serial_access.sh" \
+      --user "${USER}" --interactive
     ;;
   passive-check)
     RequireExact "${PASSIVE_CHECK_ACK:-}" ACTUATORS_DISCONNECTED \
