@@ -345,7 +345,8 @@ hardware_interface::return_type AckermannHardware::read(
   }
   if (active_ && !fresh) {
     SendZeroCommands();
-    return hardware_interface::return_type::ERROR;
+    return MotionIsAuthorized() ? hardware_interface::return_type::ERROR
+                                : hardware_interface::return_type::OK;
   }
   for (const auto& name : steering_names_) {
     joints_.at(name).state.position = steering;
@@ -365,10 +366,13 @@ hardware_interface::return_type AckermannHardware::write(
   if (!active_) {
     return hardware_interface::return_type::OK;
   }
-  if (executor_failed_.load(std::memory_order_acquire) ||
-      !MotionIsAuthorized()) {
+  if (executor_failed_.load(std::memory_order_acquire)) {
     SendZeroCommands();
     return hardware_interface::return_type::ERROR;
+  }
+  if (!MotionIsAuthorized()) {
+    SendZeroCommands();
+    return hardware_interface::return_type::OK;
   }
   {
     std::lock_guard<std::mutex> lock(feedback_mutex_);

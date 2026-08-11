@@ -404,6 +404,7 @@ if(MENTOR_PI_BUILD_ROS2)
     )
     set_tests_properties(qualification_campaign_node_test PROPERTIES
       TIMEOUT 30
+      ENVIRONMENT "ROS_DOMAIN_ID=153"
     )
   endif()
 

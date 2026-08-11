@@ -164,6 +164,16 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   ASSERT_EQ(hardware->on_activate(rclcpp_lifecycle::State()),
             CallbackReturn::SUCCESS);
 
+  std::this_thread::sleep_for(110ms);
+  received.reset();
+  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
+  EXPECT_EQ(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
+  ASSERT_TRUE(WaitUntil(
+      &executor, [&received]() { return received.has_value(); }, []() {}));
+  EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
+
   mentor_pi_interfaces::msg::MotorState feedback;
   feedback.motor_model = mentor_pi_interfaces::msg::MotorState::MODEL_JGA27;
   feedback.measured_rps = {1.0F, 2.0F, 3.0F, 4.0F};
@@ -194,7 +204,7 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   }
   received.reset();
   EXPECT_EQ(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)),
-            ReturnType::ERROR);
+            ReturnType::OK);
   ASSERT_TRUE(WaitUntil(
       &executor, [&received]() { return received.has_value(); }, []() {}));
   EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
@@ -206,97 +216,54 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
   std_msgs::msg::UInt64 authorization;
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(42);
+  const std::array<float, 4U> expected_command{1.0F, 3.0F, 2.0F, 4.0F};
+  const auto received_expected_command = [&received, &expected_command]() {
+    return received.has_value() && received->target_rps == expected_command;
+  };
+  const auto received_zero_command = [&received]() {
+    return received.has_value() &&
+           received->target_rps == std::array<float, 4U>{};
+  };
+  const auto publish_state_and_write = [&]() {
+    heartbeat_publisher->publish(heartbeat);
+    authorization_publisher->publish(authorization);
+    state_publisher->publish(feedback);
+    static_cast<void>(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)));
+  };
   received.reset();
-  ASSERT_TRUE(WaitUntil(
-      &executor,
-      [&hardware]() {
-        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-               ReturnType::OK;
-      },
-      [&heartbeat_publisher, &authorization_publisher, &heartbeat,
-       &authorization]() {
-        heartbeat_publisher->publish(heartbeat);
-        authorization_publisher->publish(authorization);
-      }));
-  ASSERT_TRUE(WaitUntil(
-      &executor, [&received]() { return received.has_value(); }, []() {}));
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_expected_command, publish_state_and_write));
   EXPECT_EQ(received->update_mask,
             mentor_pi_interfaces::msg::MotorCommand::ALL_MOTORS);
-  EXPECT_EQ(received->target_rps,
-            (std::array<float, 4U>{1.0F, 3.0F, 2.0F, 4.0F}));
+  EXPECT_EQ(received->target_rps, expected_command);
 
   authorization.data = UINT64_C(42);
   received.reset();
-  ASSERT_TRUE(WaitUntil(
-      &executor,
-      [&hardware]() {
-        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-               ReturnType::ERROR;
-      },
-      [&authorization_publisher, &authorization, &state_publisher,
-       &feedback]() {
-        authorization_publisher->publish(authorization);
-        state_publisher->publish(feedback);
-      }));
-  ASSERT_TRUE(WaitUntil(
-      &executor, [&received]() { return received.has_value(); }, []() {}));
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_zero_command, publish_state_and_write));
   EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
 
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(43);
   received.reset();
-  ASSERT_TRUE(WaitUntil(
-      &executor,
-      [&hardware]() {
-        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-               ReturnType::ERROR;
-      },
-      [&authorization_publisher, &authorization, &state_publisher,
-       &feedback]() {
-        authorization_publisher->publish(authorization);
-        state_publisher->publish(feedback);
-      }));
-  ASSERT_TRUE(WaitUntil(
-      &executor, [&received]() { return received.has_value(); }, []() {}));
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_zero_command, publish_state_and_write));
   EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
 
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(42);
-  ASSERT_TRUE(WaitUntil(
-      &executor,
-      [&hardware]() {
-        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-               ReturnType::OK;
-      },
-      [&authorization_publisher, &authorization, &state_publisher,
-       &feedback]() {
-        authorization_publisher->publish(authorization);
-        state_publisher->publish(feedback);
-      }));
+  received.reset();
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_expected_command, publish_state_and_write));
 
   authorization.data = 0U;
   received.reset();
-  ASSERT_TRUE(WaitUntil(
-      &executor,
-      [&hardware]() {
-        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-               ReturnType::ERROR;
-      },
-      [&authorization_publisher, &authorization]() {
-        authorization_publisher->publish(authorization);
-      }));
-  ASSERT_TRUE(WaitUntil(
-      &executor, [&received]() { return received.has_value(); }, []() {}));
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_zero_command, publish_state_and_write));
   EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
 
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(42);
-  ASSERT_TRUE(WaitUntil(
-      &executor,
-      [&hardware]() {
-        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-               ReturnType::OK;
-      },
-      [&authorization_publisher, &authorization]() {
-        authorization_publisher->publish(authorization);
-      }));
+  received.reset();
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_expected_command, publish_state_and_write));
 
   commands[0].set_value(std::numeric_limits<double>::quiet_NaN());
   received.reset();
@@ -374,6 +341,22 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
 
   ASSERT_EQ(hardware->on_activate(rclcpp_lifecycle::State()),
             CallbackReturn::SUCCESS);
+
+  std::this_thread::sleep_for(110ms);
+  motor_received.reset();
+  pwm_received.reset();
+  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
+  EXPECT_EQ(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
+  ASSERT_TRUE(WaitUntil(
+      &executor,
+      [&motor_received, &pwm_received]() {
+        return motor_received.has_value() && pwm_received.has_value();
+      },
+      []() {}));
+  EXPECT_EQ(motor_received->target_rps, (std::array<float, 4U>{}));
+  EXPECT_EQ(pwm_received->pulse_width_us[2], 1500U);
 
   mentor_pi_interfaces::msg::MotorState motor_feedback;
   motor_feedback.motor_model =

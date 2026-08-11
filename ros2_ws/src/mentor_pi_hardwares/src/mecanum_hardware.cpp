@@ -248,7 +248,8 @@ hardware_interface::return_type MecanumHardware::read(const rclcpp::Time&,
   }
   if (active_ && !fresh) {
     SendZeroMotorCommand();
-    return hardware_interface::return_type::ERROR;
+    return MotionIsAuthorized() ? hardware_interface::return_type::ERROR
+                                : hardware_interface::return_type::OK;
   }
   for (std::size_t wheel = 0U; wheel < hardware::kWheelCount; ++wheel) {
     auto& joint = joints_.at(joint_names_[wheel]);
@@ -263,10 +264,13 @@ hardware_interface::return_type MecanumHardware::write(
   if (!active_) {
     return hardware_interface::return_type::OK;
   }
-  if (executor_failed_.load(std::memory_order_acquire) ||
-      !MotionIsAuthorized()) {
+  if (executor_failed_.load(std::memory_order_acquire)) {
     SendZeroMotorCommand();
     return hardware_interface::return_type::ERROR;
+  }
+  if (!MotionIsAuthorized()) {
+    SendZeroMotorCommand();
+    return hardware_interface::return_type::OK;
   }
   {
     std::lock_guard<std::mutex> lock(feedback_mutex_);

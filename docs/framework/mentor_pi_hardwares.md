@@ -80,6 +80,12 @@ depth one, matching the firmware command/state contract. Firmware remains the
 final authority for command validation, model and implementation limits,
 independent 198 ms leases, and session-loss disarming.
 
+Missing or invalid authorization is an expected inhibited state, not a
+`ros2_control` hardware failure: `read` and `write` keep their interfaces
+available while publishing zero commands. Executor failure, an invalid command
+while authorized, or stale feedback while authorized returns an error and
+triggers the fail-coupled hardware shutdown.
+
 ## Developer entry points
 
 Use native Ubuntu 22.04/Humble onboard. macOS and other Linux distributions may
