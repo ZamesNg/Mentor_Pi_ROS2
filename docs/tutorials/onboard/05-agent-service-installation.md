@@ -15,8 +15,10 @@ sudo ROS_DOMAIN_ID=0 make -C micro_ros_agent install-service
 ```
 
 This same installation step is safe to rerun when applying an Agent service
-definition update: it reuses an existing release only after verifying it still
-matches the current build, refreshes the service files, and restarts the
+definition update: concurrent installer runs are rejected, and it reuses an
+existing release only after verifying the complete installed tree still matches
+the current build. A newly built release is staged and verified before it is
+published; every safe rerun refreshes the service files and restarts the
 service.
 
 If multiple matching adapters are connected, select the intended board with

@@ -54,28 +54,120 @@ grep -Fq '/.dockerenv' "${COMPONENT_ROOT}/tools/install_service.sh" || {
 installer="${COMPONENT_ROOT}/tools/install_service.sh"
 release_test_root="$(mktemp -d)"
 trap 'rm -rf -- "${release_test_root}"' EXIT
-current_metadata="${release_test_root}/current-metadata"
+expected_release="${release_test_root}/expected"
+mkdir -p "${expected_release}/lib/micro_ros_agent" \
+  "${expected_release}/share/micro_ros_agent/hook" "${expected_release}/bin"
+printf 'build=verified\n' >"${expected_release}/AGENT-BUILD-METADATA.txt"
+printf '#!/bin/sh\nexit 0\n' >"${expected_release}/lib/micro_ros_agent/micro_ros_agent"
+cp "${expected_release}/lib/micro_ros_agent/micro_ros_agent" \
+  "${expected_release}/bin/mentor-pi-agent"
+printf 'runtime library\n' >"${expected_release}/lib/libmentor_pi_runtime.so"
+printf 'hook\n' >"${expected_release}/share/micro_ros_agent/hook/runtime.dsv"
+printf 'source this release\n' >"${expected_release}/local_setup.sh"
+ln -s libmentor_pi_runtime.so "${expected_release}/lib/libmentor_pi_runtime.so.1"
+chmod 0755 "${expected_release}/lib/micro_ros_agent/micro_ros_agent" \
+  "${expected_release}/bin/mentor-pi-agent"
+find -P "${expected_release}" \( -type f -o -type d \) -exec chmod go-w {} +
+current_metadata="${expected_release}/AGENT-BUILD-METADATA.txt"
+executable_sha="$(sha256sum "${expected_release}/lib/micro_ros_agent/micro_ros_agent" | awk '{print $1}')"
+launcher_sha="$(sha256sum "${expected_release}/bin/mentor-pi-agent" | awk '{print $1}')"
+tree_sha="$(bash -c 'source "$1"; TreeDigest "$2"' bash "${installer}" "${expected_release}")"
+test_uid="$(id -u)"
+test_gid="$(id -g)"
+
+verify_release() {
+  bash -c 'source "$1"; VerifyExistingRelease "$2" "$3" "$4" "$5" "$6" "$7" "$8"' bash \
+    "${installer}" "$1" "${current_metadata}" "${executable_sha}" "${launcher_sha}" \
+    "${tree_sha}" "${test_uid}" "${test_gid}"
+}
+
+expect_rejected_release() {
+  if verify_release "$1" 2>/dev/null; then
+    echo "unsafe Agent release was accepted: $1" >&2
+    exit 1
+  fi
+}
+
 release_path="${release_test_root}/release"
-mkdir -p "${release_path}/lib/micro_ros_agent" "${release_path}/bin"
-printf 'build=verified\n' >"${current_metadata}"
-cp "${current_metadata}" "${release_path}/AGENT-BUILD-METADATA.txt"
-printf '#!/bin/sh\nexit 0\n' >"${release_path}/lib/micro_ros_agent/micro_ros_agent"
-cp "${release_path}/lib/micro_ros_agent/micro_ros_agent" \
-  "${release_path}/bin/mentor-pi-agent"
-chmod 0755 "${release_path}/lib/micro_ros_agent/micro_ros_agent" \
-  "${release_path}/bin/mentor-pi-agent"
-executable_sha="$(sha256sum "${release_path}/lib/micro_ros_agent/micro_ros_agent" | awk '{print $1}')"
-launcher_sha="$(sha256sum "${release_path}/bin/mentor-pi-agent" | awk '{print $1}')"
-bash -c 'source "$1"; VerifyExistingRelease "$2" "$3" "$4" "$5"' bash \
-  "${installer}" "${release_path}" "${current_metadata}" \
-  "${executable_sha}" "${launcher_sha}"
-printf 'build=mismatch\n' >"${release_path}/AGENT-BUILD-METADATA.txt"
-if bash -c 'source "$1"; VerifyExistingRelease "$2" "$3" "$4" "$5"' bash \
-    "${installer}" "${release_path}" "${current_metadata}" \
-    "${executable_sha}" "${launcher_sha}" 2>/dev/null; then
-  echo "existing Agent release metadata mismatch was accepted" >&2
+cp -a "${expected_release}" "${release_path}"
+verify_release "${release_path}"
+
+cp -a "${expected_release}" "${release_test_root}/metadata-mismatch"
+printf 'build=mismatch\n' >"${release_test_root}/metadata-mismatch/AGENT-BUILD-METADATA.txt"
+expect_rejected_release "${release_test_root}/metadata-mismatch"
+
+cp -a "${expected_release}" "${release_test_root}/executable-mismatch"
+printf 'mutated executable\n' >>"${release_test_root}/executable-mismatch/lib/micro_ros_agent/micro_ros_agent"
+expect_rejected_release "${release_test_root}/executable-mismatch"
+
+cp -a "${expected_release}" "${release_test_root}/launcher-mismatch"
+printf 'mutated launcher\n' >>"${release_test_root}/launcher-mismatch/bin/mentor-pi-agent"
+expect_rejected_release "${release_test_root}/launcher-mismatch"
+
+cp -a "${expected_release}" "${release_test_root}/runtime-mismatch"
+printf 'mutated runtime\n' >>"${release_test_root}/runtime-mismatch/share/micro_ros_agent/hook/runtime.dsv"
+expect_rejected_release "${release_test_root}/runtime-mismatch"
+
+cp -a "${expected_release}" "${release_test_root}/missing-local-setup"
+rm "${release_test_root}/missing-local-setup/local_setup.sh"
+expect_rejected_release "${release_test_root}/missing-local-setup"
+
+cp -a "${expected_release}" "${release_test_root}/intermediate-symlink"
+rm -rf "${release_test_root}/intermediate-symlink/share"
+ln -s "${expected_release}/share" "${release_test_root}/intermediate-symlink/share"
+expect_rejected_release "${release_test_root}/intermediate-symlink"
+
+cp -a "${expected_release}" "${release_test_root}/unsafe-mode"
+chmod g+w "${release_test_root}/unsafe-mode/lib/libmentor_pi_runtime.so"
+expect_rejected_release "${release_test_root}/unsafe-mode"
+
+cp -a "${expected_release}" "${release_test_root}/service-inaccessible-mode"
+chmod 0700 "${release_test_root}/service-inaccessible-mode/bin/mentor-pi-agent"
+expect_rejected_release "${release_test_root}/service-inaccessible-mode"
+
+cp -a "${expected_release}" "${release_test_root}/newline-symlink-target"
+rm "${release_test_root}/newline-symlink-target/lib/libmentor_pi_runtime.so.1"
+ln -s $'libmentor_pi_runtime.so\n' \
+  "${release_test_root}/newline-symlink-target/lib/libmentor_pi_runtime.so.1"
+expect_rejected_release "${release_test_root}/newline-symlink-target"
+
+cp -a "${expected_release}" "${release_test_root}/malformed"
+rm "${release_test_root}/malformed/lib/micro_ros_agent/micro_ros_agent"
+expect_rejected_release "${release_test_root}/malformed"
+
+if bash -c 'source "$1"; VerifyExistingRelease "$2" "$3" "$4" "$5" "$6" 99999 99999' bash \
+    "${installer}" "${release_path}" "${current_metadata}" "${executable_sha}" \
+    "${launcher_sha}" "${tree_sha}" 2>/dev/null; then
+  echo "release ownership verification cannot be exercised without root" >&2
   exit 1
 fi
+
+lock_line="$(grep -n 'flock -n 9' "${installer}" | cut -d: -f1)"
+preflight_line="$(grep -n 'SERIAL_ACCESS_HELPER.*--preflight' "${installer}" | cut -d: -f1)"
+publish_line="$(grep -n 'mv -T .*temporary_release.*release_path' "${installer}" | cut -d: -f1)"
+existing_verify_line="$(grep -n 'VerifyExistingRelease "${release_path}"' "${installer}" | cut -d: -f1)"
+useradd_line="$(grep -n 'useradd --system' "${installer}" | cut -d: -f1)"
+destination_check_line="$(grep -n 'EnsureTrustedDirectory /etc/mentor-pi /etc/systemd/system' \
+  "${installer}" | cut -d: -f1)"
+current_link_line="$(grep -n 'local current_link=' "${installer}" | cut -d: -f1)"
+[[ -n "${lock_line}" && -n "${preflight_line}" && -n "${publish_line}" && \
+   -n "${existing_verify_line}" && -n "${useradd_line}" && \
+   -n "${destination_check_line}" && -n "${current_link_line}" && \
+   "${lock_line}" -lt "${preflight_line}" && "${lock_line}" -lt "${publish_line}" && \
+   "${existing_verify_line}" -lt "${useradd_line}" && \
+   "${destination_check_line}" -lt "${current_link_line}" ]] || {
+  echo "Agent installer ordering does not protect release validation/publication" >&2
+  exit 1
+}
+grep -Fq 'mktemp -d "${temporary_release_prefix}XXXXXX"' "${installer}"
+grep -Fq 'EnsureTrustedDirectory /opt/mentor_pi /opt/mentor_pi/agent "${RELEASE_ROOT}"' \
+  "${installer}"
+grep -Fq 'EnsureTrustedDirectory /run/mentor-pi' "${installer}"
+! grep -Fq '/run/lock/mentor-pi-agent-install.lock' "${installer}"
+grep -Fq 'VerifySecureEntry "${installer_lock}" 0 0 "Agent installer lock"' \
+  "${installer}"
+grep -Fq 'VerifyExistingRelease "${temporary_release}"' "${installer}"
+grep -Fq 'mv -T "${temporary_release}" "${release_path}"' "${installer}"
 grep -Eq '^[[:space:]]*systemctl enable mentor-pi-agent\.service$' "${installer}"
 grep -Eq '^[[:space:]]*systemctl restart mentor-pi-agent\.service$' "${installer}"
 ! grep -Fq 'systemctl enable --now mentor-pi-agent.service' "${installer}"
