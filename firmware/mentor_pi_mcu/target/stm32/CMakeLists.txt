@@ -57,8 +57,8 @@ set(RRCLITE_CUBE_ROOT
   "${RRCLITE_MCU_ROOT}/third_party/stm32cube_f4"
   CACHE PATH "Pinned STM32CubeF4 v1.27.1 source tree")
 set(RRCLITE_MICROROS_ROOT
-  "${RRCLITE_MCU_ROOT}/build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros"
-  CACHE PATH "Generated Humble libmicroros directory")
+  "${RRCLITE_MCU_ROOT}/build/microros-sdk"
+  CACHE PATH "Verified checked Humble libmicroros directory")
 set(RRCLITE_EXPECTED_GCC_VERSION "13.2.1" CACHE STRING
   "Exact Arm GNU compiler version used for qualified firmware builds")
 set(RRCLITE_CUBE_COMMIT
@@ -99,7 +99,7 @@ function(rrclite_verify_detached_commit repository expected_commit)
       "  repository: ${repository}\n"
       "  expected:   ${expected_commit}\n"
       "  actual:     ${actual_commit}\n"
-      "Run tools/bootstrap_firmware_dependencies.sh.")
+      "Run make -C firmware setup.")
   endif()
   execute_process(
     COMMAND "${GIT_EXECUTABLE}" -C "${repository}" status
@@ -124,7 +124,7 @@ rrclite_verify_detached_commit(
   "${RRCLITE_MICROROS_UTILS_COMMIT}")
 rrclite_require_file(
   "${RRCLITE_MICROROS_LIBRARY}"
-  "Run tools/build_microros_library.sh before the firmware build.")
+  "Run make -C firmware extract-sdk before the firmware build.")
 rrclite_require_file(
   "${RRCLITE_MICROROS_ROOT}/include/mentor_pi_interfaces/msg/motor_command.h"
   "Regenerate libmicroros with the project-owned interface package.")
@@ -155,7 +155,7 @@ if(NOT compiler_version_result EQUAL 0 OR
    NOT compiler_version STREQUAL RRCLITE_EXPECTED_GCC_VERSION)
   message(FATAL_ERROR
     "Arm GNU compiler mismatch: expected ${RRCLITE_EXPECTED_GCC_VERSION}, "
-    "got '${compiler_version}'. Use tools/build_firmware.sh.")
+    "got '${compiler_version}'. Use make -C firmware build.")
 endif()
 
 foreach(required_tool CMAKE_OBJCOPY CMAKE_SIZE CMAKE_NM)
@@ -391,7 +391,7 @@ target_compile_definitions(mentor_pi_mcu PRIVATE
   CLOCK_MONOTONIC=0
 )
 target_include_directories(mentor_pi_mcu PRIVATE
-  "${RRCLITE_REPOSITORY_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces/include"
+  "${RRCLITE_MICROROS_ROOT}/include"
   "${RRCLITE_MCU_ROOT}/include"
   "${RRCLITE_MCU_ROOT}/drivers/include"
   "${RRCLITE_MCU_ROOT}/app/controller/include"

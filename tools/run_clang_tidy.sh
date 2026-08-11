@@ -119,8 +119,8 @@ ConfigureAndAnalyze \
   '.*/firmware/mentor_pi_mcu/app/microros/(src|tests)/.*\.cc$'
 ConfigureAndAnalyze \
   bringup \
-  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup" \
-  '.*/mentor_pi_ros2/src/mentor_pi_bringup/(src|test)/.*\.cc$' \
+  "${PROJECT_ROOT}/ros2_ws/src/mentor_pi_bringup" \
+  '.*/ros2_ws/src/mentor_pi_bringup/(src|test)/.*\.cc$' \
   -DMENTOR_PI_BUILD_ROS2=OFF
 
 echo "clang-tidy passed for every native first-party translation unit"

@@ -25,7 +25,8 @@ set -euo pipefail
 [[ "${MICROROS_GENERATOR_WORKSPACE}" == /* ]]
 [[ "${MICROROS_TOOLCHAIN_ROOT}" == /* ]]
 [[ "${MICROROS_TOOLS_ROOT}" == /* ]]
-[[ "${MICROROS_RESTORE_OWNERSHIP}" == "1" ]]
+[[ "${MICROROS_RESTORE_OWNERSHIP}" == "0" || \
+   "${MICROROS_RESTORE_OWNERSHIP}" == "1" ]]
 
 readonly BASE_PATH="${MICROROS_PROJECT_ROOT}/${MICROROS_LIBRARY_FOLDER}"
 export BASE_PATH
@@ -38,6 +39,9 @@ export BASE_PATH
 RestoreHostBuildTree() {
   local original_status=$?
   trap - EXIT
+  if [[ "${MICROROS_RESTORE_OWNERSHIP}" == "0" ]]; then
+    exit "${original_status}"
+  fi
   local restoration_failed=0
   if [[ -d "${MICROROS_PROJECT_ROOT}/build/microros" ]]; then
     chown -R -- "${MICROROS_CALLER_UID}:${MICROROS_CALLER_GID}" \
@@ -104,13 +108,20 @@ set -u
   exit 1
 }
 readonly MICROROS_SETUP_PREFIX="$(ros2 pkg prefix micro_ros_setup)"
-readonly CREATE_FIRMWARE_WORKSPACE_SCRIPT="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup/create_firmware_ws.sh"
-readonly CREATE_WORKSPACE_SCRIPT="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup/create_ws.sh"
-[[ -x "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}" &&
-   -x "${CREATE_WORKSPACE_SCRIPT}" ]] || {
+readonly INSTALLED_MICROROS_TOOLS="${MICROROS_SETUP_PREFIX}/lib/micro_ros_setup"
+readonly LOCAL_MICROROS_TOOLS="${MICROROS_GENERATOR_WORKSPACE}/micro_ros_setup-tools"
+[[ -x "${INSTALLED_MICROROS_TOOLS}/create_firmware_ws.sh" &&
+   -x "${INSTALLED_MICROROS_TOOLS}/create_ws.sh" ]] || {
   echo "Pinned micro-ROS workspace scripts are missing under ${MICROROS_SETUP_PREFIX}." >&2
   exit 1
 }
+# The installed overlay is immutable for the non-root Dev Container user.
+# Patch a private copy because the upstream firmware helper shells out through
+# ros2 run, while this generator binds that call to the reviewed helper copy.
+cp -a "${INSTALLED_MICROROS_TOOLS}" "${LOCAL_MICROROS_TOOLS}"
+chmod -R u+rwX "${LOCAL_MICROROS_TOOLS}"
+readonly CREATE_FIRMWARE_WORKSPACE_SCRIPT="${LOCAL_MICROROS_TOOLS}/create_firmware_ws.sh"
+readonly CREATE_WORKSPACE_SCRIPT="${LOCAL_MICROROS_TOOLS}/create_ws.sh"
 sed -i \
   "s#ros2 run micro_ros_setup create_ws.sh#${CREATE_WORKSPACE_SCRIPT}#g" \
   "${CREATE_FIRMWARE_WORKSPACE_SCRIPT}"
@@ -167,7 +178,7 @@ CaptureSourceLock() {
     printf '%s\n' \
       '# Canonical repository URL (without a trailing .git), then detached commit.' \
       '# Captured from the pinned Humble builder; keep this sorted.' \
-      '# tools/apply_microros_source_lock.sh rejects missing and unexpected repositories.'
+      '# firmware/tools/apply_microros_source_lock.sh rejects missing and unexpected repositories.'
     LC_ALL=C sort "${rows}"
   } >"${output}"
   rm -f "${rows}"

@@ -12,8 +12,9 @@ The package is GPL-2.0-or-later because it links to the GPL-2.0-or-later
 `7336800baa3f2f6e0c8edfad472c1ea51c54321a`. Setup fetches only that repository
 and verifies the commit. The build copies it to a disposable build directory,
 applies the checksummed compatibility patch, and builds offline with upstream
-tests, examples, documentation, and benchmarks disabled. Handoffs carry the
-license, commit provenance, patch, and corresponding ALTO and project source.
+tests, examples, documentation, and benchmarks disabled. Distributable source
+bundles carry the license, commit provenance, patch, and corresponding ALTO and
+project source.
 
 ## Interfaces
 

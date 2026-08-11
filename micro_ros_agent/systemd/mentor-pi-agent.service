@@ -1,0 +1,37 @@
+[Unit]
+Description=Mentor Pi micro-ROS Agent
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=mentor-pi
+Group=mentor-pi
+SupplementaryGroups=mentor-pi-serial
+EnvironmentFile=/etc/mentor-pi/agent.env
+ExecStartPre=/usr/bin/test -c /dev/mentor_pi_mcu
+ExecStart=/opt/mentor_pi/agent/current/lib/micro_ros_agent/micro_ros_agent serial --dev /dev/mentor_pi_mcu --baudrate 1000000 -v4
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+KillSignal=SIGINT
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mentor-pi-agent
+
+[Install]
+WantedBy=multi-user.target

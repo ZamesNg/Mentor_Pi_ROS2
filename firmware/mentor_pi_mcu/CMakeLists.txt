@@ -14,13 +14,16 @@ set(MENTOR_PI_MCU_FUZZ_SANITIZERS "fuzzer,address,undefined" CACHE STRING
 set(MENTOR_PI_MCU_FUZZ_SMOKE_RUNS "10000" CACHE STRING
     "Per-harness input count for the bounded fuzz smoke target")
 
+set(MENTOR_PI_MICROROS_SDK_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/build/microros-sdk" CACHE PATH
+    "Verified checked Humble micro-ROS firmware SDK")
 set(MENTOR_PI_INTERFACE_CONTRACT_INCLUDE_DIR
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../mentor_pi_ros2/src/mentor_pi_interfaces/include")
+    "${MENTOR_PI_MICROROS_SDK_ROOT}/include")
 set(MENTOR_PI_MOTOR_PROFILE_CONTRACT_HEADER
     "${MENTOR_PI_INTERFACE_CONTRACT_INCLUDE_DIR}/mentor_pi_interfaces/motor_profile_contract.hpp")
 if(NOT EXISTS "${MENTOR_PI_MOTOR_PROFILE_CONTRACT_HEADER}")
   message(FATAL_ERROR
-    "Missing shared motor profile contract: ${MENTOR_PI_MOTOR_PROFILE_CONTRACT_HEADER}")
+    "Missing checked SDK motor profile contract: ${MENTOR_PI_MOTOR_PROFILE_CONTRACT_HEADER}. Run make -C firmware extract-sdk.")
 endif()
 add_library(mentor_pi_mcu_interface_contract INTERFACE)
 target_include_directories(mentor_pi_mcu_interface_contract INTERFACE

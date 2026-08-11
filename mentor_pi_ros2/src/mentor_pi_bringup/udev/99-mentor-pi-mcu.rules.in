@@ -1,3 +1,0 @@
-# Production template. install_production_assets replaces exactly one identity
-# token after verifying one connected CH9102F. Do not copy this file to /etc.
-SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d4", @MENTOR_PI_DEVICE_IDENTITY@, SYMLINK+="mentor_pi_mcu", GROUP="mentor-pi-serial", MODE="0660", ENV{ID_MM_DEVICE_IGNORE}="1", ENV{ID_MM_PORT_IGNORE}="1", TAG+="systemd"

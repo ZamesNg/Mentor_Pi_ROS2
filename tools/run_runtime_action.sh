@@ -4,12 +4,45 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-readonly CONTAINER_NAME="mentor-pi-runtime"
+readonly RUNTIME_CONTEXT="${MENTOR_PI_RUNTIME_ACTION_CONTEXT:-development}"
+if [[ "${RUNTIME_CONTEXT}" == production ]]; then
+  readonly DEFAULT_EVIDENCE_ROOT="/var/log/mentor-pi/actions"
+else
+  readonly DEFAULT_EVIDENCE_ROOT="${PROJECT_ROOT}/build"
+fi
+readonly EVIDENCE_ROOT="${MENTOR_PI_ACTION_EVIDENCE_ROOT:-${DEFAULT_EVIDENCE_ROOT}}"
+if [[ "${RUNTIME_CONTEXT}" == production ]]; then
+  readonly DEFAULT_CAPTURE_TOOL="/opt/mentor_pi/tools/capture_board_diagnostics"
+else
+  readonly DEFAULT_CAPTURE_TOOL="${PROJECT_ROOT}/ros2_ws/src/mentor_pi_bringup/scripts/capture_board_diagnostics"
+fi
+readonly CAPTURE_TOOL="${MENTOR_PI_CAPTURE_TOOL:-${DEFAULT_CAPTURE_TOOL}}"
+readonly PACKAGED_FIRMWARE_SHA256="${MENTOR_PI_PACKAGED_FIRMWARE_SHA256:-}"
 
 Fail() {
   echo "Mentor Pi runtime action failed: $*" >&2
   exit 1
 }
+
+case "${RUNTIME_CONTEXT}" in
+  development | production) ;;
+  *) Fail "runtime action context must be development or production" ;;
+esac
+if [[ "${RUNTIME_CONTEXT}" == development ]]; then
+  export MENTOR_PI_DEVELOPMENT_RUNTIME=1
+else
+  export MENTOR_PI_DEVELOPMENT_RUNTIME=0
+fi
+[[ "${EVIDENCE_ROOT}" == /* && "${EVIDENCE_ROOT}" != / && \
+   "${EVIDENCE_ROOT}" != *$'\n'* ]] || \
+  Fail "runtime action evidence root must be an absolute non-root path"
+[[ "${CAPTURE_TOOL}" == /* && "${CAPTURE_TOOL}" != *$'\n'* ]] || \
+  Fail "runtime action capture tool must be an absolute path"
+[[ -x "${CAPTURE_TOOL}" ]] || Fail "runtime action capture tool is not installed"
+if [[ "${RUNTIME_CONTEXT}" == production ]]; then
+  [[ "${PACKAGED_FIRMWARE_SHA256}" =~ ^[0-9a-f]{64}$ ]] || \
+    Fail "production runtime action lacks a verified packaged firmware identity"
+fi
 
 CleanupPeripheralOutputs() {
   set +e
@@ -180,9 +213,14 @@ InsideRuntime() {
       [[ "$#" == 1 && ("$1" == "0" || "$1" == "1") ]] ||
         Fail "passive-check requires OLED presence as 0 or 1"
       local oled_present="$1"
-      local output="${PROJECT_ROOT}/build/diagnostics/passive-$(date -u +%Y%m%dT%H%M%SZ)"
+      local output="${EVIDENCE_ROOT}/diagnostics/passive-$(date -u +%Y%m%dT%H%M%SZ)"
+      mkdir -p "$(dirname "${output}")"
       echo "PASSIVE CHECK [1/3]: verifying firmware and controller graph."
-      "${SCRIPT_DIR}/verify_firmware_artifact.sh" PID "${PROJECT_ROOT}"
+      if [[ "${RUNTIME_CONTEXT}" == development ]]; then
+        "${PROJECT_ROOT}/firmware/tools/verify.sh"
+      else
+        echo "Verified packaged PID firmware SHA-256: ${PACKAGED_FIRMWARE_SHA256}"
+      fi
       ros2 node list --no-daemon --spin-time 2.0 \
         | tee "${output}.nodes.txt"
       grep -Fqx '/mentor_pi/controller' "${output}.nodes.txt" || \
@@ -191,17 +229,18 @@ InsideRuntime() {
         Fail "/mentor_pi/configuration_supervisor is absent"
       local -a capture_arguments=(
         --output "${output}"
-        --repository-root "${PROJECT_ROOT}"
         --qualification imu-characterization
         --qualification-duration-sec 60
       )
+      if [[ "${RUNTIME_CONTEXT}" == development ]]; then
+        capture_arguments+=(--repository-root "${PROJECT_ROOT}")
+      fi
       if [[ "${oled_present}" == "0" ]]; then
         capture_arguments+=(--allow-missing-oled)
         echo "PASSIVE CHECK LIMITATION: OLED is not installed and will not be credited as tested."
       fi
       echo "PASSIVE CHECK [2/3]: collecting diagnostics and monitoring telemetry for 60 seconds."
-      "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup/scripts/capture_board_diagnostics" \
-        "${capture_arguments[@]}"
+      "${CAPTURE_TOOL}" "${capture_arguments[@]}"
       echo "PASSIVE CHECK [3/3]: proving the PID image remains at zero with actuator power disconnected."
       ros2 topic pub --once --qos-reliability best_effort \
         --qos-durability volatile --qos-depth 1 \
@@ -215,6 +254,24 @@ InsideRuntime() {
       timeout 10 ros2 topic echo --once --qos-reliability reliable \
         /mentor_pi/diagnostics mentor_pi_interfaces/msg/ControllerDiagnostics \
         | tee "${output}/pid-zero-motor-diagnostics.yaml"
+      if [[ "${RUNTIME_CONTEXT}" == production ]]; then
+        sed -i 's/^development_runtime=1$/development_runtime=0/' \
+          "${output}/SUMMARY.txt"
+        printf 'runtime_context=production\npackaged_firmware_sha256=%s\n' \
+          "${PACKAGED_FIRMWARE_SHA256}" \
+          >"${output}/production-runtime.txt"
+        (
+          cd "${output}"
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | \
+            xargs -0 sha256sum
+        ) >"${output}/SHA256SUMS"
+        tar -C "$(dirname "${output}")" -czf "${output}.tar.gz" -- \
+          "$(basename "${output}")"
+        (
+          cd "$(dirname "${output}")"
+          sha256sum -- "$(basename "${output}").tar.gz"
+        ) >"${output}.tar.gz.sha256"
+      fi
       if [[ "${oled_present}" == "0" ]]; then
         echo "PASSIVE CHECK PASS WITH LIMITATION: OLED NOT INSTALLED/NOT TESTED; ${output}"
       else
@@ -284,13 +341,13 @@ InsideRuntime() {
       local motor_id="$1"
       local target_rps="$2"
       local duration_ms="$3"
-      mkdir -p "${PROJECT_ROOT}/build/motor-commissioning"
+      mkdir -p "${EVIDENCE_ROOT}/motor-commissioning"
       ros2 run mentor_pi_bringup motor_commissioning --ros-args \
         -p acknowledgement:=MOTORS_RAISED_CURRENT_LIMITED \
         -p motor_id:="${motor_id}" \
         -p target_rps:="${target_rps}" \
         -p duration_ms:="${duration_ms}" \
-        | tee "${PROJECT_ROOT}/build/motor-commissioning/$(date -u +%Y%m%dT%H%M%SZ)-motor-${motor_id}.log"
+        | tee "${EVIDENCE_ROOT}/motor-commissioning/$(date -u +%Y%m%dT%H%M%SZ)-motor-${motor_id}.log"
       ;;
     qualification-preflight)
       ros2 run mentor_pi_bringup qualification_monitor --ros-args \
@@ -307,7 +364,7 @@ InsideRuntime() {
       local bus_id="$7" bus_hold="$8" bus_tolerance="$9"
       shift 9
       local bus_offset="$1" bus_torque="$2"
-      local evidence_parent="${PROJECT_ROOT}/build/qualification"
+      local evidence_parent="${EVIDENCE_ROOT}/qualification"
       local run_id="${mode}-$(date -u +%Y%m%dT%H%M%SZ)"
       local output="${evidence_parent}/${run_id}"
       mkdir -p "${evidence_parent}"
@@ -346,32 +403,36 @@ fi
 readonly ACTION="$1"
 shift
 
-if [[ "$(docker container inspect "${CONTAINER_NAME}" \
-    --format '{{.State.Running}}' 2>/dev/null || true)" == "true" ]]; then
-  readonly EXPECTED_HOST_PREFIX="$(${SCRIPT_DIR}/build_host.sh --runtime --print-output)"
-  readonly MOUNTED_HOST_PREFIX="$(docker container inspect "${CONTAINER_NAME}" \
-    --format '{{range .Mounts}}{{if eq .Destination "/opt/mentor_pi/host"}}{{.Source}}{{end}}{{end}}')"
-  [[ -n "${MOUNTED_HOST_PREFIX}" && "${MOUNTED_HOST_PREFIX}" == /* &&
-    "${MOUNTED_HOST_PREFIX}" != *$'\n'* ]] ||
-    Fail "running runtime does not expose one valid /opt/mentor_pi/host mount"
-  [[ "${MOUNTED_HOST_PREFIX}" == "${EXPECTED_HOST_PREFIX}" ]] ||
-    Fail "running runtime is stale (${MOUNTED_HOST_PREFIX}); stop its make start with Ctrl-C, then run make start again to load ${EXPECTED_HOST_PREFIX}"
-  exec docker exec --interactive \
-    --env ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" \
-    "${CONTAINER_NAME}" /bin/bash -lc \
-    'set -euo pipefail
-     set +u
-     source /opt/ros/humble/setup.bash
-     source /opt/mentor_pi/micro_ros_agent/local_setup.bash
-     source /opt/mentor_pi/host/setup.bash
-     set -u
-     ros2 daemon stop >/dev/null 2>&1 || true
-     export MENTOR_PI_DEVELOPMENT_RUNTIME=1
-     export MENTOR_PI_HOST_PREFIX=/opt/mentor_pi/host
-     export MENTOR_PI_AGENT_PREFIX=/opt/mentor_pi/micro_ros_agent
-     export MENTOR_PI_AGENT_EXECUTABLE=/opt/mentor_pi/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent
-     exec /workspace/tools/run_runtime_action.sh --inside "$@"' \
-    mentor-pi-runtime-action "${ACTION}" "$@"
+[[ ! -f /.dockerenv ]] || \
+  Fail "runtime actions require native Ubuntu 22.04, not the Dev Container"
+[[ -r /etc/os-release ]] || Fail "/etc/os-release is unavailable"
+# shellcheck disable=SC1091
+source /etc/os-release
+[[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 22.04 ]] || \
+  Fail "runtime actions require native Ubuntu 22.04"
+[[ "$(uname -s)" == Linux && -r /opt/ros/humble/setup.bash ]] || \
+  Fail "runtime actions require native Ubuntu 22.04 with ROS 2 Humble"
+if [[ "${RUNTIME_CONTEXT}" == production ]]; then
+  "${PROJECT_ROOT}/firmware/tools/verify.sh" >/dev/null
+  verified_firmware_sha="$(sha256sum \
+    "${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf" \
+    | awk '{print $1}')"
+  [[ "${PACKAGED_FIRMWARE_SHA256}" == "${verified_firmware_sha}" ]] || \
+    Fail "production firmware identity does not match the verified PID artifact"
 fi
+[[ -r "${PROJECT_ROOT}/ros2_ws/install/setup.bash" ]] || \
+  Fail "ROS applications are not built; run make -C ros2_ws build"
+command -v systemctl >/dev/null 2>&1 || \
+  Fail "systemctl is required for onboard runtime actions"
+systemctl is-active --quiet mentor-pi-agent.service || \
+  Fail "mentor-pi-agent.service is not active"
 
-Fail "start make start first; runtime actions execute only inside its Docker container"
+set +u
+# shellcheck disable=SC1091
+source /opt/ros/humble/setup.bash
+# shellcheck disable=SC1091
+source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
+set -u
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+ros2 daemon stop >/dev/null 2>&1 || true
+InsideRuntime "${ACTION}" "$@"

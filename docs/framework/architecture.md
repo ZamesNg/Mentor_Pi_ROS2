@@ -3,8 +3,8 @@
 Status: normative implementation architecture  
 Runtime host: ROS 2 Humble on Ubuntu 22.04, amd64 or arm64
 
-Development host: supported Ubuntu with architecture-native pinned Ubuntu
-22.04/Humble containers and no host ROS dependency
+Development host: native Ubuntu 22.04/Humble, or the VS Code Dev Container on
+macOS and every other Linux distribution
 MCU: STM32F407VET6, STM32 HAL, FreeRTOS, and a C++17 application framework
 over the micro-ROS C client library
 
@@ -12,12 +12,12 @@ over the micro-ROS C client library
 
 RRCLite v2 replaces both the Python serial bridge and the MCU proprietary packet
 dispatcher. The MCU is a micro-ROS client and exposes the bounded endpoints in
-the [ROS interface contract](ros-interface-contract.md) through the compiled
-micro-ROS Agent inside the runtime container:
+the [ROS interface contract](ros-interface-contract.md) through the separately
+installed compiled micro-ROS Agent:
 
 ```text
 ROS 2 graph
-  <-> containerized micro-ROS Agent
+  <-> native non-root micro-ROS Agent systemd service
   <-> /dev/mentor_pi_mcu at 1,000,000 baud
   <-> USB-C -> CH9102F -> USART1
   <-> MicroRosTask
@@ -93,7 +93,7 @@ Motor motion authority is a compile-time property and has no ROS unlock. The
 only supported build is the normal PID release artifact:
 
 ```sh
-make firmware
+make -C firmware build
 ```
 
 It is classified `NORMAL_CLOSED_LOOP_DEFAULT` with
@@ -690,15 +690,13 @@ The production installer shall reject a generic vendor/product-only rule and
 shall observe exactly one connected adapter matching the selected identity
 before installation or upgrade.
 
-A single systemd unit shall execute the pinned runtime image with the
-deployment's authoritative `ROS_DOMAIN_ID`. Docker receives only
-`/dev/mentor_pi_mcu`, uses host networking, a read-only root filesystem,
-dropped capabilities, and temporary writable home/log paths. The container
-sources the checksummed installed host and Agent artifacts read-only and runs
-the fail-coupled controller launch. Its compiled Agent receives:
+A single hardened systemd unit shall execute the versioned native Agent with
+the deployment's authoritative `ROS_DOMAIN_ID`. It runs as the unprivileged
+`mentor-pi` user with only the `mentor-pi-serial` supplementary group. The
+compiled Agent receives:
 
 ```sh
-/opt/mentor_pi/bin/mentor_pi_micro_ros_agent serial \
+/opt/mentor_pi/agent/current/lib/micro_ros_agent/micro_ros_agent serial \
   --dev /dev/mentor_pi_mcu --baudrate 1000000 -v4
 ```
 
@@ -710,21 +708,19 @@ reset. Any modem-control operation failure aborts Agent initialization. The
 Agent remains the sole serial reader/writer; this reset handling neither uses
 hardware flow control nor changes the 1,000,000-baud 8N1 application link.
 
-Production shall not use `ros2 run` as a process launcher. The equivalent
-`ros2 run` command may be used interactively for diagnosis, and its upstream
-Python-based CLI implementation is outside the first-party control/data path.
-Use `Restart=always` and `RestartSec=1`; systemd owns container restart and
-stop behavior. No `chmod 777`, broad `dialout` grant, Python serial bridge, or
-second process may open the port.
+The Agent service shall not start the configuration supervisor or any ROS
+application. Applications start manually from `ros2_ws`; their Python launch
+descriptions are build/orchestration code outside the first-party data path.
+Use `Restart=always`; systemd owns Agent reconnect/restart and stop behavior.
+No `chmod 777`, broad `dialout` grant, Python serial bridge, or second process
+may open the port.
 Deployment and stress
 tests are specified in
 [verification.md](verification.md); language and build rules are in
 [development-standards.md](development-standards.md).
 
-Production deployment is the architecture-native pinned Ubuntu 22.04/Humble
-runtime image on an arm64 RDK X5.
-A connected development host may use a supported Ubuntu release on either
-architecture. Every host uses the pinned Ubuntu 22.04/Humble containers for
-ROS-dependent builds, Agent and host execution, and reviewed MCU device
-pass-through. Host ROS is not sourced. The architecture is detected from the
-host, and native macOS Agent deployment is unsupported.
+Production deployment is native Ubuntu 22.04/Humble on amd64 or arm64. Native
+component builds and tests are supported only there. macOS and other Linux
+distributions use the VS Code Dev Container for development builds/tests only;
+native macOS Agent deployment and Dev Container runtime/device pass-through
+are unsupported. Firmware flashing remains a physical-host operation.

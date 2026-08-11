@@ -1,7 +1,5 @@
-name: Pinned firmware reproducibility
+name: Native firmware reproducibility
 
-# Automatic push and pull-request runs are intentionally disabled. Start this
-# expensive reproducibility workflow explicitly from the GitHub Actions UI.
 on:
   workflow_dispatch:
 
@@ -13,41 +11,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  locked-image:
-    name: Locked reproducibility and STM32 target analysis
-    runs-on: ubuntu-24.04
+  firmware:
+    name: Ubuntu 22.04 firmware (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-22.04
+          - architecture: arm64
+            runner: ubuntu-22.04-arm
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Verify Docker availability
+      - name: Install native build prerequisites
         run: |
-          docker version
-          docker info
-      - name: Fetch pinned firmware dependencies
-        run: ./tools/bootstrap_firmware_dependencies.sh
-      - name: Generate and verify pinned micro-ROS library
-        run: ./tools/build_microros_library.sh
-      - name: Compare two clean locked firmware builds
-        run: ./tools/check_firmware_reproducibility.sh
-      - name: Build Debug target and analyze STM32 translation units
-        run: ./tools/run_firmware_target_ci.sh
-      - name: Upload firmware and reproducibility report
+          test "$(dpkg --print-architecture)" = "${{ matrix.architecture }}"
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build curl xz-utils git
+      - name: Build, test, verify, and package firmware
+        run: |
+          make -C firmware setup
+          make -C firmware test
+          make -C firmware build
+          make -C firmware verify
+          make -C firmware package
+      - name: Upload verified firmware package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rrclite-v2-locked-firmware
+          name: mentor-pi-firmware-${{ matrix.architecture }}
+          path: firmware/build/packages/*/firmware-pid-release
           if-no-files-found: error
           retention-days: 14
-          path: |
-            firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf
-            firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.hex
-            firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.bin
-            firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.map
-            firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt
-            build/firmware-reproducibility/firmware-reproducibility.txt
-            build/firmware-target-debug/firmware-target-analysis.txt
-            build/firmware-target-debug/analyzed-first-party-sources.txt
-            build/firmware-target-debug/locked-required-strong-vector-symbols.txt
-            build/firmware-target-debug/debug-required-strong-vector-symbols.txt

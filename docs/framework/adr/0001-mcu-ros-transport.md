@@ -49,39 +49,31 @@ Linux device must be selected through a stable udev symlink, nominally
 deployment with multiple identical adapters must match a unique USB serial
 number or a documented physical USB path.
 
-The following native deployment decision is historical and is superseded by
-[ADR-0002](0002-docker-everywhere-host-runtime.md): the production Agent was
-originally required to run natively, not through Docker or Snap. Upstream
-can expose serial devices to a privileged container, but this project requires
-direct udev ownership by a dedicated `mentor-pi-serial` group, a closed systemd
-device policy, and host-visible logs without a container isolation layer. The Agent
-and `micro_ros_msgs` sources shall be checked out at the immutable revisions in
-`tools/install_microros_agent.sh`, then installed below `/opt/mentor_pi`. The
-stable wrapper sources only the upstream ROS environments and immediately
-replaces itself with the compiled native binary:
+ADR-0003 restores and makes normative the native production Agent decision.
+The project requires direct udev ownership by a dedicated
+`mentor-pi-serial` group, a hardened non-root systemd service, and host-visible
+journald logs. Agent sources shall be checked out at the immutable revisions in
+`micro_ros_agent/sources.lock`, then installed under a versioned
+`/opt/mentor_pi/agent/` prefix. The service executes the compiled binary:
 
 ```sh
-/opt/mentor_pi/bin/mentor_pi_micro_ros_agent serial \
+/opt/mentor_pi/agent/current/lib/micro_ros_agent/micro_ros_agent serial \
   --dev /dev/mentor_pi_mcu --baudrate 1000000 -v4
 ```
 
-`ros2 run` may be used for interactive diagnosis but is not the production
-launcher. The exact verbosity may be reduced after qualification.
+The Agent service is the production launcher and must not start ROS
+applications. The exact verbosity may be reduced after qualification.
 Production service management must run the Agent as an unprivileged user in
 the dedicated serial group, require a unique measured adapter identity, hold an
 exclusive wrapper lock, restart it after failure, and preserve its logs and exit
 status.
 
-The following native-development rule is also superseded by ADR-0002. Ubuntu
-22.04 development originally built and ran ROS 2 Humble natively. A development
-host on any other Ubuntu release shall have no native ROS installation;
-ROS-dependent builds, micro-ROS generation, the Agent, and host nodes run
-inside pinned Ubuntu 22.04/ROS 2 Humble containers with the automatically
-detected native architecture and reviewed MCU device pass-through. A
-deployment shall not mix ROS distributions between the MCU client, Agent, and
-host nodes. Migration to ROS 2 Jazzy is future work that requires new pinned
-artifacts and full requalification before Humble reaches end of life in May
-2027; it is not an active fallback under this ADR.
+Ubuntu 22.04/Humble amd64 and arm64 build and test natively. macOS and every
+other Linux distribution build/test through the repository VS Code Dev
+Container, which has no production device or runtime role. A deployment shall
+not mix ROS distributions between the MCU client, Agent, and ROS applications.
+Migration to another ROS distribution requires new pinned artifacts and full
+requalification; it is not an active fallback under this ADR.
 
 ## Why this option
 

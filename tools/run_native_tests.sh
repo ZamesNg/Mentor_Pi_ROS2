@@ -28,7 +28,7 @@ run_cmake_suite() {
 }
 
 python3 -m unittest discover \
-  -s "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_interfaces/test" -v
+  -s "${PROJECT_ROOT}/ros2_ws/src/mentor_pi_interfaces/test" -v
 
 run_cmake_suite \
   mentor_pi_mcu-native \
@@ -44,7 +44,7 @@ run_cmake_suite \
   "${PROJECT_ROOT}/firmware/mentor_pi_mcu/app/microros"
 run_cmake_suite \
   mentor_pi_bringup-native \
-  "${PROJECT_ROOT}/mentor_pi_ros2/src/mentor_pi_bringup" \
+  "${PROJECT_ROOT}/ros2_ws/src/mentor_pi_bringup" \
   -DMENTOR_PI_BUILD_ROS2=OFF
 
 cmake -E echo "All native RRCLite v2 suites passed"

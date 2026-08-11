@@ -171,7 +171,8 @@ fi
 
 echo "CHARACTERIZATION [1/3]: checking the controller and motor-state stream."
 ros2 node list --no-daemon --spin-time 1.0 2>/dev/null \
-  | grep -Fqx '/mentor_pi/controller' || Fail "/mentor_pi/controller is absent; keep make start running"
+  | grep -Fqx '/mentor_pi/controller' || \
+  Fail "/mentor_pi/controller is absent; keep the manual ROS launch running"
 stream_probe="${OUTPUT}/motor-initial.yaml"
 if ((reuse_encoders == 1)); then
   stream_probe="${OUTPUT}/motor-resume.yaml"

@@ -27,11 +27,16 @@ Testing/
 # Local inspection and rendering scratch space.
 tmp/
 
-# Downloaded firmware dependencies and generated micro-ROS library.
+# Downloaded firmware dependencies and extracted micro-ROS SDK.
 firmware/mentor_pi_mcu/third_party/
 firmware/mentor_pi_mcu/generated/
 firmware/mentor_pi_mcu/.deps/
-mentor_pi_ros2/third_party/
+firmware/mentor_pi_mcu/build/
+micro_ros_agent/build/
+ros2_ws/third_party/
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
 
 # Compiler and analysis artifacts.
 compile_commands.json

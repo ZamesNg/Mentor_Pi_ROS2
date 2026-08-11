@@ -1,53 +1,34 @@
-# RRCLite v2 Framework Documentation
+# RRCLite v2 framework
 
-This directory contains the detailed design and acceptance specifications for
-RRCLite v2: STM32F407VET6 firmware using FreeRTOS, STM32 HAL, and a pinned ROS 2
-Humble micro-ROS stack, with architecture-native Ubuntu 22.04/Humble Docker
-images on `amd64` or `arm64`. Host ROS installations are not used.
+These documents define the normative Mentor Pi firmware, micro-ROS transport,
+Agent, ROS application, safety, and verification contract. The implementation
+is a one-history monorepo with three independent native build graphs.
 
-For hands-on work, start with either
-[RDK deploy Tutorial 01](../tutorials/rdk_deploy/01-prepare-ubuntu-development-host.md)
-or [host-computer Tutorial 01](../tutorials/host_computer/01-prepare-ubuntu-development-host.md),
-then follow that track's numbered `Next` links. For changing project status, use
-[Next steps](../NEXT_STEPS.md). This README indexes the normative contracts;
-tutorials do not override them.
+Operators should begin with the ordered [host](../tutorials/host/) or
+[onboard](../tutorials/onboard/) tutorial, not with this directory.
 
-## Normative specifications
+## Precedence
 
-| Document | Responsibility |
+When documents conflict, accepted non-superseded ADRs take precedence,
+followed by requirements and safety, interfaces, architecture/hardware, and
+verification guidance. Historical evidence never overrides the active
+contract.
+
+| Document | Purpose |
 | --- | --- |
-| [Requirements](requirements.md) | Functional, platform, performance, safety, and quality requirements. |
-| [Hardware baseline](hardware-baseline.md) | Board resources, verified signal ownership, memory classes, and peripheral limits. |
-| [Verified board profile](verified-hardware-profile.md) | Compiled wheel placement/signs, IMU axes, retained defaults, and MCU status indication. |
-| [Legacy audit](legacy-audit.md) | Traceability from retained legacy behavior and known defects to v2 dispositions. |
-| [Transport ADR](adr/0001-mcu-ros-transport.md) | Accepted CH9102F/USART1 micro-ROS transport and rejected alternatives. |
-| [Docker host ADR](adr/0002-docker-everywhere-host-runtime.md) | Docker-only build, development, handoff, and production deployment. |
-| [Architecture](architecture.md) | Host/MCU components, task ownership, data flow, resource budgets, and session lifecycle. |
-| [ROS interface contract](ros-interface-contract.md) | Exact topics, services, schemas, QoS, units, limits, and validation rules. |
-| [Tracking controller](tracking-controller.md) | Opt-in ALTO MPC trajectory contract, scheduling, fallback, and safety behavior. |
-| [Reliability and safety](reliability-and-safety.md) | Safe states, command leases, overload policy, watchdog, and fault response. |
-| [Verification](verification.md) | Traceable tests and objective acceptance thresholds. |
-| [Development standards](development-standards.md) | Language, Google C++ style, embedded restrictions, review, and CI rules. |
-| [Implementation roadmap](implementation-roadmap.md) | Ordered implementation stages and entry/exit gates. |
+| [ADR-0001](adr/0001-mcu-ros-transport.md) | USB-C/CH9102F/USART1 and micro-ROS transport decision. |
+| [ADR-0003](adr/0003-native-component-monorepo.md) | Native component monorepo and development-only Dev Container. |
+| [Requirements](requirements.md) | Stable mandatory requirement IDs. |
+| [Architecture](architecture.md) | Runtime ownership, tasks, component and service topology. |
+| [ROS interface contract](ros-interface-contract.md) | Public names, types, QoS, units, validation, and limits. |
+| [Hardware baseline](hardware-baseline.md) | Pins, peripherals, polarities, and electrical facts. |
+| [Reliability and safety](reliability-and-safety.md) | Safe states, watchdogs, fault and recovery behavior. |
+| [Development standards](development-standards.md) | Language, build, review, and repository rules. |
+| [Verification](verification.md) | Requirement-to-test mapping and evidence acceptance. |
 
-Accepted ADRs take precedence over other design text. Requirements and safety
-rules then take precedence over the interface contract, followed by architecture
-and hardware detail, verification, and legacy evidence. A conflict affecting
-physical wiring or safe output is a stop-work condition until resolved.
+[ADR-0002](adr/0002-docker-everywhere-host-runtime.md) is retained only as a
+superseded historical decision.
 
-## Operator and qualification path
-
-The ordered [RDK deployment](../tutorials/rdk_deploy/01-prepare-ubuntu-development-host.md)
-and [host-computer](../tutorials/host_computer/01-prepare-ubuntu-development-host.md)
-series each contain setup, PID flashing, runtime startup, passive bring-up,
-characterization, guarded CLI checkout, functional HIL, and qualification
-campaigns. Exact ROS commands appear at the stage where they are safe to run.
-
-Manual Markdown checklists and ledgers are not used. Diagnostic collectors and
-qualification tools create immutable logs, checksums, JSON/CSV metrics, JUnit,
-and session records. A hardware or release claim remains incomplete whenever a
-required physical metric is absent or `NOT_OBSERVED`.
-
-Raw legacy material under `docs/reference/` is intentionally ignored and never
-a build input. The tracked [legacy audit](legacy-audit.md) is the maintained
-traceability record derived from that evidence.
+Hardware or release claims require recorded HIL/instrument results. Software
+tests, Dev Container builds, mocks, and visual observations cannot substitute
+for an unobserved physical metric.

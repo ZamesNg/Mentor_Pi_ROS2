@@ -42,8 +42,23 @@ powered.
 Build and inspect the PID release profile from the repository root:
 
 ```sh
-make firmware
+make -C firmware setup
+make -C firmware test
+make -C firmware build
+make -C firmware verify
 ```
+
+Maintainers regenerate the checked Humble SDK after changing
+`ros2_ws/src/mentor_pi_interfaces` with:
+
+```sh
+make -C firmware microros-sdk
+```
+
+Run this command as the normal Ubuntu or Dev Container user, never with
+`sudo`. The Dev Container image provides that user's rosdep cache. Rebuild and
+reopen the Dev Container if the generator reports that the cache is
+unavailable.
 
 The verifier must report `motor_mode=PID`, `artifact_mode=NORMAL`,
 `control_mode=CLOSED_LOOP`, `release_qualified=0`, valid provenance, and at
@@ -56,11 +71,10 @@ Active channel wiring signs are fixed as `{1, 1, 1, 1}` in firmware. Before
 any powered motor work, complete Tutorials 01--05 passively with actuator
 power disconnected, confirm wheel clearance, use a current-limited supply,
 keep a physical motor-power stop reachable, follow the guarded checkout in
-[host-computer Tutorial 06](../../docs/tutorials/host_computer/06-ros2-cli-hardware-checkout.md)
-or the corresponding
-[RDK-deploy Tutorial 06](../../docs/tutorials/rdk_deploy/06-ros2-cli-hardware-checkout.md), and run
-the campaign gates in
-[Tutorial 07 in the selected track](../../docs/tutorials/host_computer/07-run-stress-soak-and-release-gates.md).
+[host Tutorial 07](../../docs/tutorials/host/07-connect-and-run.md) or
+[onboard Tutorial 07](../../docs/tutorials/onboard/07-integrated-runtime-and-recovery.md),
+and record the required evidence through
+[onboard Tutorial 08](../../docs/tutorials/onboard/08-evidence-and-qualification.md).
 D3 HIL must qualify or replace every PID, filter, deadband, motor/channel
 polarity, and full-range behavior before production nonzero-motion claims.
 
@@ -110,23 +124,10 @@ invalid requests never start an exchange; the RX harness compares exact,
 wrapped, full, overrun, inconsistent-sample, and position-wrap behavior against
 a fixed-array reference model.
 
-The deterministic CI target copies the checked-in seed corpus into the build
-tree before execution, so generated mutations do not modify source files:
-
-```sh
-./tools/run_fuzz_smoke.sh
-```
-
-The repository helper is the recommended local entry point on the clean Ubuntu
-24.04 development host: it builds and runs inside the pinned ROS-free Ubuntu
-24.04/Clang 18 quality container. `build/fuzz-smoke-linux/` is
-disposable working storage. A passed run is atomically published under a
-unique, read-only
-`build/fuzz-evidence/<run-id>/` directory and an existing run ID is never
-replaced. The closed SHA-256 manifest binds the report and log to separate
-production-source, test-input, source-corpus, final-corpus, and Docker
-toolchain digests. Verify a package with
-`./tools/verify_fuzz_evidence.sh build/fuzz-evidence/<run-id>`.
+The deterministic target copies the checked-in seed corpus into the build tree
+before execution, so generated mutations do not modify source files. Run the
+direct commands below on native Ubuntu 22.04 with Clang 18, or inside the VS
+Code Dev Container. Dev Container fuzz results remain development evidence.
 
 The previously recorded 2026-08-06 long-run observation used the disposable
 single-report layout and was later overwritten by a smoke run. Its immutable
@@ -143,7 +144,7 @@ and final-corpus digest
 `01af9fe2f3a65852e210791c695ea1d58b6999c97522b5c722a69c89dc134e89`.
 Native macOS sanitizer runtimes are not accepted as qualification evidence.
 
-The equivalent direct Ubuntu/CI smoke commands are:
+The Ubuntu/Dev Container smoke commands are:
 
 ```sh
 cmake -S firmware/mentor_pi_mcu -B build/fuzz-smoke -G Ninja \

@@ -1,153 +1,83 @@
 # RRCLite v2 contributor instructions
 
 Read `README.md` and `docs/NEXT_STEPS.md` before changing this repository.
-Treat the framework documents as the detailed contract when a task needs exact
-interface, hardware, or safety requirements.
+Treat the framework documents as the detailed contract for public interfaces,
+hardware, safety, and qualification.
 
-## Current implementation handoff (2026-08-10)
+## Current implementation handoff (2026-08-11)
 
-- The ROS workspace/schema migration, single-default-PID firmware migration,
-  split RDK-deploy and host-computer eight-tutorial tracks, and Python-only launch migration are
-  implemented in the current worktree. Preserve them as the current contract.
-- `mentor_pi_bringup controller.launch.py` starts the compiled micro-ROS Agent
-  and configuration supervisor as one fail-coupled launch inside the hardened
-  runtime container; `make start` is the Docker-only entry point.
-- The firmware domain has one PID control configuration. Do not restore the
-  removed locked/direction-check enum, factories, constants, or control-step
-  branches. Invalid configuration values still fail closed.
-- Focused documentation, tutorial/runtime, artifact, cache, handoff, and
-  deployment tests pass. The native amd64 Docker mock builds micro-ROS,
-  firmware, host, and Agent, smokes the enhanced-zsh runtime, and proves
-  micro-ROS cache reuse. The RDK X5 path still requires native arm64 and
-  hardware evidence. See `docs/NEXT_STEPS.md` for exact evidence and remaining
-  Docker/HIL gates.
-- Both computer types use architecture-native pinned Docker images for
-  firmware, micro-ROS, Agent, host, shell, development, and production. Only
-  udev configuration and STM32CubeProgrammer flashing run on the host. Fuzzing
-  remains a normal-computer release gate and is intentionally not an RDK gate.
-- User-facing ROS shells use the runtime image's pinned Oh My Zsh, completion,
-  autosuggestions, and syntax highlighting. Keep Make recipes, scripts, CI,
-  builders, and the non-interactive runtime launch on Bash.
+- Preserve the one-repository, three-component layout: `firmware/`,
+  `micro_ros_agent/`, and `ros2_ws/`. Do not add Git submodules or compatibility
+  copies of the former workspace.
+- Ubuntu 22.04 amd64/arm64 is the only native build/test and production
+  platform. macOS and other Linux distributions use the VS Code Dev Container
+  for all component build/test work.
+- `.devcontainer/` is the only Docker path. It is development-only and cannot
+  be used onboard, for systemd installation, serial runtime, flashing, HIL, or
+  release evidence. Do not restore production images, Docker runtime, OCI,
+  QEMU, or container handoffs.
+- The Agent is a separately installed non-root systemd service and the only
+  serial owner. It must not start ROS applications. Applications start manually
+  and keep their supervisor/hardware/tracker launch fail-coupling.
+- Tutorials are two complete ordered tracks under `docs/tutorials/host/` and
+  `docs/tutorials/onboard/`. Production handoffs include only `onboard/`.
 
-## Next-version migration mandate
+## Component boundaries
 
-The user-authorized migration is implemented. The requirements below describe
-the current required layout and behavior and must remain enforced.
-
-### Default PID firmware
-
-- `make firmware`, `make flash`, and `make start` build, verify, flash, and run
-  the normal motor-enabled `PID` artifact with `control_mode=CLOSED_LOOP`. No
-  commissioning classification, mode aliases, or multi-mode branching is
-  required or supported.
-- Preserve the configuration supervisor and its current authorization gate,
-  startup inhibition, atomic command validation, model-specific RPS limits,
-  the 6 RPS implementation ceiling, the +/-1000-permille output limit,
-  independent 198 ms leases, session-loss disarming, and transport-failure
-  shutdown.
-- Build, verify, package, and run only one firmware artifact classification:
-  `NORMAL_CLOSED_LOOP_DEFAULT` (PID release). Handoff packaging produces a
-  single `firmware-pid-release/` layout with one ELF/Hex/Bin/Map set plus
-  BUILD-METADATA and BUILD-MODE.
-- Update framework requirements, safety text, tutorials, metadata, artifact
-  verification, packaging, and runtime checks together. Powered motion and
-  release-qualification claims require recorded HIL evidence from the
-  numbered tutorial sequence.
-
-### Standard ROS 2 workspace
-
-- Keep the three ROS packages in the directly buildable Humble workspace:
-
-  ```text
-  mentor_pi_ros2/
-    src/
-      mentor_pi_interfaces/
-      mentor_pi_bringup/
-      mentor_pi_hardwares/
-  ```
-
-- Do not add a root compatibility symlink, duplicate package tree, or stale
-  root-source fallback. Package-internal `src/` directories containing C++
-  implementation files remain unchanged.
-- Use the root Makefile as the Docker-only developer interface. Do not install
-  or source host ROS; the pinned Ubuntu 22.04/Humble images provide it.
-- Update all project-owned CMake paths, firmware interface includes, Docker
-  inputs, source fingerprints, installers, packaging, CI filters, tests,
-  launch/runtime tools, and documentation atomically to use
-  `mentor_pi_ros2/src`.
-- Keep two complete ordered 01--08 sequences under
-  `docs/tutorials/rdk_deploy/` and `docs/tutorials/host_computer/`. Do not add
-  root tutorial files or compatibility links. Production handoffs package only
-  the RDK deployment sequence.
-
-### Manifest validation
-
-- Do not restore the former non-package schema snapshot, `xml-model`
-  declarations, schema installation/copying, or schema dependencies in
-  fingerprints, deployment, CI, fixtures, and tests.
-- Continue validating manifests with `ament_xmllint`, `ament_package`,
-  `rosdep`, and `colcon`. Do not replace the removed snapshot with a build-time
-  network download.
-
-### Migration acceptance
-
-- Run the smallest focused tests covering changed code. Do not run unrelated
-  regression suites merely because they exist.
-- Verify the Docker-only Make path and single PID release artifact/handoff.
-- Keep path-contract tests rejecting a root package tree or a dependency on
-  the removed schema snapshot. Distinguish package-internal, ignored
-  legacy-evidence, and upstream third-party `src/` paths.
-- Update `README.md`, `docs/NEXT_STEPS.md`, framework contracts, tutorials,
-  and repository maps with every remaining default-firmware migration. Record
-  actual artifact hashes and test evidence. Do not make PID performance,
-  powered motion, or release-qualification claims without recorded HIL
-  evidence.
-
-## Supported stack
-
-- Support Ubuntu 22.04 and ROS 2 Humble inside the production image.
-  Development hosts may use supported Ubuntu releases on amd64 or arm64, but
-  all ROS/build/runtime paths use architecture-native pinned Docker images.
-- Use the root `Makefile` as the developer interface. CMake/Ninja is
-  authoritative for firmware and `colcon` is authoritative for host packages.
-- Do not restore PlatformIO or add a second IDE build graph. Do not introduce
-  ROS 2 Jazzy into an active build, test, flash, or runtime path.
-- Project-owned runtime code is C++17 and follows Google C++ Style. Python may
-  be used by upstream ROS/build tools, but never in the project runtime path.
+- CMake/Ninja is authoritative for firmware. Build, verify, package, and flash
+  only the `NORMAL_CLOSED_LOOP_DEFAULT` PID artifact. Do not restore removed
+  commissioning modes, direction-check branches, PlatformIO, or another build
+  graph.
+- Firmware consumes the checked Humble SDK under
+  `firmware/mentor_pi_mcu/sdk/humble/`, never ROS workspace build output.
+  `ros2_ws/src/mentor_pi_interfaces` is canonical; interface changes must
+  regenerate the SDK in the same commit and update its hashes.
+- The Agent owns its source lock, patch, build tree, metadata, service, and udev
+  rule below `micro_ros_agent/`. Preserve pinned revisions and the CH9102F
+  DTR/RTS patch.
+- Colcon in `ros2_ws/` discovers only its five packages. Preserve package names
+  and package-internal C++ `src/` directories. External pins belong in
+  `dependencies.repos` and project patches belong in `ros2_ws/patches/`.
+- Keep the root Makefile limited to integration, passive hardware,
+  characterization, evidence, and qualification actions.
 
 ## Compatibility and safety
 
-- Preserve `mentor_pi_interfaces`, `/mentor_pi/controller`, topic and service
-  names, QoS, units, limits, and safety behavior unless the user explicitly
-  authorizes a public-interface change.
-- Invalid motor commands must remain atomic and must not refresh leases. PWM
-  and bus servos hold their last accepted state on host loss.
-- Powered motor motion requires passive encoder-direction checks, raised or
+- Preserve `mentor_pi_interfaces`, `/mentor_pi/controller`, public topics,
+  services, QoS, units, limits, leases, and authorization behavior unless the
+  user explicitly authorizes an interface change.
+- Preserve startup inhibition, the single-supervisor publisher check,
+  generation/session matching, model-specific RPS limits, 6 RPS ceiling,
+  ±1000-permille output limit, independent 198 ms leases, session-loss
+  disarming, and transport-failure shutdown.
+- Invalid motor commands are atomic and do not refresh leases. PWM and bus
+  servos hold their last accepted state on host loss.
+- Powered motor work requires passive encoder-direction checks, raised or
   equivalently guarded wheels, a current-limited supply, and the documented
-  build and flash acknowledgements. Complete Tutorials 01--05 passively
-  before any guarded powered work.
+  acknowledgements. Complete Tutorials 01–05 passively before guarded work.
+- Never claim PID performance, powered motion, endurance, or release
+  qualification without recorded and reviewed HIL/instrument evidence.
 
-## Repository hygiene
+## Manifest and repository hygiene
 
-- Build outputs, generated micro-ROS files, downloaded firmware dependencies,
-  logs, and `.pio/` remnants are ignored and must not be committed.
-- `firmware/mentor_pi_mcu/third_party/` contains disposable standalone Git
-  checkouts at pinned commits. Keep them ignored and managed by `make setup`;
-  do not convert them to root-repository submodules.
-- Except for its tracked policy README, `docs/reference/` is a separately
-  preserved, ignored legacy-evidence snapshot. Active builds must not depend
-  on it. Never run a broad
-  `git clean -fdX`, because that can erase this non-reproducible local copy.
-- Preserve unrelated user changes. Do not create a remote or push unless the
-  user asks.
+- Continue package validation with `ament_xmllint`, `ament_package`, `rosdep`,
+  and colcon. Do not restore the removed non-package schema snapshot or a
+  build-time schema download.
+- Generated micro-ROS files, downloaded firmware/Agent dependencies, build
+  trees, logs, and `.pio/` remnants remain ignored and uncommitted.
+- `firmware/mentor_pi_mcu/third_party/` and Agent upstream sources are
+  disposable pinned checkouts, not root submodules.
+- Except for its policy README, `docs/reference/` is ignored legacy evidence.
+  Never run broad `git clean -fdX`; active builds must not depend on it.
+- Preserve unrelated user changes. Do not create a remote or push unless asked.
 
 ## Verification discipline
 
-- Run the smallest focused tests that cover each change, then expand testing
-  in proportion to risk. Report what was and was not tested.
-- Do not start long amd64 emulation, soak, stress, or full architecture-matrix
-  runs unless the user explicitly asks. Prefer the native architecture.
-- Before a release checkpoint, verify formatting, documentation, artifact
-  provenance, firmware memory headroom, and the relevant host/firmware build.
-- Hardware claims require recorded HIL evidence; do not infer them from mocks
-  or native tests.
+- Run the smallest focused tests covering each change, then expand in
+  proportion to risk. Report what was and was not tested.
+- Do not start emulation, long soak/stress, or architecture-matrix runs unless
+  explicitly requested. Prefer the native architecture.
+- Before a release checkpoint verify formatting, documentation, artifact/SDK
+  provenance, firmware memory headroom, and relevant native component builds.
+- Hardware behavior requires recorded HIL evidence; never infer it from mocks,
+  native unit tests, or the Dev Container.

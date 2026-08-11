@@ -6,7 +6,6 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly PORT="${PORT:-/dev/mentor_pi_mcu}"
 readonly ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
-readonly HOST_PROFILE_DETECTOR="${SCRIPT_DIR}/detect_host_profile.sh"
 
 Fail() {
   echo "Mentor Pi tutorial action failed: $*" >&2
@@ -107,7 +106,7 @@ Campaign() {
   [[ "${bus_torque}" == "true" || "${bus_torque}" == "false" ]] || \
     Fail "bus-servo torque state must be true or false"
   local source_revision firmware_sha host_revision board_serial
-  "${SCRIPT_DIR}/verify_firmware_artifact.sh" PID "${PROJECT_ROOT}"
+  "${PROJECT_ROOT}/firmware/tools/verify.sh"
   source_revision="$(git -C "${PROJECT_ROOT}" rev-parse HEAD)"
   host_revision="${source_revision}"
   firmware_sha="$(sha256sum "${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf" | awk '{print $1}')"
@@ -136,27 +135,6 @@ case "${ACTION}" in
     sudo "${SCRIPT_DIR}/configure_dev_serial_access.sh" \
       --device "${candidates[0]}" --user "${USER}"
     ;;
-  start)
-    RequireExact "${RRCLITE_RUNTIME_ACK:-}" \
-      PID_FIRMWARE_ACTUATORS_PREPARED \
-      "Confirm safe actuator state before starting the normal default closed-loop PID firmware runtime."
-    exec env RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
-      "${SCRIPT_DIR}/run_runtime.sh" --device "${PORT}" \
-      --ros-domain-id "${ROS_DOMAIN_ID}"
-    ;;
-  start-hardware | start-mecanum | start-ackermann)
-    RequireExact "${RRCLITE_RUNTIME_ACK:-}" \
-      PID_FIRMWARE_ACTUATORS_PREPARED \
-      "Confirm safe actuator state before starting ros2_control with the default PID firmware."
-    vehicle_config="${VEHICLE_CONFIG:-}"
-    [[ -n "${vehicle_config}" ]] || \
-      Fail "VEHICLE_CONFIG must select an absolute YAML deployment profile"
-    exec env RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
-      "${SCRIPT_DIR}/run_runtime.sh" --device "${PORT}" \
-      --ros-domain-id "${ROS_DOMAIN_ID}" \
-      --vehicle-config "${vehicle_config}" \
-      --tracking-controller "${TRACKING_CONTROLLER:-none}"
-    ;;
   passive-check)
     RequireExact "${PASSIVE_CHECK_ACK:-}" ACTUATORS_DISCONNECTED \
       "Confirm motor power and every servo mechanism are disconnected."
@@ -173,32 +151,6 @@ case "${ACTION}" in
       ACTUATORS_DISCONNECTED_WHEELS_RAISED \
       "Confirm motor power and servos are disconnected, encoders remain connected, and all four wheels are raised."
     RunRuntime characterize-board
-    ;;
-  release-software-gates)
-    RequireExact "${RELEASE_GATES_ACK:-}" RUN_RELEASE_SOFTWARE_GATES \
-      "These checks can take a long time and use substantial CPU and disk."
-    [[ "$("${HOST_PROFILE_DETECTOR}" | sed -n 's/^profile=//p')" != rdk-x5 ]] || \
-      Fail "full software gates must run on the normal computer, not the RDK X5"
-    ./tools/run_quality_tests_container.sh --profile full
-    ./tools/run_fuzz_smoke.sh
-    ./tools/check_firmware_reproducibility.sh
-    ./tools/run_firmware_target_ci.sh
-    ./tools/verify_firmware_artifact.sh PID
-    ;;
-  release-onboard-gates)
-    RequireExact "${RELEASE_GATES_ACK:-}" RUN_ONBOARD_DOCKER_GATES \
-      "These bounded Docker arm64 checks can take a long time and use substantial CPU and disk."
-    [[ "$("${HOST_PROFILE_DETECTOR}" | sed -n 's/^profile=//p')" == rdk-x5 ]] || \
-      Fail "onboard Docker gates require the detected RDK X5"
-    grep -Eq '^ID=ubuntu$' /etc/os-release
-    grep -Eq '^VERSION_ID="?22[.]04"?$' /etc/os-release
-    [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]] || \
-      Fail "onboard Docker gates require the arm64 Ubuntu 22.04 computer"
-    ./tools/build_host.sh
-    ./tools/run_quality_tests_container.sh --profile rdk
-    ./tools/check_firmware_reproducibility.sh
-    ./tools/verify_firmware_artifact.sh PID
-    echo "ONBOARD DOCKER GATES PASS: fuzz, coverage, and full Clang 18 analysis remain normal-computer gates."
     ;;
   qualification-preflight)
     RequireExact "${PREFLIGHT_ACK:-}" ACTUATORS_DISCONNECTED \

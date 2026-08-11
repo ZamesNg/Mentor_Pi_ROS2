@@ -49,4 +49,4 @@ second_end_time="$(stat -c %Y "${TEST_ROOT}/second")"
   exit 1
 }
 
-echo "Shared Docker build-lock contract tests passed."
+echo "Shared native build-lock contract tests passed."

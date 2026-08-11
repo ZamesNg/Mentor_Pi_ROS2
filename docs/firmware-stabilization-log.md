@@ -1,5 +1,13 @@
 # Firmware stabilization log
 
+> **Historical evidence only.** This file freezes the first-board investigation
+> and its retired artifact/mode names. Its `LOCKED`, `COMMISSIONING`,
+> `DIRECTION_CHECK`, old tutorial numbers, and prepared-test instructions are
+> not active build or operating procedures. The current repository builds only
+> `NORMAL_CLOSED_LOOP_DEFAULT`; use the ordered
+> [`host/`](tutorials/host/01-prerequisites-and-safety.md) or
+> [`onboard/`](tutorials/onboard/01-prerequisites-and-safety.md) track.
+
 This record separates observed symptoms, confirmed causes, temporary
 workarounds, permanent source corrections, and physical verification from the
 first RRCLite v2 board bring-up. It does not replace the normative contracts in
@@ -92,7 +100,7 @@ new image remain pending.
 | PASSIVE-OLED-001 | Hardware configuration recorded; OLED verification blocked | The clean `passive-20260807T102727Z` run recorded one expected IMU marker and 242 OLED initialization I/O errors because this board currently has no OLED installed. | The firmware correctly retries its required SSD1306, but the first-board helper had no way to distinguish declared absent hardware from an unexpected display failure. | `make passive-check` now asks whether the OLED is installed. The development characterization exception accepts only repeated OLED initialization NACKs with no timeout or other fault, prints progress every five seconds, and labels the result `OLED NOT INSTALLED/NOT TESTED`. | Strict preflight, peripheral HIL, and release qualification retain the OLED requirement. Install the display and pass Tutorial 07 before making an OLED or release claim. |
 | PASSIVE-SETTLING-001 | Corrected in host source; hardware rerun pending | `passive-20260807T104800Z` passed every rate, graph, transport, battery, and OLED-adjusted diagnostic check but reported only failure bit `0x00200000`. The pre-qualification sample was session 1 while the monitor ran entirely in session 2. | During the first diagnostic publications after reconnect, the generic `last_error_*` tuple can still identify the preceding Agent teardown. The monitor validated that transient tuple before its existing five-second discovery period ended and permanently latched an IMU-characterization mismatch, although the captured steady-state tuple and counters were exact. | Characterization diagnostics may settle during the discovery interval. A mismatch after that interval still fails immediately, and completion always requires the latest exact diagnostic state. The terminal result is now a multiline stream table with separate traffic, motor-evidence, failure, and stream-mask sections. | A focused regression reproduces the stale teardown tuple and proves that a persistent mismatch still fails. The full Humble host suite and relocation verification passed. Rerun `make passive-check`; no firmware flash is required. |
 
-## Prepared test order
+## Prepared test order (retired historical sequence; do not execute)
 
 When returning to the board, do not start with the commissioning image.
 

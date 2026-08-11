@@ -2,19 +2,17 @@
 
 `mentor_pi_hardwares` is the host-side `ros2_control` adapter for the native
 `/mentor_pi` micro-ROS contract. It does not replace the micro-ROS Agent or the
-configuration supervisor. The coordinated launch starts each of these as a
-separate process so a controller-manager failure cannot become an Agent
-failure, and conversely.
+configuration supervisor. The Agent is an external systemd prerequisite; the
+manual application launch owns the supervisor and ROS application processes.
 
 ## Runtime topology
 
-The mode-specific top-level launch contains four independently managed
-processes:
+The mode-specific top-level launch contains three independently managed
+application processes:
 
-1. the micro-ROS Agent from `mentor_pi_bringup/controller.launch.py`;
-2. the configuration supervisor from that same included launch;
-3. `robot_state_publisher`;
-4. `controller_manager`, which loads one `SystemInterface` plugin and spawns
+1. the configuration supervisor from `controller.launch.py`;
+2. `robot_state_publisher`;
+3. `controller_manager`, which loads one `SystemInterface` plugin and spawns
    the selected drive controller plus `joint_state_broadcaster`.
 
 Use `vehicle.launch.py` with a selected YAML deployment profile.
@@ -28,8 +26,9 @@ supervisor endpoints remain the compatible, absolute `/mentor_pi/*` API.
 ## Configuration ownership
 
 The selected absolute `vehicle_config` YAML is the sole authority for
-`vehicle.robot_name` and `vehicle.vehicle_type`. The serial device, Agent
-executable, and whether to include bringup remain launch arguments.
+`vehicle.robot_name` and `vehicle.vehicle_type`. Whether to include bringup and
+the optional tracking controller remain launch arguments. Serial/Agent
+configuration belongs to `mentor-pi-agent.service`, not application launch.
 Mode-specific profiles under `config/mecanum` and `config/ackermann` own:
 
 - vehicle geometry and joint names;
@@ -83,15 +82,16 @@ independent 198 ms leases, and session-loss disarming.
 
 ## Developer entry points
 
-These use the pinned architecture-native Ubuntu 22.04/Humble runtime container
-on every supported Ubuntu host.
+Use native Ubuntu 22.04/Humble onboard. macOS and other Linux distributions may
+build/test through the Dev Container but cannot run the robot there.
 
 ```sh
-make host
-make start-hardware PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0 \
-  VEHICLE_CONFIG=/absolute/robot.yaml
-make start-mecanum PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=0
-make start-ackermann PORT=/dev/mentor_pi_mcu ROS_DOMAIN_ID=1
+make -C ros2_ws deps
+make -C ros2_ws build
+make -C ros2_ws test
+systemctl is-active mentor-pi-agent.service
+make -C ros2_ws run VEHICLE=mecanum \
+  RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED
 ```
 
 The default PID firmware accepts bounded nonzero commands only after its normal

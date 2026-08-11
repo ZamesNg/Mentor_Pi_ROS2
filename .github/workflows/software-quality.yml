@@ -1,7 +1,5 @@
-name: Software quality
+name: Repository policy and native unit checks
 
-# Automatic push and pull-request runs are intentionally disabled. Start the
-# complete Docker-pinned quality suite explicitly from the GitHub Actions UI.
 on:
   workflow_dispatch:
 
@@ -13,35 +11,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pinned-quality-container:
-    name: Pinned full software and firmware gates
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
+  policy:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Verify native Docker architecture
+      - name: Install focused test prerequisites
         run: |
-          test "$(dpkg --print-architecture)" = amd64
-          docker version
-          docker info
-      - name: Prepare content-identified build images
-        run: make setup
-      - name: Run the complete normal-computer release gate
-        env:
-          RELEASE_GATES_ACK: RUN_RELEASE_SOFTWARE_GATES
-        run: make release-software-gates
-      - name: Upload bounded quality evidence
-        if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: mentor-pi-software-quality-${{ github.run_id }}
-          path: |
-            build/coverage/coverage-summary.txt
-            build/firmware-target-debug/firmware-target-analysis.txt
-            build/firmware-reproducibility
-            build/fuzz-evidence
-          if-no-files-found: warn
-          retention-days: 14
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build
+      - name: Validate component and documentation contracts
+        run: |
+          make check-compatibility
+          ./tools/test_native_component_layout.sh
+          ./tools/check_framework_docs.py
+          ./micro_ros_agent/test/contract_test.sh
+      - name: Run firmware domain tests against checked SDK
+        run: |
+          make -C firmware extract-sdk
+          ./firmware/tools/test.sh 2

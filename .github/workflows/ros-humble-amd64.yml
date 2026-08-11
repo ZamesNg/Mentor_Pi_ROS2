@@ -1,7 +1,5 @@
-name: ROS 2 Humble host matrix
+name: Native Humble Agent and ROS applications
 
-# Automatic push and pull-request runs are intentionally disabled. Start this
-# architecture build explicitly from the GitHub Actions UI.
 on:
   workflow_dispatch:
 
@@ -13,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  host-release:
-    name: Humble Release handoff (${{ matrix.architecture }})
+  native-components:
+    name: Ubuntu 22.04 Humble (${{ matrix.architecture }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -25,70 +23,36 @@ jobs:
             runner: ubuntu-22.04
           - architecture: arm64
             runner: ubuntu-22.04-arm
-    env:
-      HOST_ARCH: ${{ matrix.architecture }}
-      HOST_RELEASE_ID: ci-${{ github.run_id }}-${{ matrix.architecture }}
-      HOST_OUTPUT: build/host-handoff/ci-${{ github.run_id }}-${{ matrix.architecture }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Verify native runner and Docker
+      - name: Verify native architecture
+        run: test "$(dpkg --print-architecture)" = "${{ matrix.architecture }}"
+      - name: Install ROS 2 Humble
         run: |
-          test "$(dpkg --print-architecture)" = "${HOST_ARCH}"
-          docker version
-          docker info
-      - name: Prepare exact architecture-native images
-        run: make setup
-      - name: Build, test, package, and relocate host release
+          sudo apt-get update
+          sudo apt-get install -y curl gnupg2 lsb-release software-properties-common
+          sudo add-apt-repository universe
+          sudo curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+            -o /usr/share/keyrings/ros-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo ${UBUNTU_CODENAME}) main" \
+            | sudo tee /etc/apt/sources.list.d/ros2.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y ros-humble-ros-base python3-colcon-common-extensions \
+            python3-rosdep python3-vcstool build-essential cmake ninja-build
+          sudo rosdep init || true
+          rosdep update
+      - name: Build and test Agent
         run: |
-          ./tools/build_host_handoff_container.sh \
-            --architecture "${HOST_ARCH}" \
-            --output-directory "${HOST_OUTPUT}" \
-            --release-id "${HOST_RELEASE_ID}"
-      - name: Verify host handoff identity and manifest
+          source /opt/ros/humble/setup.bash
+          make -C micro_ros_agent setup
+          make -C micro_ros_agent build
+          make -C micro_ros_agent test
+      - name: Build and test ROS applications
         run: |
-          test -f "${HOST_OUTPUT}/HOST-HANDOFF.txt"
-          test -f "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
-          test -f "${HOST_OUTPUT}/agent/AGENT-BUILD-METADATA.txt"
-          test -s "${HOST_OUTPUT}/runtime-image/mentor-pi-runtime.tar"
-          grep -Fqx 'package_format=rrclite-host-handoff-v2' \
-            "${HOST_OUTPUT}/HOST-HANDOFF.txt"
-          grep -Fqx 'ubuntu=22.04' "${HOST_OUTPUT}/HOST-HANDOFF.txt"
-          grep -Fqx 'ros_distro=humble' "${HOST_OUTPUT}/HOST-HANDOFF.txt"
-          grep -Fqx "architecture=${HOST_ARCH}" \
-            "${HOST_OUTPUT}/HOST-HANDOFF.txt"
-          grep -Fqx 'format=rrclite-host-build-v2' \
-            "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
-          grep -Fqx 'ubuntu=22.04' \
-            "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
-          grep -Fqx 'ros_distro=humble' \
-            "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
-          grep -Fqx "architecture=${HOST_ARCH}" \
-            "${HOST_OUTPUT}/host/HOST-BUILD-METADATA.txt"
-          (cd "${HOST_OUTPUT}" && sha256sum --check SHA256SUMS)
-      - name: Preserve handoff modes and symlinks for artifact transport
-        run: |
-          handoff_parent="$(dirname "${HOST_OUTPUT}")"
-          handoff_name="$(basename "${HOST_OUTPUT}")"
-          tar --format=posix -cf "${HOST_OUTPUT}.tar" \
-            -C "${handoff_parent}" "${handoff_name}"
-          (cd "${handoff_parent}" && \
-            sha256sum "${handoff_name}.tar" >"${handoff_name}.tar.sha256")
-          (cd "${handoff_parent}" && \
-            sha256sum --check "${handoff_name}.tar.sha256")
-          round_trip="$(mktemp -d)"
-          tar -xf "${HOST_OUTPUT}.tar" -C "${round_trip}"
-          test -x "${round_trip}/${handoff_name}/host/lib/mentor_pi_bringup/run_production_container"
-          test -x "${round_trip}/${handoff_name}/agent/lib/micro_ros_agent/micro_ros_agent"
-          (cd "${round_trip}/${handoff_name}" && sha256sum --check SHA256SUMS)
-      - name: Upload production handoff
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: mentor-pi-host-${{ matrix.architecture }}
-          path: |
-            ${{ env.HOST_OUTPUT }}.tar
-            ${{ env.HOST_OUTPUT }}.tar.sha256
-          if-no-files-found: error
-          retention-days: 14
+          source /opt/ros/humble/setup.bash
+          make -C ros2_ws deps
+          make -C ros2_ws build
+          make -C ros2_ws test

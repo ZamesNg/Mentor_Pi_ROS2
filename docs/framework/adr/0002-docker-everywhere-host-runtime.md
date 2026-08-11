@@ -1,5 +1,9 @@
 # ADR-0002: Docker-Everywhere Host Build and Runtime
 
+Status: Superseded by [ADR-0003](0003-native-component-monorepo.md) on
+2026-08-11. Retained for historical context only; none of its Docker runtime,
+OCI, QEMU, or handoff decisions are active.
+
 Status: Accepted  
 Date: 2026-08-10  
 Decision owners: RRCLite v2 maintainers
