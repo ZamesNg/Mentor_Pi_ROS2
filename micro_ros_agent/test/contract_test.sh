@@ -27,29 +27,33 @@ normal_boot_sequence="$(tr '\n' ' ' <"${COMPONENT_ROOT}/patches/micro_xrce_agent
   exit 1
 }
 grep -Fq 'User=mentor-pi' \
-  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service"
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 grep -Fq '/opt/mentor_pi/agent/current/bin/mentor-pi-agent' \
-  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service"
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 grep -Fq 'source "${ROS_SETUP}"' \
   "${COMPONENT_ROOT}/systemd/mentor-pi-agent"
 grep -Fq 'source "${LOCAL_SETUP}"' \
   "${COMPONENT_ROOT}/systemd/mentor-pi-agent"
 grep -Fqx 'Restart=always' \
-  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service"
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 grep -Fqx 'StartLimitIntervalSec=0' \
-  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service"
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 grep -Fqx 'ProtectClock=true' \
-  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service"
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 grep -Fqx 'DeviceAllow=char-ttyACM rw' \
-  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service" || {
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in" || {
   echo "Agent service does not allow its ttyACM transport device" >&2
   exit 1
 }
 grep -Fqx 'Environment=FASTDDS_BUILTIN_TRANSPORTS=UDPv4' \
-  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service" || {
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in" || {
   echo "Agent service does not disable cross-user Fast DDS shared memory" >&2
   exit 1
 }
+grep -Fqx 'Environment=MENTOR_PI_RRCLITE_AUTORESET=1' \
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
+! grep -Fq 'EnvironmentFile=' \
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 grep -Fq 'ATTRS{idVendor}=="1a86"' \
   "${COMPONENT_ROOT}/udev/99-mentor-pi-mcu.rules.in"
 if grep -R -n -E 'docker (run|build|exec|pull|load)|mentor-pi-runtime|configuration_supervisor' \
@@ -66,6 +70,13 @@ grep -Fq '/.dockerenv' "${COMPONENT_ROOT}/tools/install_service.sh" || {
 installer="${COMPONENT_ROOT}/tools/install_service.sh"
 release_test_root="$(mktemp -d)"
 trap 'rm -rf -- "${release_test_root}"' EXIT
+rendered_service="${release_test_root}/mentor-pi-agent.service"
+bash -c 'source "$1"; RenderServiceUnit "$2" 37' bash \
+  "${installer}" "${rendered_service}"
+grep -Fqx 'Environment=ROS_DOMAIN_ID=37' "${rendered_service}"
+grep -Fqx 'Environment=MENTOR_PI_RRCLITE_AUTORESET=1' "${rendered_service}"
+! grep -Fq '@ROS_DOMAIN_ID@' "${rendered_service}"
+! grep -Fq '/etc/mentor-pi/agent.env' "${rendered_service}"
 expected_release="${release_test_root}/expected"
 mkdir -p "${expected_release}/lib/micro_ros_agent" \
   "${expected_release}/share/micro_ros_agent/hook" "${expected_release}/bin"
@@ -159,7 +170,7 @@ preflight_line="$(grep -n 'SERIAL_ACCESS_HELPER.*--preflight' "${installer}" | c
 publish_line="$(grep -n 'mv -T .*temporary_release.*release_path' "${installer}" | cut -d: -f1)"
 existing_verify_line="$(grep -n 'VerifyExistingRelease "${release_path}"' "${installer}" | cut -d: -f1)"
 useradd_line="$(grep -n 'useradd --system' "${installer}" | cut -d: -f1)"
-destination_check_line="$(grep -n 'EnsureTrustedDirectory /etc/mentor-pi /etc/systemd/system' \
+destination_check_line="$(grep -n 'EnsureTrustedDirectory /etc/systemd/system' \
   "${installer}" | cut -d: -f1)"
 current_link_line="$(grep -n 'local current_link=' "${installer}" | cut -d: -f1)"
 [[ -n "${lock_line}" && -n "${preflight_line}" && -n "${publish_line}" && \
@@ -180,6 +191,8 @@ grep -Fq 'VerifySecureEntry "${installer_lock}" 0 0 "Agent installer lock"' \
   "${installer}"
 grep -Fq 'VerifyExistingRelease "${temporary_release}"' "${installer}"
 grep -Fq 'mv -T "${temporary_release}" "${release_path}"' "${installer}"
+grep -Fq 'RemoveLegacyAgentEnvironment' "${installer}"
+! grep -Fq '>/etc/mentor-pi/agent.env' "${installer}"
 grep -Eq '^[[:space:]]*systemctl enable mentor-pi-agent\.service$' "${installer}"
 grep -Eq '^[[:space:]]*systemctl restart mentor-pi-agent\.service$' "${installer}"
 ! grep -Fq 'systemctl enable --now mentor-pi-agent.service' "${installer}"

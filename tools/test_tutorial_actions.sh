@@ -61,10 +61,9 @@ for runtime_tutorial in \
     Fail "runtime tutorial does not source Humble: ${runtime_tutorial}"
   grep -Fq 'source ros2_ws/install/setup.zsh' "${runtime_tutorial}" || \
     Fail "runtime tutorial does not source the workspace: ${runtime_tutorial}"
-  grep -Fq 'source /etc/mentor-pi/agent.env' "${runtime_tutorial}" || \
-    Fail "runtime tutorial does not source the Agent domain: ${runtime_tutorial}"
-  grep -Fqx 'export ROS_DOMAIN_ID' "${runtime_tutorial}" || \
-    Fail "runtime tutorial does not export the Agent domain: ${runtime_tutorial}"
+  grep -Fq 'ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first' \
+    "${runtime_tutorial}" || \
+    Fail "runtime tutorial does not require the deployment domain: ${runtime_tutorial}"
   grep -Fq 'RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \' \
     "${runtime_tutorial}" || \
     Fail "runtime tutorial lacks the safety acknowledgement: ${runtime_tutorial}"

@@ -25,7 +25,8 @@ selector.
 
 Service installation never selects a default ROS domain. Export the
 deployment's `ROS_DOMAIN_ID` before invoking the installer; the validated value
-is then written to `/etc/mentor-pi/agent.env` for subsequent runtime shells.
+is rendered directly into the installed systemd unit. The installer removes
+the former `/etc/mentor-pi/agent.env` file.
 
 macOS and other Linux distributions use the repository VS Code Dev Container
 for build and test. Service installation is supported only on the native
@@ -39,6 +40,9 @@ UDP loopback preserves that account boundary while allowing discovery and data
 delivery. ROS applications keep their normal Fast DDS transport defaults.
 
 At every serial open, the installed service enables the reviewed RRCLite
-autoreset patch. The patched Agent performs separate RTS-set, DTR-clear, and
-RTS-clear ioctls with the required settle delays so the MCU starts in normal
-application mode; a modem-line failure aborts Agent initialization.
+autoreset patch through its unit-level default
+`MENTOR_PI_RRCLITE_AUTORESET=1`. Manual Agent invocations retain the
+environment-controlled opt-in so the board-specific sequence is not applied
+to an unrelated serial device. The patched Agent performs separate RTS-set,
+DTR-clear, and RTS-clear ioctls with the required settle delays so the MCU
+starts in normal application mode; a modem-line failure aborts initialization.

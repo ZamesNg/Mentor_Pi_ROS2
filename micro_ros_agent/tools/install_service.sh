@@ -9,6 +9,7 @@ readonly METADATA="${BUILD_PREFIX}/AGENT-BUILD-METADATA.txt"
 readonly EXECUTABLE="${BUILD_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
 readonly LAUNCHER="${BUILD_PREFIX}/bin/mentor-pi-agent"
 readonly SERIAL_ACCESS_HELPER="${COMPONENT_ROOT}/tools/configure_serial_access.sh"
+readonly SERVICE_TEMPLATE="${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 readonly RELEASE_ROOT="/opt/mentor_pi/agent/releases"
 DEVICE="${DEVICE:-}"
 readonly ROS_DOMAIN_ID="${ROS_DOMAIN_ID-}"
@@ -97,6 +98,35 @@ EnsureTrustedDirectory() {
     fi
     VerifySecureEntry "${directory}" 0 0 "trusted installation directory"
   done
+}
+
+RenderServiceUnit() {
+  local destination="$1" domain_id="$2"
+  [[ -f "${SERVICE_TEMPLATE}" && ! -L "${SERVICE_TEMPLATE}" ]] || \
+    Fail "Agent service template is missing or symbolic"
+  [[ "$(grep -o '@ROS_DOMAIN_ID@' "${SERVICE_TEMPLATE}" | wc -l)" -eq 1 ]] || \
+    Fail "Agent service template must contain one ROS domain marker"
+  sed "s/@ROS_DOMAIN_ID@/${domain_id}/" "${SERVICE_TEMPLATE}" >"${destination}"
+  ! grep -Fq '@ROS_DOMAIN_ID@' "${destination}" || \
+    Fail "Agent service domain rendering failed"
+}
+
+RemoveLegacyAgentEnvironment() {
+  local config_directory=/etc/mentor-pi
+  local environment_file="${config_directory}/agent.env"
+  if [[ ! -e "${config_directory}" && ! -L "${config_directory}" ]]; then
+    return
+  fi
+  [[ -d "${config_directory}" && ! -L "${config_directory}" ]] || \
+    Fail "legacy Agent configuration directory is not a real directory"
+  VerifySecureEntry "${config_directory}" 0 0 \
+    "legacy Agent configuration directory"
+  if [[ -e "${environment_file}" || -L "${environment_file}" ]]; then
+    [[ ! -d "${environment_file}" ]] || \
+      Fail "legacy Agent environment path is a directory"
+    rm -f -- "${environment_file}"
+  fi
+  rmdir --ignore-fail-on-non-empty -- "${config_directory}"
 }
 
 VerifyExistingRelease() {
@@ -213,7 +243,7 @@ Main() {
     VerifyExistingRelease "${temporary_release}" "${METADATA}" \
       "${executable_sha}" "${launcher_sha}" "${build_tree_sha}"
   fi
-  EnsureTrustedDirectory /etc/mentor-pi /etc/systemd/system
+  EnsureTrustedDirectory /etc/systemd/system
 
   if ! id mentor-pi >/dev/null 2>&1; then
     useradd --system --user-group --home-dir /nonexistent \
@@ -236,13 +266,19 @@ Main() {
   ln -s "${release_path}" "${temporary_link}"
   mv -Tf "${temporary_link}" "${current_link}"
 
-  printf 'ROS_DOMAIN_ID=%s\nMENTOR_PI_RRCLITE_AUTORESET=1\n' \
-    "${ROS_DOMAIN_ID}" >/etc/mentor-pi/agent.env
-  chown root:root /etc/mentor-pi/agent.env
-  chmod 0644 /etc/mentor-pi/agent.env
-  install -o root -g root -m 0644 \
-    "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service" \
-    /etc/systemd/system/mentor-pi-agent.service
+  local service_path=/etc/systemd/system/mentor-pi-agent.service
+  if [[ -e "${service_path}" || -L "${service_path}" ]]; then
+    [[ -f "${service_path}" && ! -L "${service_path}" ]] || \
+      Fail "installed Agent service path is not a regular file"
+  fi
+  local temporary_service
+  temporary_service="$(mktemp \
+    /etc/systemd/system/.mentor-pi-agent.service.XXXXXX)"
+  RenderServiceUnit "${temporary_service}" "${ROS_DOMAIN_ID}"
+  chown root:root "${temporary_service}"
+  chmod 0644 "${temporary_service}"
+  mv -Tf "${temporary_service}" "${service_path}"
+  RemoveLegacyAgentEnvironment
 
   systemctl daemon-reload
   systemctl enable mentor-pi-agent.service

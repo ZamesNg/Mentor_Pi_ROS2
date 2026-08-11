@@ -44,10 +44,13 @@ journalctl -u mentor-pi-agent.service -n 100 --no-pager
 ```
 
 The device policy must include `char-ttyACM rw`; this preserves clock
-protection without blocking `/dev/mentor_pi_mcu` inside the service cgroup. The
-environment must include `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`. This prevents the
-dedicated Agent account from selecting owner-restricted Fast DDS shared memory
-for samples consumed by the interactive ROS user.
+protection without blocking `/dev/mentor_pi_mcu` inside the service cgroup.
+The environment must contain the exported `ROS_DOMAIN_ID`,
+`MENTOR_PI_RRCLITE_AUTORESET=1`, and
+`FASTDDS_BUILTIN_TRANSPORTS=UDPv4`. The last setting prevents the dedicated
+Agent account from selecting owner-restricted Fast DDS shared memory for
+samples consumed by the interactive ROS user. These values are stored directly
+in the unit; the installer removes the former `/etc/mentor-pi/agent.env`.
 
 Unplug/replug USB once while actuators remain disconnected. The service must
 restart and reconnect without starting any ROS application. A device identity

@@ -98,8 +98,7 @@ make -C ros2_ws test
 systemctl is-active mentor-pi-agent.service
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
-source /etc/mentor-pi/agent.env
-export ROS_DOMAIN_ID
+: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
 RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
 ros2 launch mentor_pi_hardwares mecanum.launch.py
 ```

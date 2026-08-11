@@ -160,7 +160,7 @@ if rg -n 'start_bringup|IfCondition' \
   Fail "vehicle launch can bypass the fail-coupled supervisor"
 fi
 if rg -n 'mentor_pi_bringup|configuration_supervisor|vehicle.launch' \
-    "${PROJECT_ROOT}/micro_ros_agent/systemd/mentor-pi-agent.service" >/dev/null; then
+    "${PROJECT_ROOT}/micro_ros_agent/systemd/mentor-pi-agent.service.in" >/dev/null; then
   Fail "the Agent service starts ROS applications"
 fi
 for native_only_script in \

@@ -21,8 +21,7 @@ Start applications manually:
 ```zsh
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
-source /etc/mentor-pi/agent.env
-export ROS_DOMAIN_ID
+: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
 RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
 ros2 launch mentor_pi_hardwares mecanum.launch.py
 ```
@@ -35,18 +34,16 @@ In another terminal, source the workspace and inspect the safety endpoints:
 ```zsh
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
-source /etc/mentor-pi/agent.env
-export ROS_DOMAIN_ID
+: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
 ros2 node list
 ros2 topic echo --once /mentor_pi/heartbeat
 ros2 topic echo --once \
   /mentor_pi/configuration/motion_authorization
 ```
 
-Every ROS terminal must source the Agent environment and export
-`ROS_DOMAIN_ID`; otherwise a shell that already carries another domain cannot
-discover the firmware endpoints. An unset or empty `ROS_DOMAIN_ID` means domain
-zero, and `export ROS_DOMAIN_ID` produces no terminal output when it succeeds.
+Every ROS terminal must inherit the same exported `ROS_DOMAIN_ID` used for
+Agent installation. The service stores that value directly in its installed
+unit; there is no separate Agent environment file to source.
 
 Test these cases while commanded targets are zero:
 

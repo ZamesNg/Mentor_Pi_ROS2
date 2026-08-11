@@ -35,8 +35,7 @@ guarded, and the supply is current-limited, start the applications manually:
 ```zsh
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
-source /etc/mentor-pi/agent.env
-export ROS_DOMAIN_ID
+: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
 RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
 ros2 launch mentor_pi_hardwares mecanum.launch.py
 ```
