@@ -175,6 +175,8 @@ def _launch_vehicle(context):
                 "joint_state_broadcaster",
                 "--controller-manager",
                 f"/{robot_name}/controller_manager",
+                "--param-file",
+                controllers_file,
             ],
         ),
         Node(
@@ -187,6 +189,8 @@ def _launch_vehicle(context):
                 controller_name,
                 "--controller-manager",
                 f"/{robot_name}/controller_manager",
+                "--param-file",
+                controllers_file,
             ],
         ),
     ]
