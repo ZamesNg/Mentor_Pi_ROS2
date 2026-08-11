@@ -72,6 +72,10 @@ IdentityMatches() {
   [[ "${observed}" == "${expected_value}" ]]
 }
 
+RuleBody() {
+  sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$1"
+}
+
 Destination() {
   printf '%s%s' "${TEST_ROOT}" "$1"
 }
@@ -196,8 +200,12 @@ mkdir -p "${udev_directory}"
 if [[ -e "${rule_destination}" || -L "${rule_destination}" ]]; then
   [[ -f "${rule_destination}" && ! -L "${rule_destination}" ]] || \
     Fail "existing udev rule is not a regular file: ${rule_destination}"
-  cmp -s "${rendered_rule}" "${rule_destination}" || \
-    Fail "refusing to overwrite a different existing udev rule: ${rule_destination}"
+  if ! cmp -s "${rendered_rule}" "${rule_destination}"; then
+    cmp -s <(RuleBody "${rendered_rule}") \
+      <(RuleBody "${rule_destination}") || \
+      Fail "refusing to overwrite a semantically different existing udev rule: ${rule_destination}"
+    echo "Keeping semantically identical existing udev rule: ${rule_destination}"
+  fi
 else
   if [[ -n "${TEST_ROOT}" ]]; then
     install -m 0644 "${rendered_rule}" "${rule_destination}"
@@ -261,4 +269,5 @@ fi
 
 echo "Installed stable alias ${DEVICE_ALIAS} for ${resolved_device}."
 echo "Added ${target_user} to ${SERIAL_GROUP}; broad dialout access was not granted."
-echo "Log out and back in, or run 'newgrp ${SERIAL_GROUP}', before flashing without sudo."
+echo "Run 'newgrp ${SERIAL_GROUP}' to open a shell with access immediately."
+echo "Inside that shell, verify membership with: id -nG"

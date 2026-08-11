@@ -12,13 +12,18 @@ Require vendor `1a86`, product `55d4`, and one stable `ID_SERIAL_SHORT` or
 `ID_PATH`. Check board wiring, mechanically verify every encoder direction,
 and confirm that motor and servo power remain disconnected.
 
-Install the stable alias and dedicated serial group, then log out and back in
-after the first group change:
+Install the stable alias and dedicated serial group, then activate the group
+immediately in a new shell:
 
 ```sh
 SERIAL_SETUP_ACK=CONFIGURE_SERIAL_ACCESS make serial-setup
+newgrp mentor-pi-serial
+id -nG
 udevadm info --query=property --name=/dev/mentor_pi_mcu
 ```
+
+Run the remaining tutorial commands inside that shell; `exit` returns to the
+original shell afterward.
 
 Install STM32CubeProgrammer, keep actuator power disconnected, and run:
 

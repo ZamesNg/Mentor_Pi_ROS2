@@ -38,6 +38,8 @@ grep -Fq 'chgrp -- "${SERIAL_GROUP}" "${resolved_device}"' "${HELPER}" || \
   Fail "serial-access setup does not repair the current device group"
 grep -Fq 'chmod 0660 "${resolved_device}"' "${HELPER}" || \
   Fail "serial-access setup does not repair the current device mode"
+grep -Fq "newgrp \${SERIAL_GROUP}" "${HELPER}" || \
+  Fail "serial-access setup does not explain immediate group activation"
 grep -Fq 'DEVICE_FINDER=' "${HELPER}" || \
   Fail "serial-access setup does not use identity-based discovery"
 if grep -Fq '/dev/serial/by-id' "${PROJECT_ROOT}/tools/tutorial_action.sh"; then
@@ -127,6 +129,22 @@ grep -Fqx "user=${TEST_USER}" "${MEMBERSHIP_REQUEST}" || \
 # An identical rerun is intentionally idempotent.
 RunHelper --device /dev/ttyACM0 --user "${TEST_USER}"
 
+# Older reviewed rules may carry different comments while retaining the exact
+# active udev policy. Preserve and accept those files rather than replacing
+# root-owned configuration for a comment-only difference.
+legacy_rule="${TEST_ROOT}/legacy-rule"
+{
+  printf '%s\n' '# Legacy Mentor Pi production rule comment.'
+  sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "${INSTALLED_RULE}"
+} >"${legacy_rule}"
+mv "${legacy_rule}" "${INSTALLED_RULE}"
+cp "${INSTALLED_RULE}" "${TEST_ROOT}/expected-legacy-rule"
+legacy_output="$(RunHelper --device /dev/ttyACM0 --user "${TEST_USER}")"
+[[ "${legacy_output}" == *'Keeping semantically identical existing udev rule'* ]] || \
+  Fail "comment-only legacy rule was not recognized"
+cmp "${INSTALLED_RULE}" "${TEST_ROOT}/expected-legacy-rule" || \
+  Fail "comment-only legacy rule was unexpectedly rewritten"
+
 ExpectFailure "valid local login name" RunHelper \
   --device /dev/ttyACM0 --user 'bad/user'
 ExpectFailure "well-formed /dev path" RunHelper \
@@ -144,8 +162,8 @@ ExpectFailure "found 2" env \
   RRCLITE_SERIAL_ACCESS_SYS_CLASS_TTY="${SYS_CLASS_TTY}" \
   "${HELPER}" --device /dev/ttyACM0 --user "${TEST_USER}"
 
-printf '%s\n' '# unexpected local replacement' >>"${INSTALLED_RULE}"
-ExpectFailure "refusing to overwrite a different existing udev rule" RunHelper \
+printf '%s\n' 'SUBSYSTEM=="tty", ENV{UNREVIEWED}="1"' >>"${INSTALLED_RULE}"
+ExpectFailure "refusing to overwrite a semantically different existing udev rule" RunHelper \
   --device /dev/ttyACM0 --user "${TEST_USER}"
 
 echo "Development serial-access helper tests passed."

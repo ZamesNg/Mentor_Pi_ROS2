@@ -31,8 +31,17 @@ SERIAL_SETUP_ACK=CONFIGURE_SERIAL_ACCESS make serial-setup
 This repeats identity-based discovery and creates `/dev/mentor_pi_mcu`; it
 does not depend on the transient kernel tty number.
 
-Log out and back in after the first group change. The Agent service installer
-performs its own production identity and udev installation onboard.
+After the first group change, activate it immediately in a new shell and
+confirm that shell's groups:
+
+```sh
+newgrp mentor-pi-serial
+id -nG
+```
+
+Run the remaining commands inside that shell. Type `exit` when finished to
+return to the original shell. The Agent service installer performs its own
+production identity and udev installation onboard.
 
 Check encoder channel continuity and direction mechanically with actuator power
 off. Record each wheel's observed sign. A mismatch is a wiring/configuration
