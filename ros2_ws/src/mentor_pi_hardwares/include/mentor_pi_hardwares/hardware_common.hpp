@@ -23,6 +23,13 @@ enum class Wheel : std::size_t {
 inline constexpr std::array<std::size_t, kWheelCount> kMcuMotorIndexByWheel{
     {0U, 2U, 1U, 3U}};
 
+// Positive ROS wheel rotation rolls the chassis toward +X. The right-side
+// motor connectors are mechanically mirrored, so their MCU rotation is
+// negative for a positive ROS wheel rotation. Because every entry is +/-1,
+// this same map is its own inverse for MCU feedback converted back to ROS.
+inline constexpr std::array<std::int8_t, kWheelCount>
+    kChassisDirectionSignByWheel{{1, -1, 1, -1}};
+
 constexpr std::size_t WheelIndex(Wheel wheel) {
   return static_cast<std::size_t>(wheel);
 }
@@ -33,6 +40,10 @@ constexpr std::size_t McuMotorIndex(Wheel wheel) {
 
 constexpr std::uint8_t McuMotorMask(Wheel wheel) {
   return static_cast<std::uint8_t>(1U << McuMotorIndex(wheel));
+}
+
+constexpr std::int8_t ChassisDirectionSign(Wheel wheel) {
+  return kChassisDirectionSignByWheel[WheelIndex(wheel)];
 }
 
 double RpsToRadiansPerSecond(double rps);

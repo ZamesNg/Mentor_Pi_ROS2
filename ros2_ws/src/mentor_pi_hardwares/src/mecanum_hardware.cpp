@@ -298,10 +298,12 @@ void MecanumHardware::MotorStateCallback(
   for (std::size_t wheel = 0U; wheel < hardware::kWheelCount; ++wheel) {
     const auto logical = static_cast<hardware::Wheel>(wheel);
     const std::size_t motor = hardware::McuMotorIndex(logical);
+    const double direction =
+        static_cast<double>(hardware::ChassisDirectionSign(logical));
     velocity[wheel] = hardware::RpsToRadiansPerSecond(
-        static_cast<double>(message->measured_rps[motor]));
-    position[wheel] =
-        hardware::EncoderCountToRadians(message->encoder_count[motor], *ticks);
+        direction * static_cast<double>(message->measured_rps[motor]));
+    position[wheel] = direction * hardware::EncoderCountToRadians(
+                                      message->encoder_count[motor], *ticks);
     if (!std::isfinite(velocity[wheel]) || !std::isfinite(position[wheel])) {
       return;
     }
@@ -424,12 +426,15 @@ bool MecanumHardware::SendMotorCommand() {
   command.update_mask = mentor_pi_interfaces::msg::MotorCommand::ALL_MOTORS;
   command.target_rps.fill(0.0F);
   for (std::size_t wheel = 0U; wheel < hardware::kWheelCount; ++wheel) {
+    const auto logical = static_cast<hardware::Wheel>(wheel);
+    const double direction =
+        static_cast<double>(hardware::ChassisDirectionSign(logical));
     const auto rps = hardware::RadiansPerSecondToRps(
-        joints_.at(joint_names_[wheel]).command.velocity, maximum_rps);
+        direction * joints_.at(joint_names_[wheel]).command.velocity,
+        maximum_rps);
     if (!rps) {
       return false;
     }
-    const auto logical = static_cast<hardware::Wheel>(wheel);
     command.target_rps[hardware::McuMotorIndex(logical)] = *rps;
   }
   motor_command_publisher_->publish(command);

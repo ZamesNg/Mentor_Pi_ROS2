@@ -401,10 +401,12 @@ void AckermannHardware::MotorStateCallback(
        {hardware::Wheel::kRearLeft, hardware::Wheel::kRearRight}) {
     const std::size_t logical = hardware::WheelIndex(wheel);
     const std::size_t motor = hardware::McuMotorIndex(wheel);
+    const double direction =
+        static_cast<double>(hardware::ChassisDirectionSign(wheel));
     velocity[logical] = hardware::RpsToRadiansPerSecond(
-        static_cast<double>(message->measured_rps[motor]));
-    position[logical] =
-        hardware::EncoderCountToRadians(message->encoder_count[motor], *ticks);
+        direction * static_cast<double>(message->measured_rps[motor]));
+    position[logical] = direction * hardware::EncoderCountToRadians(
+                                       message->encoder_count[motor], *ticks);
     if (!std::isfinite(velocity[logical]) ||
         !std::isfinite(position[logical])) {
       return;
@@ -571,8 +573,11 @@ bool AckermannHardware::SendDriveAndSteeringCommands() {
   for (hardware::Wheel wheel :
        {hardware::Wheel::kRearLeft, hardware::Wheel::kRearRight}) {
     const std::size_t logical = hardware::WheelIndex(wheel);
+    const double direction =
+        static_cast<double>(hardware::ChassisDirectionSign(wheel));
     const auto rps = hardware::RadiansPerSecondToRps(
-        joints_.at(wheel_names_[logical]).command.velocity, maximum_rps);
+        direction * joints_.at(wheel_names_[logical]).command.velocity,
+        maximum_rps);
     if (!rps) {
       return false;
     }

@@ -192,12 +192,12 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   constexpr double kTwoPi = 6.28318530717958647692;
   EXPECT_NEAR(states[0].get_value(), kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[1].get_value(), kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[2].get_value(), 3.0 * kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[3].get_value(), 3.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[2].get_value(), -3.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[3].get_value(), -3.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[4].get_value(), 2.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[5].get_value(), 2.0 * kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[6].get_value(), 4.0 * kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[7].get_value(), 4.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[6].get_value(), -4.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[7].get_value(), -4.0 * kTwoPi, 1.0e-9);
 
   for (std::size_t index = 0U; index < commands.size(); ++index) {
     commands[index].set_value(static_cast<double>(index + 1U) * kTwoPi);
@@ -216,7 +216,7 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
   std_msgs::msg::UInt64 authorization;
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(42);
-  const std::array<float, 4U> expected_command{1.0F, 3.0F, 2.0F, 4.0F};
+  const std::array<float, 4U> expected_command{1.0F, 3.0F, -2.0F, -4.0F};
   const auto received_expected_command = [&received, &expected_command]() {
     return received.has_value() && received->target_rps == expected_command;
   };
@@ -381,6 +381,10 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
       }));
 
   constexpr double kTwoPi = 6.28318530717958647692;
+  EXPECT_NEAR(states[2].get_value(), 2.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[3].get_value(), 2.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[4].get_value(), -4.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[5].get_value(), -4.0 * kTwoPi, 1.0e-9);
   commands[0].set_value(0.3);
   commands[1].set_value(0.3);
   commands[2].set_value(2.0 * kTwoPi);
@@ -415,7 +419,7 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
       []() {}));
   EXPECT_EQ(motor_received->update_mask, 0x0aU);
   EXPECT_EQ(motor_received->target_rps,
-            (std::array<float, 4U>{0.0F, 2.0F, 0.0F, 4.0F}));
+            (std::array<float, 4U>{0.0F, 2.0F, 0.0F, -4.0F}));
   EXPECT_EQ(pwm_received->update_mask, 0x04U);
   EXPECT_EQ(pwm_received->pulse_width_us[2], 1300U);
 

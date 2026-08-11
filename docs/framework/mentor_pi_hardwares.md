@@ -49,14 +49,22 @@ encoder counts and revolutions/second. The plugins therefore apply exact
 `2*pi` conversions in both directions and compute position from the active
 motor profile's ticks per revolution.
 
-The firmware connector order and polarity are authoritative:
+The firmware connector order is authoritative. The ROS hardware adapters apply
+the chassis-direction sign symmetrically to outgoing commands and incoming
+position/velocity feedback:
 
-| MCU connector | ros2_control joint |
-| --- | --- |
-| M1 | front-left |
-| M2 | rear-left |
-| M3 | front-right |
-| M4 | rear-right |
+| MCU connector | ros2_control joint | Chassis-direction sign |
+| --- | --- | ---: |
+| M1 | front-left | +1 |
+| M2 | rear-left | +1 |
+| M3 | front-right | -1 |
+| M4 | rear-right | -1 |
+
+Positive ROS wheel rotation rolls the chassis toward `+X`. Right-side motors
+are mechanically mirrored, so positive ROS commands become negative firmware
+targets for M3/M4, and negative M3/M4 firmware feedback becomes positive ROS
+wheel state. This chassis conversion is independent of firmware encoder A/B
+wiring normalization.
 
 Ackermann drive commands select only M2 and M4. Steering uses the configured
 PWM channel.
