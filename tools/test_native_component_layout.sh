@@ -40,6 +40,15 @@ readonly -a expected_packages=(
   Fail "ros2_ws/src does not contain exactly the five project packages"
 grep -Fq -- '--base-paths src' "${PROJECT_ROOT}/ros2_ws/tools/colcon.sh" || \
   Fail "colcon is not explicitly limited to ros2_ws/src"
+grep -Fq -- '--cmake-clean-cache' \
+  "${PROJECT_ROOT}/ros2_ws/tools/colcon.sh" || \
+  Fail "colcon does not invalidate stale CMake underlays"
+for variable in AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH \
+    LD_LIBRARY_PATH PYTHONPATH ROS_PACKAGE_PATH; do
+  grep -Fq "unset ${variable}" \
+    "${PROJECT_ROOT}/ros2_ws/tools/colcon.sh" || \
+    Fail "colcon does not clear inherited ${variable}"
+done
 [[ -f "${PROJECT_ROOT}/ros2_ws/third_party/COLCON_IGNORE" ]] || \
   Fail "plain colcon discovery does not ignore third-party sources"
 

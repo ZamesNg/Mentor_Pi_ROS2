@@ -36,6 +36,15 @@ fi
 grep -Fq 'GNU GENERAL PUBLIC LICENSE' "${ALTO_ROOT}/LICENSE" || \
   Fail "ALTO GPL license is missing"
 
+# Resolve only against the supported binary Humble underlay, regardless of
+# ROS workspaces sourced by the caller.
+unset AMENT_PREFIX_PATH
+unset CMAKE_PREFIX_PATH
+unset COLCON_PREFIX_PATH
+unset LD_LIBRARY_PATH
+unset PYTHONPATH
+unset ROS_PACKAGE_PATH
+
 set +u
 # shellcheck disable=SC1091
 source /opt/ros/humble/setup.bash

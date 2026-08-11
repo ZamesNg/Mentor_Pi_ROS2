@@ -3,10 +3,15 @@
 Import dependencies and build only the five packages under `ros2_ws/src`:
 
 ```zsh
+make -C ros2_ws clean
 make -C ros2_ws deps
 make -C ros2_ws build
 make -C ros2_ws test
 ```
+
+The clean step prevents generated setup files or C++ artifacts from retaining
+a previously sourced ROS workspace. The build then isolates itself to the
+supported `/opt/ros/humble` binary underlay.
 
 Confirm the colcon boundary:
 

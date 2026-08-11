@@ -6,6 +6,16 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 "${SCRIPT_DIR}/check_environment.sh" >/dev/null
+
+# Workspace setup files retain the underlays active when they were built.
+# Always generate this workspace against the supported binary Humble underlay.
+unset AMENT_PREFIX_PATH
+unset CMAKE_PREFIX_PATH
+unset COLCON_PREFIX_PATH
+unset LD_LIBRARY_PATH
+unset PYTHONPATH
+unset ROS_PACKAGE_PATH
+
 set +u
 # shellcheck disable=SC1091
 source /opt/ros/humble/setup.bash
@@ -22,7 +32,8 @@ shift
 case "${command_name}" in
   build)
     exec colcon --log-base log build "$@" \
-      --base-paths src --build-base build --install-base install
+      --base-paths src --build-base build --install-base install \
+      --cmake-clean-cache
     ;;
   test)
     exec colcon --log-base log test "$@" \
