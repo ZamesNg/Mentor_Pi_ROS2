@@ -2,7 +2,7 @@
 
 Identify exactly one connected CH9102F:
 
-```sh
+```zsh
 make -C micro_ros_agent find-device
 ```
 
@@ -10,7 +10,7 @@ Install the built Agent. It revalidates the live USB identity and reuses the
 same Agent-owned device-access policy configured in Tutorial 03, automatically
 choosing `ID_SERIAL_SHORT`, falling back to `ID_PATH`:
 
-```sh
+```zsh
 sudo ROS_DOMAIN_ID=0 make -C micro_ros_agent install-service
 ```
 
@@ -30,7 +30,7 @@ installs a versioned root-owned release below
 
 Verify boot and reconnect handling:
 
-```sh
+```zsh
 systemctl is-enabled mentor-pi-agent.service
 systemctl is-active mentor-pi-agent.service
 systemctl show mentor-pi-agent.service -p DevicePolicy -p DeviceAllow

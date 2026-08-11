@@ -57,9 +57,9 @@ grep -Fq 'OnProcessExit' "${CONTROLLER_LAUNCH}" || \
 for runtime_tutorial in \
     "${PROJECT_ROOT}/docs/tutorials/host/07-connect-and-run.md" \
     "${PROJECT_ROOT}/docs/tutorials/onboard/07-integrated-runtime-and-recovery.md"; do
-  grep -Fq 'source /opt/ros/humble/setup.bash' "${runtime_tutorial}" || \
+  grep -Fq 'source /opt/ros/humble/setup.zsh' "${runtime_tutorial}" || \
     Fail "runtime tutorial does not source Humble: ${runtime_tutorial}"
-  grep -Fq 'source ros2_ws/install/setup.bash' "${runtime_tutorial}" || \
+  grep -Fq 'source ros2_ws/install/setup.zsh' "${runtime_tutorial}" || \
     Fail "runtime tutorial does not source the workspace: ${runtime_tutorial}"
   grep -Fq 'source /etc/mentor-pi/agent.env' "${runtime_tutorial}" || \
     Fail "runtime tutorial does not source the Agent domain: ${runtime_tutorial}"

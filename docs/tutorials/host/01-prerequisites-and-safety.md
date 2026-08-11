@@ -9,7 +9,7 @@ Install VS Code, its Dev Containers extension, Git, and Docker Desktop or a
 compatible Docker engine. Clone this repository, open its root in VS Code, and
 choose **Dev Containers: Reopen in Container**. In the terminal that opens:
 
-```sh
+```zsh
 make doctor
 make check-compatibility
 ```

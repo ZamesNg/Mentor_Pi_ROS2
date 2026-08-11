@@ -3,16 +3,16 @@
 Build and test the workspace in the native Ubuntu 22.04 terminal or Dev
 Container terminal:
 
-```sh
+```zsh
 make -C ros2_ws build
 make -C ros2_ws test
 ```
 
 The equivalent standard workflow is:
 
-```sh
+```zsh
 cd ros2_ws
-source /opt/ros/humble/setup.bash
+source /opt/ros/humble/setup.zsh
 colcon build --symlink-install
 colcon test
 colcon test-result --verbose

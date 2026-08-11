@@ -3,7 +3,7 @@
 Production actions write below `/var/log/mentor-pi/actions` and require the
 verified packaged firmware hash:
 
-```sh
+```zsh
 FIRMWARE_SHA256="$(sha256sum \
   firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf | awk '{print $1}')"
 
@@ -22,7 +22,7 @@ and supply limit.
 After the passive chapters are recorded, use the guarded fixture and root
 qualification commands as applicable:
 
-```sh
+```zsh
 RUNTIME_CONTEXT=production PACKAGED_FIRMWARE_SHA256="${FIRMWARE_SHA256}" \
 PREFLIGHT_ACK=ACTUATORS_DISCONNECTED make qualification-preflight
 ```

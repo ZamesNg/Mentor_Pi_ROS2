@@ -2,7 +2,7 @@
 
 With logic power only, inspect the connected adapter:
 
-```sh
+```zsh
 MENTOR_PI_PORT="$(make -s -C micro_ros_agent find-device)"
 printf '%s\n' "${MENTOR_PI_PORT}"
 udevadm info --query=property --name="${MENTOR_PI_PORT}"
@@ -15,7 +15,7 @@ and confirm that motor and servo power remain disconnected.
 Install the stable alias and dedicated serial group, then activate the group
 immediately in a new shell:
 
-```sh
+```zsh
 SERIAL_SETUP_ACK=CONFIGURE_SERIAL_ACCESS make serial-setup
 newgrp mentor-pi-serial
 id -nG
@@ -27,7 +27,7 @@ original shell afterward.
 
 Install STM32CubeProgrammer, keep actuator power disconnected, and run:
 
-```sh
+```zsh
 make -C firmware flash \
   PORT=/dev/mentor_pi_mcu \
   FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED

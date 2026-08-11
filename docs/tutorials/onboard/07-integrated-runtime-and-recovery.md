@@ -3,15 +3,15 @@
 Keep wheels raised or equivalently guarded and use the current-limited supply.
 Verify the external Agent first:
 
-```sh
+```zsh
 systemctl is-active mentor-pi-agent.service
 ```
 
 Start applications manually:
 
-```sh
-source /opt/ros/humble/setup.bash
-source ros2_ws/install/setup.bash
+```zsh
+source /opt/ros/humble/setup.zsh
+source ros2_ws/install/setup.zsh
 source /etc/mentor-pi/agent.env
 export ROS_DOMAIN_ID
 RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
@@ -23,9 +23,9 @@ separately managed service and does not start this launch.
 
 In another terminal, source the workspace and inspect the safety endpoints:
 
-```sh
-source /opt/ros/humble/setup.bash
-source ros2_ws/install/setup.bash
+```zsh
+source /opt/ros/humble/setup.zsh
+source ros2_ws/install/setup.zsh
 ros2 node list
 ros2 topic echo --once /mentor_pi/heartbeat
 ros2 topic echo --once \

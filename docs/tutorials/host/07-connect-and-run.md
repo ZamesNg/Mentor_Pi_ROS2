@@ -6,7 +6,7 @@ runtime.
 
 On that onboard computer, clone the same revision and run:
 
-```sh
+```zsh
 make -C micro_ros_agent setup
 make -C micro_ros_agent build
 make -C micro_ros_agent test
@@ -14,7 +14,7 @@ make -C micro_ros_agent test
 
 With exactly one connected CH9102F, install by stable identity:
 
-```sh
+```zsh
 make -C micro_ros_agent find-device
 sudo make -C micro_ros_agent install-service
 systemctl is-enabled mentor-pi-agent.service
@@ -30,9 +30,9 @@ workspace natively on that computer as in Tutorial 06.
 After the passive gates are complete, the wheels are raised or equivalently
 guarded, and the supply is current-limited, start the applications manually:
 
-```sh
-source /opt/ros/humble/setup.bash
-source ros2_ws/install/setup.bash
+```zsh
+source /opt/ros/humble/setup.zsh
+source ros2_ws/install/setup.zsh
 source /etc/mentor-pi/agent.env
 export ROS_DOMAIN_ID
 RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \

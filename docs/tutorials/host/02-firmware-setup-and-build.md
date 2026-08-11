@@ -2,7 +2,7 @@
 
 Run this chapter inside the Dev Container, or natively on Ubuntu 22.04:
 
-```sh
+```zsh
 make -C firmware setup
 make -C firmware test
 make -C firmware build
@@ -25,7 +25,7 @@ The SDK manifest binds the editable interfaces under
 source locks, and toolchain. If interfaces change, verification fails until a
 maintainer regenerates the SDK on Ubuntu 22.04/Humble:
 
-```sh
+```zsh
 make -C firmware microros-sdk
 make -C firmware build verify
 ```

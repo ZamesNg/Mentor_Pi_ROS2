@@ -2,7 +2,7 @@
 
 Keep actuator power disconnected. Build natively:
 
-```sh
+```zsh
 make -C firmware setup
 make -C firmware test
 make -C firmware build
@@ -16,7 +16,7 @@ contains a single `NORMAL_CLOSED_LOOP_DEFAULT` PID ELF/Hex/Bin/Map set.
 
 Record:
 
-```sh
+```zsh
 sha256sum firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf
 sed -n '1,200p' \
   firmware/mentor_pi_mcu/build/stm32/rrclite-build-metadata.txt

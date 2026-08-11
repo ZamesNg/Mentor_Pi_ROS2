@@ -6,7 +6,7 @@ Humble. Do not use the Dev Container onboard.
 Install Git, build-essential, CMake, Ninja, vcs, rosdep, colcon, udev, and ROS 2
 Humble. Clone this repository and run:
 
-```sh
+```zsh
 make doctor
 make check-compatibility
 ```

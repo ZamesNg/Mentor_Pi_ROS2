@@ -7,7 +7,7 @@ unintended contact. Verify the controller and CH9102F adapter are the devices
 you intend to use. With the board connected over USB, locate it by USB
 identity:
 
-```sh
+```zsh
 # Linux
 MENTOR_PI_PORT="$(make -s -C micro_ros_agent find-device)"
 printf '%s\n' "${MENTOR_PI_PORT}"
@@ -24,7 +24,7 @@ disconnect the others before continuing.
 
 On Ubuntu, install the stable development alias and dedicated serial group:
 
-```sh
+```zsh
 SERIAL_SETUP_ACK=CONFIGURE_SERIAL_ACCESS make serial-setup
 ```
 
@@ -34,7 +34,7 @@ This invokes the Agent-owned identity-based device-access policy and creates
 After the first group change, activate it immediately in a new shell and
 confirm that shell's groups:
 
-```sh
+```zsh
 newgrp mentor-pi-serial
 id -nG
 ```

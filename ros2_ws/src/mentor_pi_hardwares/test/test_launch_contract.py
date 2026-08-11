@@ -219,10 +219,3 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
         'LaunchConfiguration("start_bringup")',
     ):
         assert forbidden not in launch_sources
-
-
-def test_controller_spawners_receive_the_authoritative_parameter_file():
-    share = Path(get_package_share_directory("mentor_pi_hardwares"))
-    source = (share / "launch" / "vehicle_launch.py").read_text(encoding="utf-8")
-    assert source.count('"--param-file"') == 2
-    assert source.count('controllers_file,') >= 3

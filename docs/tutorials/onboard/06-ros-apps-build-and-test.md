@@ -2,7 +2,7 @@
 
 Import dependencies and build only the five packages under `ros2_ws/src`:
 
-```sh
+```zsh
 make -C ros2_ws deps
 make -C ros2_ws build
 make -C ros2_ws test
@@ -10,9 +10,9 @@ make -C ros2_ws test
 
 Confirm the colcon boundary:
 
-```sh
+```zsh
 cd ros2_ws
-source /opt/ros/humble/setup.bash
+source /opt/ros/humble/setup.zsh
 colcon list --base-paths src
 colcon test-result --verbose
 cd ..
@@ -21,7 +21,7 @@ cd ..
 Firmware and Agent sources must not appear in `colcon list`. Resolve all test
 failures before runtime. Install the native evidence capture tool:
 
-```sh
+```zsh
 sudo make install-evidence-tools
 ```
 

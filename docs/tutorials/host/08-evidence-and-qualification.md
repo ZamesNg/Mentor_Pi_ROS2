@@ -2,7 +2,7 @@
 
 Host and Dev Container builds establish reproducibility only. Preserve:
 
-```sh
+```zsh
 git rev-parse HEAD
 sha256sum firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf
 make check-compatibility
@@ -11,7 +11,7 @@ make check-compatibility
 On native Ubuntu 22.04, software-only passive evidence may be collected after
 the Agent and manual ROS launch are healthy:
 
-```sh
+```zsh
 sudo make install-evidence-tools
 PASSIVE_CHECK_ACK=ACTUATORS_DISCONNECTED \
 OLED_PRESENT=1 \

@@ -8,7 +8,7 @@ repository directory.
 Keep motor power disconnected, stop any Agent that could own the port, and run
 from a physical Linux host terminal:
 
-```sh
+```zsh
 make -C firmware verify
 make -C firmware flash \
   PORT=/dev/mentor_pi_mcu \
