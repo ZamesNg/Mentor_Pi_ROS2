@@ -38,6 +38,11 @@ grep -Fqx 'DeviceAllow=char-ttyACM rw' \
   echo "Agent service does not allow its ttyACM transport device" >&2
   exit 1
 }
+grep -Fqx 'Environment=FASTDDS_BUILTIN_TRANSPORTS=UDPv4' \
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service" || {
+  echo "Agent service does not disable cross-user Fast DDS shared memory" >&2
+  exit 1
+}
 grep -Fq 'ATTRS{idVendor}=="1a86"' \
   "${COMPONENT_ROOT}/udev/99-mentor-pi-mcu.rules.in"
 if grep -R -n -E 'docker (run|build|exec|pull|load)|mentor-pi-runtime|configuration_supervisor' \

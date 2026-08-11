@@ -9,6 +9,7 @@ User=mentor-pi
 Group=mentor-pi
 SupplementaryGroups=mentor-pi-serial
 EnvironmentFile=/etc/mentor-pi/agent.env
+Environment=FASTDDS_BUILTIN_TRANSPORTS=UDPv4
 ExecStartPre=/usr/bin/test -c /dev/mentor_pi_mcu
 ExecStart=/opt/mentor_pi/agent/current/bin/mentor-pi-agent serial --dev /dev/mentor_pi_mcu --baudrate 1000000 -v4
 Restart=always

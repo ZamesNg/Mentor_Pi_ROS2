@@ -7,6 +7,15 @@ Verify the external Agent first:
 systemctl is-active mentor-pi-agent.service
 ```
 
+With the Agent active and the MCU connected, confirm that firmware-owned LED3
+toggles. LED3 changes only after a successful ROS heartbeat publication. If
+the ROS graph contains the firmware topics but LED3 remains static, stop here:
+entity discovery succeeded but the firmware telemetry path is not live. If
+LED3 toggles but every firmware topic is silent, repeat Tutorial 05 service
+installation and verify its required UDPv4 Fast DDS environment. Retain the
+current Agent journal; do not start the applications or enable actuator power
+until heartbeat data is visible.
+
 Start applications manually:
 
 ```zsh
@@ -26,11 +35,18 @@ In another terminal, source the workspace and inspect the safety endpoints:
 ```zsh
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
+source /etc/mentor-pi/agent.env
+export ROS_DOMAIN_ID
 ros2 node list
 ros2 topic echo --once /mentor_pi/heartbeat
 ros2 topic echo --once \
   /mentor_pi/configuration/motion_authorization
 ```
+
+Every ROS terminal must source the Agent environment and export
+`ROS_DOMAIN_ID`; otherwise a shell that already carries another domain cannot
+discover the firmware endpoints. An unset or empty `ROS_DOMAIN_ID` means domain
+zero, and `export ROS_DOMAIN_ID` produces no terminal output when it succeeds.
 
 Test these cases while commanded targets are zero:
 

@@ -33,13 +33,17 @@ Verify boot and reconnect handling:
 ```zsh
 systemctl is-enabled mentor-pi-agent.service
 systemctl is-active mentor-pi-agent.service
-systemctl show mentor-pi-agent.service -p DevicePolicy -p DeviceAllow
+systemctl show mentor-pi-agent.service \
+  -p DevicePolicy -p DeviceAllow -p Environment
 systemctl status mentor-pi-agent.service --no-pager
 journalctl -u mentor-pi-agent.service -n 100 --no-pager
 ```
 
 The device policy must include `char-ttyACM rw`; this preserves clock
-protection without blocking `/dev/mentor_pi_mcu` inside the service cgroup.
+protection without blocking `/dev/mentor_pi_mcu` inside the service cgroup. The
+environment must include `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`. This prevents the
+dedicated Agent account from selecting owner-restricted Fast DDS shared memory
+for samples consumed by the interactive ROS user.
 
 Unplug/replug USB once while actuators remain disconnected. The service must
 restart and reconnect without starting any ROS application. A device identity

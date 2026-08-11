@@ -27,6 +27,12 @@ for build and test. Service installation is supported only on the native
 Ubuntu 22.04 onboard computer. The service owns only the serial Agent; ROS
 applications are started manually from `ros2_ws/`.
 
+The service constrains its Fast DDS participant to UDPv4. Fast DDS shared
+memory is owner-restricted on Ubuntu 22.04 and cannot safely carry local samples
+between the dedicated `mentor-pi` service account and an interactive ROS user;
+UDP loopback preserves that account boundary while allowing discovery and data
+delivery. ROS applications keep their normal Fast DDS transport defaults.
+
 At every serial open, the installed service enables the reviewed RRCLite
 autoreset patch. The patched Agent performs separate RTS-set, DTR-clear, and
 RTS-clear ioctls with the required settle delays so the MCU starts in normal
