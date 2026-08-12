@@ -105,12 +105,12 @@ The four-element arrays are in
 `[M1, M2, M3, M4]`, where M1 is front-left, M2 rear-left, M3 front-right, and
 M4 rear-right.
 
-| Parameter | Default | Meaning and adjustment |
+| Parameter | Onboard value | Meaning and adjustment |
 |---|---:|---|
 | `input_gain_rps_per_second_per_permille` (`b0`) | `0.03` | Estimated change in RPS per second from one permille of PWM. A value that is too small produces a larger, more aggressive command; a value that is too large usually produces a weaker initial response. |
 | `controller_bandwidth_rad_s` (`wc`) | `4.0` | Desired response speed. Increasing it normally reduces rise time but increases current, overshoot, saturation, and noise sensitivity. A nominal first-order settling estimate is about `4 / wc` seconds before floor or saturation effects. |
 | `observer_bandwidth_rad_s` (`wo`) | `12.0` | Speed of the disturbance estimate. A larger value rejects changes sooner but amplifies encoder noise and timing error. The default is three times `wc`. |
-| `velocity_filter_new_weight` | `0.5` | Weight of the newest encoder-speed sample. A larger value reacts faster and passes more noise; a smaller value is smoother but adds delay. |
+| `velocity_filter_new_weight` | `0.8` | Weight of the newest encoder-speed sample. A larger value reacts faster and passes more noise; a smaller value is smoother but adds delay. The firmware fallback remains `0.5`, but the supervisor applies this tuned onboard value before authorizing motion. |
 
 Selected motor values must have `0 < b0 <= 1000`, `wc > 0`,
 `wc <= wo <= 50 rad/s`, and filter weight in `[0, 1]`. The limit is not a
@@ -118,14 +118,13 @@ recommended tuning range. At 100 Hz, `wo * T` must remain no greater than
 `0.5`; timing variation makes operation near the absolute `50 rad/s` limit a
 poor starting point.
 
-The fixed `250`-permille minimum-drive floor is separate from ADRC. It is not a
-deadband and is not adjustable through these YAML arrays or `set_adrc`. After
-ADRC calculates a nonzero output, any magnitude below 250 is raised to 250.
-With the defaults, the initial command for a `0.10 RPS` step is approximately
-`4 * 0.10 / 0.03 = 13.3` permille, so the floor raises it to 250. That low-speed
-run can verify direction, but it cannot identify the linear controller gains.
-If HIL evidence shows that the floor is wrong, changing it requires a firmware
-change and renewed motor qualification.
+The minimum-drive floor is separate from ADRC. It is currently compiled as
+zero, so it does not raise small nonzero outputs to a fixed duty. With the
+defaults, the initial command for a `0.10 RPS` step is approximately
+`4 * 0.10 / 0.03 = 13.3` permille. The motor may not move at that duty; record
+stall, current, and breakaway behavior rather than treating it as a gain error.
+Changing the floor requires a firmware change and renewed motor qualification;
+it is not adjustable through these YAML arrays or `set_adrc`.
 
 ## Record an unchanged motor baseline
 
@@ -181,8 +180,8 @@ Confirm that every reported target is zero and that motion stops. Repeat with
 single nonzero value to the corresponding array position. Use a new rosbag name
 for every motor, sign, parameter set, and target.
 
-The `0.10 RPS` example is only a floor-dominated direction checkout. Do not
-jump from it to a full-range target. Each higher target and duration must be
+The `0.10 RPS` example is only a low-duty direction checkout and may not break
+static friction. Do not jump from it to a full-range target. Each higher target and duration must be
 bounded in the reviewed HIL plan for the motor model, fixture, supply limit,
 and stop instrumentation.
 
@@ -197,7 +196,7 @@ quantity and retain the previous rosbag and instrument record.
    obvious tracking delay. Do not use the endpoints as casual defaults.
 2. **Estimate `b0`.** Measure actual applied PWM permille with external
    instrumentation; it is not published in `MotorState`. In a segment that is
-   neither at the 250 floor nor the 1000-permille clamp, estimate
+   neither stalled nor at the 1000-permille clamp, estimate
    `b0` as `(change in RPS / change in seconds) / applied permille`. Use short
    early-response segments, repeat both signs, and reject segments disturbed by
    fixture contact or load changes.

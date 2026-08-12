@@ -14,7 +14,7 @@ namespace mentor_pi::mcu {
 constexpr std::uint32_t kMotorLeaseExpiryUs = 198000U;
 constexpr std::uint32_t kMotorControlPeriodUs = 10000U;
 constexpr std::int16_t kMotorOutputLimitPermille = 1000;
-constexpr std::int16_t kMotorMinimumDrivePermille = 250;
+constexpr std::int16_t kMotorMinimumDrivePermille = 0;
 constexpr float kMotorImplementationMaximumRps = 6.0F;
 constexpr float kMotorAdrcUpdateMaximumMeasuredRps = 0.01F;
 constexpr float kMotorDefaultAdrcInputGainRpsPerSecondPerPermille = 0.03F;

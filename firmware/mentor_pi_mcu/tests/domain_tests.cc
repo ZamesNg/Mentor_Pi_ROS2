@@ -751,7 +751,7 @@ void TestMotorController() {
   CHECK(controller.AcceptCommand(drive, 400U).ok());
   const std::array<std::uint32_t, kMotorCount> counters{};
   const auto outputs = controller.ControlStep(counters);
-  CHECK(outputs[0] >= kMotorMinimumDrivePermille);
+  CHECK(outputs[0] == 133);
   CHECK(outputs[0] <= kMotorOutputLimitPermille);
   controller.SetSessionActive(false);
   CHECK(controller.channels()[0].output_permille == 0);
@@ -875,7 +875,7 @@ void TestMotorController() {
   std::array<std::uint32_t, kMotorCount> stationary{};
   const auto overridden_output = adrc_controller.ControlStep(stationary);
   CHECK(overridden_output[0] == 400);
-  CHECK(overridden_output[1] == kMotorMinimumDrivePermille);
+  CHECK(overridden_output[1] == 200);
   CHECK(adrc_controller.SetAdrc(adrc_update).result.code == ResultCode::kBusy);
 
   MotorCommand adrc_stop = adrc_drive;
@@ -892,8 +892,7 @@ void TestMotorController() {
   CHECK(adrc_controller.AcceptCommand(adrc_stop, 3U).ok());
   CHECK(adrc_controller.SetModel(MotorModel::kJgb37).result.ok());
   CHECK(adrc_controller.AcceptCommand(adrc_drive, 4U).ok());
-  CHECK(adrc_controller.ControlStep(stationary)[0] ==
-        kMotorMinimumDrivePermille);
+  CHECK(adrc_controller.ControlStep(stationary)[0] == 67);
 
   // Measured motion alone blocks all-channel updates, even while disarmed.
   MotorController moving_adrc(FullRangeTestMotorConfiguration());

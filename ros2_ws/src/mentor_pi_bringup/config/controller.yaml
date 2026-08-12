@@ -4,6 +4,6 @@
     input_gain_rps_per_second_per_permille: [0.03, 0.03, 0.03, 0.03]
     controller_bandwidth_rad_s: [4.0, 4.0, 4.0, 4.0]
     observer_bandwidth_rad_s: [12.0, 12.0, 12.0, 12.0]
-    velocity_filter_new_weight: [0.5, 0.5, 0.5, 0.5]
+    velocity_filter_new_weight: [0.8, 0.8, 0.8, 0.8]
     pwm_servo_offsets_us: [0, 0, 0, 0]
     battery_low_threshold_mv: 6300

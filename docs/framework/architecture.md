@@ -386,9 +386,9 @@ output = (wc * (target_rps - z1) - z2) / b0
 ```
 
 `b0` is the input gain in RPS/s/permille, `wc` is controller bandwidth, and
-`wo` is observer bandwidth. The output is clamped to +/-1000 permille and any
-nonzero magnitude below 250 permille is raised to that existing minimum-drive
-floor. ADRC state is owned exclusively by `MotorControlTask`; ROS callbacks
+`wo` is observer bandwidth. The output is clamped to +/-1000 permille. The
+minimum-drive floor is zero, so the calculated nonzero magnitude is not raised
+to a fixed duty. ADRC state is owned exclusively by `MotorControlTask`; ROS callbacks
 can only submit validated parameter updates to the motor owner. Non-finite
 state or `wo * dt > 0.5` fails closed.
 

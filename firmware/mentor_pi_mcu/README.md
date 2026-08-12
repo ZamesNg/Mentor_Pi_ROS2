@@ -22,9 +22,9 @@ Closed-loop control uses first-order linear ADRC at 100 Hz. The extended-state
 observer estimates motor speed and the combined disturbance from filtered
 encoder velocity and the previously applied output. The controller then uses
 the speed error and disturbance estimate to produce signed permille output.
-Output is bounded to 1000 permille and retains the documented 250-permille
-minimum-drive floor. The floor is applied after the ADRC calculation and is not
-an ADRC tuning parameter. Every model defaults to input gain `b0=0.03
+Output is bounded to 1000 permille. The minimum-drive floor is currently zero,
+so small nonzero ADRC outputs are no longer raised to a fixed duty. Every model
+defaults to input gain `b0=0.03
 RPS/s/permille`, controller bandwidth `wc=4 rad/s`, observer bandwidth `wo=12
 rad/s`, and velocity-filter new-sample weight `0.5`. These are provisional
 starting values and require guarded physical tuning.

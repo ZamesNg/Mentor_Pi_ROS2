@@ -283,8 +283,8 @@ All four profiles use the same hardcoded, bounded first-order LADRC defaults:
 input gain `b0=0.03 RPS/s/permille`, controller bandwidth `wc=4 rad/s`,
 observer bandwidth `wo=12 rad/s`, and velocity-filter new-sample weight `0.5`.
 They are not release-qualified. D3 HIL shall qualify or replace these values,
-output polarity, encoder polarity, filter, and the 250-permille minimum-drive
-floor for each profile and record the evidence before nonzero production motion
+output polarity, encoder polarity, filter, and the currently disabled
+zero-permille minimum-drive floor for each profile and record the evidence before nonzero production motion
 is released. JGA27's provisional model polarity is `-1` solely because the
 legacy JGA27 PID profile used negative gains while the other retained profiles
 used positive gains. The defective legacy PID expression documented in the
@@ -350,8 +350,8 @@ output = (wc * (target_rps - z1) - z2) / b0
 
 `b0` is in RPS/s/permille and `wc`/`wo` are in rad/s. A non-finite state or
 `wo*T > 0.5` disarms the affected channel and records a watchdog stop. The
-final output is clamped to `[-1000, 1000]` permille; any nonzero magnitude below
-250 permille is raised to that existing minimum-drive floor. Stop, lease expiry,
+final output is clamped to `[-1000, 1000]` permille. The minimum-drive floor is
+zero, so calculated nonzero outputs are not raised to a fixed duty. Stop, lease expiry,
 disarming, session loss, a successful selected ADRC update, and an actual model
 change reset observer and applied-output state.
 
