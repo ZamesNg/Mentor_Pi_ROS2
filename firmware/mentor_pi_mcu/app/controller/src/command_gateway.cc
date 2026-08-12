@@ -270,23 +270,23 @@ bool ControllerRuntime::PollMotorModel(
   return Poll(&motor_model_slot_, token, output);
 }
 
-bool ControllerRuntime::DispatchMotorPid(
-    ServiceToken token, const mentor_pi::mcu::SetMotorPidCommand& command) {
-  return Dispatch(&motor_pid_slot_, token, command);
+bool ControllerRuntime::DispatchMotorAdrc(
+    ServiceToken token, const mentor_pi::mcu::SetMotorAdrcCommand& command) {
+  return Dispatch(&motor_adrc_slot_, token, command);
 }
 
-bool ControllerRuntime::PollMotorPid(
-    ServiceToken token, mentor_pi_mcu::app::microros::MotorPidReply* output) {
-  return Poll(&motor_pid_slot_, token, output);
+bool ControllerRuntime::PollMotorAdrc(
+    ServiceToken token, mentor_pi_mcu::app::microros::MotorAdrcReply* output) {
+  return Poll(&motor_adrc_slot_, token, output);
 }
 
-bool ControllerRuntime::CancelMotorPid(ServiceToken token) {
+bool ControllerRuntime::CancelMotorAdrc(ServiceToken token) {
   CriticalGuard guard(this);
-  if (motor_pid_slot_.token.session_generation != token.session_generation ||
-      motor_pid_slot_.token.request_generation != token.request_generation) {
+  if (motor_adrc_slot_.token.session_generation != token.session_generation ||
+      motor_adrc_slot_.token.request_generation != token.request_generation) {
     return true;
   }
-  SlotState state = motor_pid_slot_.state.load(std::memory_order_acquire);
+  SlotState state = motor_adrc_slot_.state.load(std::memory_order_acquire);
   while (true) {
     switch (state) {
       case SlotState::kIdle:
@@ -301,7 +301,7 @@ bool ControllerRuntime::CancelMotorPid(ServiceToken token) {
         const SlotState replacement = state == SlotState::kReady
                                           ? SlotState::kIdle
                                           : SlotState::kCanceled;
-        if (motor_pid_slot_.state.compare_exchange_weak(
+        if (motor_adrc_slot_.state.compare_exchange_weak(
                 state, replacement, std::memory_order_acq_rel,
                 std::memory_order_acquire)) {
           return true;

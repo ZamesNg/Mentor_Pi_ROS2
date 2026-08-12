@@ -165,7 +165,7 @@ void TestEndpointInventoryAndQos() {
       "leds/command",   "buzzer/command",     "rgb/command",
       "oled/command"};
   constexpr std::array<std::string_view, 7> kServices{
-      "motors/set_model",         "motors/set_pid",
+      "motors/set_model",         "motors/set_adrc",
       "pwm_servos/set_offsets",   "bus_servos/get_state",
       "bus_servos/configure",     "bus_servos/stop",
       "battery/set_low_threshold"};

@@ -4,6 +4,7 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <functional>
 #include <pluginlib/class_list_macros.hpp>
 #include <system_error>
@@ -48,6 +49,17 @@ bool ParsePositiveMilliseconds(const std::string& text,
   return true;
 }
 
+bool ParsePositiveDouble(const std::string& text, double* output) {
+  char* end = nullptr;
+  const double value = std::strtod(text.c_str(), &end);
+  if (end != text.c_str() + text.size() || !std::isfinite(value) ||
+      value <= 0.0) {
+    return false;
+  }
+  *output = value;
+  return true;
+}
+
 bool IsValidRobotName(const std::string& name) {
   return !name.empty() && name.front() != '/' && name.back() != '/' &&
          name.find("//") == std::string::npos;
@@ -65,10 +77,47 @@ hardware_interface::CallbackReturn MecanumHardware::on_init(
   }
 
   robot_name_ = HardwareParameter(info, "robot_name", "mentor_pi");
+  double linear_controller_bandwidth = 0.0;
+  double linear_observer_bandwidth = 0.0;
+  double yaw_controller_bandwidth = 0.0;
+  double yaw_observer_bandwidth = 0.0;
   if (!IsValidRobotName(robot_name_) ||
       !ParsePositiveMilliseconds(
           HardwareParameter(info, "feedback_timeout_ms", "100"),
-          &feedback_timeout_)) {
+          &feedback_timeout_) ||
+      !ParsePositiveMilliseconds(
+          HardwareParameter(info, "imu_timeout_ms", "100"), &imu_timeout_) ||
+      !ParsePositiveDouble(HardwareParameter(info, "wheel_radius_m", "0.0325"),
+                           &wheel_radius_m_) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "wheel_projection_sum_m", "0.14"),
+          &wheel_projection_sum_m_) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "linear_adrc_input_gain_per_second", "5.0"),
+          &linear_adrc_input_gain_per_second_) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "linear_adrc_controller_bandwidth_rad_s",
+                            "1.0"),
+          &linear_controller_bandwidth) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "linear_adrc_observer_bandwidth_rad_s",
+                            "3.0"),
+          &linear_observer_bandwidth) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "yaw_adrc_input_gain_per_second", "5.0"),
+          &yaw_adrc_input_gain_per_second_) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "yaw_adrc_controller_bandwidth_rad_s", "1.0"),
+          &yaw_controller_bandwidth) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "yaw_adrc_observer_bandwidth_rad_s", "3.0"),
+          &yaw_observer_bandwidth) ||
+      !chassis_adrc_[0].Configure(linear_controller_bandwidth,
+                                  linear_observer_bandwidth) ||
+      !chassis_adrc_[1].Configure(linear_controller_bandwidth,
+                                  linear_observer_bandwidth) ||
+      !chassis_adrc_[2].Configure(yaw_controller_bandwidth,
+                                  yaw_observer_bandwidth)) {
     return hardware_interface::CallbackReturn::ERROR;
   }
   node_ = std::make_shared<rclcpp::Node>("mecanum_hardware", "/" + robot_name_);
@@ -130,6 +179,11 @@ hardware_interface::CallbackReturn MecanumHardware::on_configure(
           "/mentor_pi/motors/state", qos,
           std::bind(&MecanumHardware::MotorStateCallback, this,
                     std::placeholders::_1));
+  imu_state_subscription_ =
+      node_->create_subscription<mentor_pi_interfaces::msg::ImuState>(
+          "/mentor_pi/imu", qos,
+          std::bind(&MecanumHardware::ImuStateCallback, this,
+                    std::placeholders::_1));
   heartbeat_subscription_ =
       node_->create_subscription<mentor_pi_interfaces::msg::Heartbeat>(
           "/mentor_pi/heartbeat", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
@@ -149,8 +203,11 @@ hardware_interface::CallbackReturn MecanumHardware::on_configure(
     std::lock_guard<std::mutex> lock(feedback_mutex_);
     velocity_rad_s_.fill(0.0);
     position_rad_.fill(0.0);
+    yaw_rate_rad_s_ = 0.0;
     maximum_rps_ = 0.0;
     has_motor_state_ = false;
+    has_imu_state_ = false;
+    imu_valid_ = false;
   }
   {
     std::lock_guard<std::mutex> lock(authorization_mutex_);
@@ -174,6 +231,7 @@ hardware_interface::CallbackReturn MecanumHardware::on_cleanup(
   StopExecutor();
   motion_authorization_subscription_.reset();
   heartbeat_subscription_.reset();
+  imu_state_subscription_.reset();
   motor_state_subscription_.reset();
   motor_command_publisher_.reset();
   {
@@ -183,6 +241,7 @@ hardware_interface::CallbackReturn MecanumHardware::on_cleanup(
     heartbeat_ready_ = false;
     has_heartbeat_ = false;
   }
+  ResetChassisAdrc();
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -195,7 +254,7 @@ hardware_interface::CallbackReturn MecanumHardware::on_activate(
   for (auto& entry : joints_) {
     entry.second.command.velocity = 0.0;
   }
-  activated_at_ = SteadyClock::now();
+  ResetChassisAdrc();
   active_ = true;
   SendZeroMotorCommand();
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -204,6 +263,7 @@ hardware_interface::CallbackReturn MecanumHardware::on_activate(
 hardware_interface::CallbackReturn MecanumHardware::on_deactivate(
     const rclcpp_lifecycle::State&) {
   active_ = false;
+  ResetChassisAdrc();
   SendZeroMotorCommand();
   for (auto& entry : joints_) {
     entry.second.command.velocity = 0.0;
@@ -260,26 +320,30 @@ hardware_interface::return_type MecanumHardware::read(const rclcpp::Time&,
 }
 
 hardware_interface::return_type MecanumHardware::write(
-    const rclcpp::Time&, const rclcpp::Duration&) {
+    const rclcpp::Time&, const rclcpp::Duration& period) {
   if (!active_) {
     return hardware_interface::return_type::OK;
   }
   if (executor_failed_.load(std::memory_order_acquire)) {
+    ResetChassisAdrc();
     SendZeroMotorCommand();
     return hardware_interface::return_type::ERROR;
   }
   if (!MotionIsAuthorized()) {
+    ResetChassisAdrc();
     SendZeroMotorCommand();
     return hardware_interface::return_type::OK;
   }
   {
     std::lock_guard<std::mutex> lock(feedback_mutex_);
     if (!FeedbackIsFresh(SteadyClock::now())) {
+      ResetChassisAdrc();
       SendZeroMotorCommand();
       return hardware_interface::return_type::ERROR;
     }
   }
-  if (!SendMotorCommand()) {
+  if (!SendMotorCommand(period.seconds())) {
+    ResetChassisAdrc();
     SendZeroMotorCommand();
     return hardware_interface::return_type::ERROR;
   }
@@ -314,6 +378,17 @@ void MecanumHardware::MotorStateCallback(
   maximum_rps_ = *maximum_rps;
   last_motor_state_ = SteadyClock::now();
   has_motor_state_ = true;
+}
+
+void MecanumHardware::ImuStateCallback(
+    const mentor_pi_interfaces::msg::ImuState::SharedPtr message) {
+  const double yaw_rate =
+      static_cast<double>(message->angular_velocity_rad_s[2]);
+  std::lock_guard<std::mutex> lock(feedback_mutex_);
+  last_imu_state_ = SteadyClock::now();
+  has_imu_state_ = true;
+  imu_valid_ = message->valid && std::isfinite(yaw_rate);
+  yaw_rate_rad_s_ = imu_valid_ ? yaw_rate : 0.0;
 }
 
 void MecanumHardware::HeartbeatCallback(
@@ -374,9 +449,9 @@ void MecanumHardware::StopExecutor() {
 }
 
 bool MecanumHardware::FeedbackIsFresh(SteadyClock::time_point now) const {
-  const SteadyClock::time_point reference =
-      has_motor_state_ ? last_motor_state_ : activated_at_;
-  return now - reference <= feedback_timeout_;
+  return has_motor_state_ && has_imu_state_ && imu_valid_ &&
+         now - last_motor_state_ <= feedback_timeout_ &&
+         now - last_imu_state_ <= imu_timeout_;
 }
 
 bool MecanumHardware::MotionIsAuthorized() const {
@@ -413,15 +488,98 @@ void MecanumHardware::SendZeroMotorCommand() {
   motor_command_publisher_->publish(command);
 }
 
-bool MecanumHardware::SendMotorCommand() {
+void MecanumHardware::ResetChassisAdrc() {
+  for (auto& controller : chassis_adrc_) {
+    controller.Reset();
+  }
+  applied_correction_.fill(0.0);
+}
+
+bool MecanumHardware::SendMotorCommand(double period_seconds) {
   if (!motor_command_publisher_) {
     return false;
   }
   double maximum_rps = 0.0;
+  std::array<double, hardware::kWheelCount> measured_wheel_velocity{};
+  double measured_yaw_rate = 0.0;
   {
     std::lock_guard<std::mutex> lock(feedback_mutex_);
     maximum_rps = maximum_rps_;
+    measured_wheel_velocity = velocity_rad_s_;
+    measured_yaw_rate = yaw_rate_rad_s_;
   }
+  std::array<double, hardware::kWheelCount> reference_wheel_velocity{};
+  bool all_zero = true;
+  for (std::size_t wheel = 0U; wheel < hardware::kWheelCount; ++wheel) {
+    reference_wheel_velocity[wheel] =
+        joints_.at(joint_names_[wheel]).command.velocity;
+    if (!std::isfinite(reference_wheel_velocity[wheel])) {
+      return false;
+    }
+    all_zero = all_zero && reference_wheel_velocity[wheel] == 0.0;
+  }
+  if (all_zero) {
+    ResetChassisAdrc();
+    SendZeroMotorCommand();
+    return true;
+  }
+
+  const auto inverse_kinematics = [this](const std::array<double, 4U>& wheel) {
+    const double scale = wheel_radius_m_ * 0.25;
+    return std::array<double, 3U>{
+        scale * (wheel[0] + wheel[1] + wheel[2] + wheel[3]),
+        scale * (-wheel[0] + wheel[1] + wheel[2] - wheel[3]),
+        scale * (-wheel[0] + wheel[1] - wheel[2] + wheel[3]) /
+            wheel_projection_sum_m_};
+  };
+  const auto reference = inverse_kinematics(reference_wheel_velocity);
+  auto measured = inverse_kinematics(measured_wheel_velocity);
+  measured[2] = measured_yaw_rate;
+
+  std::array<double, 3U> correction{};
+  for (std::size_t axis = 0U; axis < correction.size(); ++axis) {
+    const double input_gain = axis < 2U ? linear_adrc_input_gain_per_second_
+                                        : yaw_adrc_input_gain_per_second_;
+    const auto update = chassis_adrc_[axis].Update(
+        reference[axis], measured[axis], applied_correction_[axis], input_gain,
+        period_seconds);
+    if (!update) {
+      return false;
+    }
+    correction[axis] = *update;
+  }
+  const std::array<double, 3U> corrected{reference[0] + correction[0],
+                                         reference[1] + correction[1],
+                                         reference[2] + correction[2]};
+  std::array<double, hardware::kWheelCount> target_wheel_velocity{
+      (corrected[0] - corrected[1] - wheel_projection_sum_m_ * corrected[2]) /
+          wheel_radius_m_,
+      (corrected[0] + corrected[1] + wheel_projection_sum_m_ * corrected[2]) /
+          wheel_radius_m_,
+      (corrected[0] + corrected[1] - wheel_projection_sum_m_ * corrected[2]) /
+          wheel_radius_m_,
+      (corrected[0] - corrected[1] + wheel_projection_sum_m_ * corrected[2]) /
+          wheel_radius_m_};
+  const double maximum_wheel_velocity = maximum_rps * hardware::kTwoPi;
+  double largest_wheel_velocity = 0.0;
+  for (const double value : target_wheel_velocity) {
+    largest_wheel_velocity = std::max(largest_wheel_velocity, std::fabs(value));
+  }
+  if (!std::isfinite(maximum_wheel_velocity) || maximum_wheel_velocity <= 0.0 ||
+      !std::isfinite(largest_wheel_velocity)) {
+    return false;
+  }
+  if (largest_wheel_velocity > maximum_wheel_velocity) {
+    const double scale = maximum_wheel_velocity / largest_wheel_velocity;
+    for (double& value : target_wheel_velocity) {
+      value *= scale;
+    }
+  }
+  const auto applied = inverse_kinematics(target_wheel_velocity);
+  for (std::size_t axis = 0U; axis < applied_correction_.size(); ++axis) {
+    applied_correction_[axis] = applied[axis] - reference[axis];
+  }
+
   mentor_pi_interfaces::msg::MotorCommand command;
   command.update_mask = mentor_pi_interfaces::msg::MotorCommand::ALL_MOTORS;
   command.target_rps.fill(0.0F);
@@ -430,8 +588,7 @@ bool MecanumHardware::SendMotorCommand() {
     const double direction =
         static_cast<double>(hardware::ChassisDirectionSign(logical));
     const auto rps = hardware::RadiansPerSecondToRps(
-        direction * joints_.at(joint_names_[wheel]).command.velocity,
-        maximum_rps);
+        direction * target_wheel_velocity[wheel], maximum_rps);
     if (!rps) {
       return false;
     }

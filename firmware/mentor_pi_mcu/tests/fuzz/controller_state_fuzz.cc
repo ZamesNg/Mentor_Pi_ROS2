@@ -62,7 +62,7 @@ void CheckMotorState(const std::uint8_t* data, std::size_t size) {
   const MotorCommand command = ReadMotor(&input);
   const std::uint32_t now_us = input.ReadU32();
   const MotorControlConfiguration configuration =
-      DefaultPidMotorControlConfiguration();
+      DefaultAdrcMotorControlConfiguration();
   MotorController controller(configuration);
   controller.SetSessionActive(true);
   const auto before = controller.channels();
@@ -116,7 +116,7 @@ void CheckMotorModelService(const std::uint8_t* data, std::size_t size) {
   }
 
   const MotorControlConfiguration configuration =
-      DefaultPidMotorControlConfiguration();
+      DefaultAdrcMotorControlConfiguration();
   MotorController moving(configuration);
   moving.SetSessionActive(true);
   MotorCommand start{};

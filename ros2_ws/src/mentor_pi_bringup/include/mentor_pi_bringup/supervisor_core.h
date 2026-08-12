@@ -29,8 +29,9 @@ struct HeartbeatSample {
 
 enum class ApplyOperation : std::uint8_t {
   kMotorModel = 0,
-  kPwmServoOffsets = 1,
-  kBatteryThreshold = 2,
+  kMotorAdrc = 1,
+  kPwmServoOffsets = 2,
+  kBatteryThreshold = 3,
 };
 
 enum class ResultCode : std::uint8_t {
@@ -49,6 +50,7 @@ enum class SupervisorPhase : std::uint8_t {
   kWaitingForHeartbeat,
   kWaitingForReady,
   kApplyingMotorModel,
+  kApplyingMotorAdrc,
   kApplyingPwmServoOffsets,
   kApplyingBatteryThreshold,
   kReady,

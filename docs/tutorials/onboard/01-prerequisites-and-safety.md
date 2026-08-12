@@ -16,6 +16,6 @@ wheel clear or equivalently guarded, configure a current-limited supply, and
 make an emergency stop reachable. Inspect wiring and polarity. Stop on any
 unexpected heat, sound, motion, reset, or telemetry.
 
-The firmware has one normal closed-loop PID classification. Software gates do
+The firmware has one normal closed-loop ADRC classification. Software gates do
 not replace the physical precautions. Tutorials 01–05 remain passive; powered
 motion requires their recorded completion and the guarded HIL procedure.

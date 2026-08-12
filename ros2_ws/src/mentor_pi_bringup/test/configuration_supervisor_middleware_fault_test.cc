@@ -23,6 +23,7 @@
 #include "mentor_pi_interfaces/msg/heartbeat.hpp"
 #include "mentor_pi_interfaces/msg/result.hpp"
 #include "mentor_pi_interfaces/srv/set_battery_threshold.hpp"
+#include "mentor_pi_interfaces/srv/set_motor_adrc.hpp"
 #include "mentor_pi_interfaces/srv/set_motor_model.hpp"
 #include "mentor_pi_interfaces/srv/set_pwm_servo_offsets.hpp"
 #include "rclcpp/executors/multi_threaded_executor.hpp"
@@ -37,6 +38,7 @@ using Heartbeat = mentor_pi_interfaces::msg::Heartbeat;
 using Result = mentor_pi_interfaces::msg::Result;
 using SetBatteryThreshold = mentor_pi_interfaces::srv::SetBatteryThreshold;
 using SetMotorModel = mentor_pi_interfaces::srv::SetMotorModel;
+using SetMotorAdrc = mentor_pi_interfaces::srv::SetMotorAdrc;
 using SetPwmServoOffsets = mentor_pi_interfaces::srv::SetPwmServoOffsets;
 
 constexpr std::size_t kFirstWithheldMotorRequest = 1U;
@@ -57,6 +59,7 @@ void Expect(bool condition, const std::string& message) {
 
 struct ControllerObservation {
   std::size_t motor_requests = 0;
+  std::size_t motor_adrc_requests = 0;
   std::size_t pwm_requests = 0;
   std::size_t battery_requests = 0;
   std::size_t gate_events = 0;
@@ -103,6 +106,18 @@ class WithholdingControllerPeer {
         [this](const std::shared_ptr<SetMotorModel::Request> request,
                std::shared_ptr<SetMotorModel::Response> response) {
           HandleMotorRequest(*request, response.get());
+        },
+        rmw_qos_profile_services_default, service_callback_group_);
+    motor_adrc_service_ = node_->create_service<SetMotorAdrc>(
+        "motors/set_adrc",
+        [this](const std::shared_ptr<SetMotorAdrc::Request>,
+               std::shared_ptr<SetMotorAdrc::Response> response) {
+          {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ++motor_adrc_requests_;
+          }
+          response->result.code = Result::OK;
+          response->applied_mask = SetMotorAdrc::Request::ALL_MOTORS;
         },
         rmw_qos_profile_services_default, service_callback_group_);
     pwm_service_ = node_->create_service<SetPwmServoOffsets>(
@@ -176,6 +191,7 @@ class WithholdingControllerPeer {
     std::lock_guard<std::mutex> lock(mutex_);
     ControllerObservation observation;
     observation.motor_requests = motor_requests_;
+    observation.motor_adrc_requests = motor_adrc_requests_;
     observation.pwm_requests = pwm_requests_;
     observation.battery_requests = battery_requests_;
     observation.gate_events = gate_events_.size();
@@ -244,6 +260,7 @@ class WithholdingControllerPeer {
   rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr
       authorization_subscription_;
   rclcpp::Service<SetMotorModel>::SharedPtr motor_service_;
+  rclcpp::Service<SetMotorAdrc>::SharedPtr motor_adrc_service_;
   rclcpp::Service<SetPwmServoOffsets>::SharedPtr pwm_service_;
   rclcpp::Service<SetBatteryThreshold>::SharedPtr battery_service_;
 
@@ -252,6 +269,7 @@ class WithholdingControllerPeer {
   std::vector<bool> gate_events_;
   std::vector<std::uint64_t> authorization_events_;
   std::size_t motor_requests_ = 0;
+  std::size_t motor_adrc_requests_ = 0;
   std::size_t pwm_requests_ = 0;
   std::size_t battery_requests_ = 0;
   std::size_t completed_motor_responses_ = 0;
@@ -303,7 +321,8 @@ bool PublishUntil(WithholdingControllerPeer* controller, Predicate predicate,
 
 void PublishFor(WithholdingControllerPeer* controller,
                 std::chrono::milliseconds duration) {
-  static_cast<void>(PublishUntil(controller, []() { return false; }, duration));
+  static_cast<void>(PublishUntil(
+      controller, []() { return false; }, duration));
 }
 
 bool IsAuthorized(const WithholdingControllerPeer& controller,
@@ -318,6 +337,8 @@ void ExpectStableAfterLateResponse(const ControllerObservation& before,
                                    const std::string& description) {
   Expect(after.motor_requests == before.motor_requests,
          description + ": no additional motor request");
+  Expect(after.motor_adrc_requests == before.motor_adrc_requests,
+         description + ": no additional LADRC request");
   Expect(after.pwm_requests == before.pwm_requests,
          description + ": no additional PWM request");
   Expect(after.battery_requests == before.battery_requests,
@@ -336,6 +357,14 @@ void RunMiddlewareFaultTest() {
   rclcpp::NodeOptions options;
   options.parameter_overrides({
       rclcpp::Parameter("motor_model", "JGA27"),
+      rclcpp::Parameter("input_gain_rps_per_second_per_permille",
+                        std::vector<double>{0.03, 0.03, 0.03, 0.03}),
+      rclcpp::Parameter("controller_bandwidth_rad_s",
+                        std::vector<double>{4.0, 4.0, 4.0, 4.0}),
+      rclcpp::Parameter("observer_bandwidth_rad_s",
+                        std::vector<double>{12.0, 12.0, 12.0, 12.0}),
+      rclcpp::Parameter("velocity_filter_new_weight",
+                        std::vector<double>{0.5, 0.5, 0.5, 0.5}),
       rclcpp::Parameter("pwm_servo_offsets_us",
                         std::vector<std::int64_t>{0, 0, 0, 0}),
       rclcpp::Parameter("battery_low_threshold_mv", std::int64_t{6300}),
@@ -376,6 +405,7 @@ void RunMiddlewareFaultTest() {
            "RMW retry completes configuration");
     const ControllerObservation before_first_late_reply = controller.Observe();
     Expect(before_first_late_reply.motor_requests == 2U &&
+               before_first_late_reply.motor_adrc_requests == 1U &&
                before_first_late_reply.pwm_requests == 1U &&
                before_first_late_reply.battery_requests == 1U,
            "timeout recovery performs one motor retry and one ordered call for "
@@ -428,6 +458,7 @@ void RunMiddlewareFaultTest() {
     const ControllerObservation before_session_late_reply =
         controller.Observe();
     Expect(before_session_late_reply.motor_requests == 4U &&
+               before_session_late_reply.motor_adrc_requests == 2U &&
                before_session_late_reply.pwm_requests == 2U &&
                before_session_late_reply.battery_requests == 2U,
            "abandoned session does not advance beyond its withheld motor call");

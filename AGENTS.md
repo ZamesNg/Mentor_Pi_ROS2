@@ -25,7 +25,7 @@ hardware, safety, and qualification.
 ## Component boundaries
 
 - CMake/Ninja is authoritative for firmware. Build, verify, package, and flash
-  only the `NORMAL_CLOSED_LOOP_DEFAULT` PID artifact. Do not restore removed
+  only the `NORMAL_CLOSED_LOOP_DEFAULT` ADRC artifact. Do not restore removed
   commissioning modes, direction-check branches, PlatformIO, or another build
   graph.
 - Firmware consumes the checked Humble SDK under
@@ -55,7 +55,7 @@ hardware, safety, and qualification.
 - Powered motor work requires passive encoder-direction checks, raised or
   equivalently guarded wheels, a current-limited supply, and the documented
   acknowledgements. Complete Tutorials 01–05 passively before guarded work.
-- Never claim PID performance, powered motion, endurance, or release
+- Never claim ADRC performance, powered motion, endurance, or release
   qualification without recorded and reviewed HIL/instrument evidence.
 
 ## Manifest and repository hygiene

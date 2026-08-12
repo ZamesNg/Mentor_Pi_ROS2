@@ -57,6 +57,62 @@ std::optional<std::uint32_t> MotorTicksPerRevolution(std::uint8_t model) {
   return contract->ticks_per_revolution;
 }
 
+bool FirstOrderLadrc::Configure(double controller_bandwidth_rad_s,
+                                double observer_bandwidth_rad_s) {
+  if (!std::isfinite(controller_bandwidth_rad_s) ||
+      !std::isfinite(observer_bandwidth_rad_s) ||
+      controller_bandwidth_rad_s <= 0.0 ||
+      observer_bandwidth_rad_s < controller_bandwidth_rad_s) {
+    return false;
+  }
+  controller_bandwidth_rad_s_ = controller_bandwidth_rad_s;
+  observer_bandwidth_rad_s_ = observer_bandwidth_rad_s;
+  Reset();
+  return true;
+}
+
+void FirstOrderLadrc::Reset() {
+  observed_output_ = 0.0;
+  observed_disturbance_ = 0.0;
+  initialized_ = false;
+}
+
+std::optional<double> FirstOrderLadrc::Update(double reference,
+                                              double measurement,
+                                              double applied_control,
+                                              double input_gain,
+                                              double period_seconds) {
+  if (!std::isfinite(reference) || !std::isfinite(measurement) ||
+      !std::isfinite(applied_control) || !std::isfinite(input_gain) ||
+      !std::isfinite(period_seconds) || input_gain == 0.0 ||
+      period_seconds <= 0.0 ||
+      observer_bandwidth_rad_s_ * period_seconds > 0.5) {
+    return std::nullopt;
+  }
+  if (!initialized_) {
+    observed_output_ = measurement;
+    observed_disturbance_ = 0.0;
+    initialized_ = true;
+  }
+  const double observer_error = observed_output_ - measurement;
+  observed_output_ +=
+      period_seconds * (observed_disturbance_ + input_gain * applied_control -
+                        2.0 * observer_bandwidth_rad_s_ * observer_error);
+  observed_disturbance_ +=
+      period_seconds *
+      (-observer_bandwidth_rad_s_ * observer_bandwidth_rad_s_ * observer_error);
+  const double control =
+      (controller_bandwidth_rad_s_ * (reference - observed_output_) -
+       observed_disturbance_) /
+      input_gain;
+  if (!std::isfinite(observed_output_) ||
+      !std::isfinite(observed_disturbance_) || !std::isfinite(control)) {
+    Reset();
+    return std::nullopt;
+  }
+  return control;
+}
+
 bool IsValidSteeringCalibration(const SteeringCalibration& calibration) {
   return calibration.servo_index < 4U && calibration.minimum_pulse_us >= 500U &&
          calibration.maximum_pulse_us <= 2500U &&

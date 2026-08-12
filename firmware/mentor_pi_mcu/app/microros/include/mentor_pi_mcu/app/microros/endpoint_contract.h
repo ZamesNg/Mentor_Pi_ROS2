@@ -49,7 +49,7 @@ inline constexpr std::array<TopicEndpoint, 7> kSubscriptionEndpoints{{
 
 inline constexpr std::array<ServiceEndpoint, 7> kServiceEndpoints{{
     {"motors/set_model"},
-    {"motors/set_pid"},
+    {"motors/set_adrc"},
     {"pwm_servos/set_offsets"},
     {"bus_servos/get_state"},
     {"bus_servos/configure"},

@@ -2,12 +2,13 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:macro name="ackermann_control"
-               params="robot_name:=mentor_pi feedback_timeout_ms:=100 steering_pwm_channel:=3 steering_pwm_min_us:=500 steering_pwm_center_us:=1500 steering_pwm_max_us:=2500 steering_angle_min_rad:=-1.5 steering_angle_max_rad:=1.5 steering_inverted:=true steering_duration_ms:=20">
+               params="robot_name:=mentor_pi feedback_timeout_ms:=100 imu_timeout_ms:=100 steering_pwm_channel:=3 steering_pwm_min_us:=500 steering_pwm_center_us:=1500 steering_pwm_max_us:=2500 steering_angle_min_rad:=-1.5 steering_angle_max_rad:=1.5 steering_inverted:=true steering_duration_ms:=20 rear_wheel_radius_m:=0.0333 wheelbase_m:=0.145 linear_adrc_input_gain_per_second:=5.0 linear_adrc_controller_bandwidth_rad_s:=1.0 linear_adrc_observer_bandwidth_rad_s:=3.0 yaw_adrc_input_gain_per_mps:=30.0 yaw_adrc_controller_bandwidth_rad_s:=1.0 yaw_adrc_observer_bandwidth_rad_s:=3.0 yaw_adrc_minimum_speed_mps:=0.1">
     <ros2_control name="mentor_pi_hardware" type="system">
       <hardware>
         <plugin>mentor_pi/AckermannHardware</plugin>
         <param name="robot_name">${robot_name}</param>
         <param name="feedback_timeout_ms">${feedback_timeout_ms}</param>
+        <param name="imu_timeout_ms">${imu_timeout_ms}</param>
         <param name="steering_pwm_channel">${steering_pwm_channel}</param>
         <param name="steering_pwm_min_us">${steering_pwm_min_us}</param>
         <param name="steering_pwm_center_us">${steering_pwm_center_us}</param>
@@ -16,6 +17,15 @@
         <param name="steering_angle_max_rad">${steering_angle_max_rad}</param>
         <param name="steering_inverted">${steering_inverted}</param>
         <param name="steering_duration_ms">${steering_duration_ms}</param>
+        <param name="rear_wheel_radius_m">${rear_wheel_radius_m}</param>
+        <param name="wheelbase_m">${wheelbase_m}</param>
+        <param name="linear_adrc_input_gain_per_second">${linear_adrc_input_gain_per_second}</param>
+        <param name="linear_adrc_controller_bandwidth_rad_s">${linear_adrc_controller_bandwidth_rad_s}</param>
+        <param name="linear_adrc_observer_bandwidth_rad_s">${linear_adrc_observer_bandwidth_rad_s}</param>
+        <param name="yaw_adrc_input_gain_per_mps">${yaw_adrc_input_gain_per_mps}</param>
+        <param name="yaw_adrc_controller_bandwidth_rad_s">${yaw_adrc_controller_bandwidth_rad_s}</param>
+        <param name="yaw_adrc_observer_bandwidth_rad_s">${yaw_adrc_observer_bandwidth_rad_s}</param>
+        <param name="yaw_adrc_minimum_speed_mps">${yaw_adrc_minimum_speed_mps}</param>
       </hardware>
 
       <joint name="wheel_left_front_joint">

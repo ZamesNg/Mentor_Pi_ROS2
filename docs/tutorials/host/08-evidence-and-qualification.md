@@ -25,6 +25,6 @@ archive is never production evidence.
 
 Record the exact firmware hash, source revision, host architecture, ROS domain,
 board identity, fixture revision, supply limit, and test result. Do not state
-that PID tuning, wheel direction under power, endurance, or release
+that ADRC tuning, wheel direction under power, endurance, or release
 qualification passed unless the corresponding HIL files were actually
 recorded and reviewed.

@@ -26,6 +26,7 @@
 #include "mentor_pi_interfaces/msg/heartbeat.hpp"
 #include "mentor_pi_interfaces/msg/result.hpp"
 #include "mentor_pi_interfaces/srv/set_battery_threshold.hpp"
+#include "mentor_pi_interfaces/srv/set_motor_adrc.hpp"
 #include "mentor_pi_interfaces/srv/set_motor_model.hpp"
 #include "mentor_pi_interfaces/srv/set_pwm_servo_offsets.hpp"
 #include "rclcpp/executors/single_threaded_executor.hpp"
@@ -41,15 +42,24 @@ using Heartbeat = mentor_pi_interfaces::msg::Heartbeat;
 using Result = mentor_pi_interfaces::msg::Result;
 using SetBatteryThreshold = mentor_pi_interfaces::srv::SetBatteryThreshold;
 using SetMotorModel = mentor_pi_interfaces::srv::SetMotorModel;
+using SetMotorAdrc = mentor_pi_interfaces::srv::SetMotorAdrc;
 using SetPwmServoOffsets = mentor_pi_interfaces::srv::SetPwmServoOffsets;
 
 enum class Operation {
   kMotorModel,
+  kMotorAdrc,
   kPwmOffsets,
   kBatteryThreshold,
 };
 
 constexpr std::array<std::int16_t, 4> kExpectedOffsets{-100, -50, 50, 100};
+constexpr std::array<float, 4> kExpectedInputGain{0.03F, 0.031F, 0.032F,
+                                                  0.033F};
+constexpr std::array<float, 4> kExpectedControllerBandwidth{4.0F, 4.1F, 4.2F,
+                                                            4.3F};
+constexpr std::array<float, 4> kExpectedObserverBandwidth{12.0F, 12.1F, 12.2F,
+                                                          12.3F};
+constexpr std::array<float, 4> kExpectedFilterWeight{0.5F, 0.6F, 0.7F, 0.8F};
 constexpr std::uint16_t kExpectedBatteryThresholdMv = 9000;
 constexpr auto kNativeLaunchDeadline = 10s;
 
@@ -199,6 +209,24 @@ class ControllerPeer {
           response->ticks_per_revolution = profile->ticks_per_revolution;
           response->max_rps = profile->max_rps;
         });
+    motor_adrc_service_ = node_->create_service<SetMotorAdrc>(
+        "motors/set_adrc",
+        [this](const std::shared_ptr<SetMotorAdrc::Request> request,
+               std::shared_ptr<SetMotorAdrc::Response> response) {
+          operations_.push_back(Operation::kMotorAdrc);
+          Expect(
+              request->update_mask == SetMotorAdrc::Request::ALL_MOTORS &&
+                  request->input_gain_rps_per_second_per_permille ==
+                      kExpectedInputGain &&
+                  request->controller_bandwidth_rad_s ==
+                      kExpectedControllerBandwidth &&
+                  request->observer_bandwidth_rad_s ==
+                      kExpectedObserverBandwidth &&
+                  request->velocity_filter_new_weight == kExpectedFilterWeight,
+              "launched supervisor loads all YAML LADRC arrays");
+          response->result.code = Result::OK;
+          response->applied_mask = SetMotorAdrc::Request::ALL_MOTORS;
+        });
     pwm_service_ = node_->create_service<SetPwmServoOffsets>(
         "pwm_servos/set_offsets",
         [this](const std::shared_ptr<SetPwmServoOffsets::Request> request,
@@ -234,7 +262,7 @@ class ControllerPeer {
   }
 
   bool ready() const {
-    return operations_.size() >= 3U && !gate_events_.empty() &&
+    return operations_.size() >= 4U && !gate_events_.empty() &&
            gate_events_.back();
   }
 
@@ -246,6 +274,7 @@ class ControllerPeer {
   rclcpp::Publisher<Heartbeat>::SharedPtr heartbeat_publisher_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr gate_subscription_;
   rclcpp::Service<SetMotorModel>::SharedPtr motor_service_;
+  rclcpp::Service<SetMotorAdrc>::SharedPtr motor_adrc_service_;
   rclcpp::Service<SetPwmServoOffsets>::SharedPtr pwm_service_;
   rclcpp::Service<SetBatteryThreshold>::SharedPtr battery_service_;
   std::vector<Operation> operations_;
@@ -275,9 +304,7 @@ void RunLaunchTest(const std::string& configuration_path) {
   const std::string domain_id =
       std::to_string(100 + static_cast<int>(getpid() % 100));
 
-  if (!SetEnvironment("ROS_DOMAIN_ID", domain_id) ||
-      !SetEnvironment("RRCLITE_RUNTIME_ACK",
-                      "PID_FIRMWARE_ACTUATORS_PREPARED")) {
+  if (!SetEnvironment("ROS_DOMAIN_ID", domain_id)) {
     ++g_failures;
     return;
   }
@@ -311,13 +338,15 @@ void RunLaunchTest(const std::string& configuration_path) {
 
   Expect(configured,
          "external supervisor configures through the C++ controller peer");
-  Expect(controller.operations().size() == 3U,
-         "launch applies exactly three configuration services");
+  Expect(controller.operations().size() == 4U,
+         "launch applies exactly four configuration services");
   ExpectOperation(controller.operations(), 0, Operation::kMotorModel,
                   "launch motor model");
-  ExpectOperation(controller.operations(), 1, Operation::kPwmOffsets,
+  ExpectOperation(controller.operations(), 1, Operation::kMotorAdrc,
+                  "launch motor LADRC");
+  ExpectOperation(controller.operations(), 2, Operation::kPwmOffsets,
                   "launch PWM offsets");
-  ExpectOperation(controller.operations(), 2, Operation::kBatteryThreshold,
+  ExpectOperation(controller.operations(), 3, Operation::kBatteryThreshold,
                   "launch battery threshold");
 
   launch.Stop();

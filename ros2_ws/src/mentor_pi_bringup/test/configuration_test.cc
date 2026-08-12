@@ -39,9 +39,15 @@ void Expect(bool condition, const std::string& message) {
 }
 
 ConfigurationMap ValidParameters() {
-  return {{"battery_low_threshold_mv", std::int64_t{6300}},
-          {"motor_model", std::string{"JGA27"}},
-          {"pwm_servo_offsets_us", std::vector<std::int64_t>{0, 0, 0, 0}}};
+  return {
+      {"battery_low_threshold_mv", std::int64_t{6300}},
+      {"observer_bandwidth_rad_s", std::vector<double>{12.0, 12.0, 12.0, 12.0}},
+      {"controller_bandwidth_rad_s", std::vector<double>{4.0, 4.0, 4.0, 4.0}},
+      {"motor_model", std::string{"JGA27"}},
+      {"input_gain_rps_per_second_per_permille",
+       std::vector<double>{0.03, 0.03, 0.03, 0.03}},
+      {"pwm_servo_offsets_us", std::vector<std::int64_t>{0, 0, 0, 0}},
+      {"velocity_filter_new_weight", std::vector<double>{0.5, 0.5, 0.5, 0.5}}};
 }
 
 void TestValidConfiguration() {
@@ -51,6 +57,12 @@ void TestValidConfiguration() {
          "JGA27 model mapping");
   Expect(validation.configuration.battery_low_threshold_mv == 6300,
          "battery threshold mapping");
+  Expect(validation.configuration.input_gain_rps_per_second_per_permille[0] ==
+                 0.03F &&
+             validation.configuration.controller_bandwidth_rad_s[1] == 4.0F &&
+             validation.configuration.observer_bandwidth_rad_s[2] == 12.0F &&
+             validation.configuration.velocity_filter_new_weight[3] == 0.5F,
+         "LADRC arrays map safely to floats");
 
   const std::vector<std::pair<std::string, MotorModel>> models{
       {"JGB520", MotorModel::kJgb520},
@@ -84,7 +96,13 @@ void TestExactKeys() {
          "unknown key must be rejected precisely");
 
   const std::vector<std::string> required_keys{
-      "motor_model", "pwm_servo_offsets_us", "battery_low_threshold_mv"};
+      "motor_model",
+      "input_gain_rps_per_second_per_permille",
+      "controller_bandwidth_rad_s",
+      "observer_bandwidth_rad_s",
+      "velocity_filter_new_weight",
+      "pwm_servo_offsets_us",
+      "battery_low_threshold_mv"};
   for (const auto& key : required_keys) {
     parameters = ValidParameters();
     parameters.erase(key);
@@ -143,6 +161,61 @@ void TestTypesAndRanges() {
   parameters["battery_low_threshold_mv"] = ConfigurationValue{};
   Expect(!ValidateConfiguration(parameters).ok,
          "unsupported parameter type must be rejected");
+
+  parameters = ValidParameters();
+  parameters["input_gain_rps_per_second_per_permille"] =
+      std::vector<double>{0.03, 0.03, 1000.0, 0.03};
+  Expect(ValidateConfiguration(parameters).ok,
+         "inclusive ADRC input-gain maximum must be accepted");
+  parameters["input_gain_rps_per_second_per_permille"] =
+      std::vector<double>{0.03, 0.03, 1000.1, 0.03};
+  Expect(!ValidateConfiguration(parameters).ok,
+         "ADRC input gain above its maximum must be rejected");
+
+  parameters = ValidParameters();
+  parameters["observer_bandwidth_rad_s"] =
+      std::vector<double>{12.0, 12.0, 50.0, 12.0};
+  Expect(ValidateConfiguration(parameters).ok,
+         "inclusive ADRC observer-bandwidth maximum must be accepted");
+  parameters["observer_bandwidth_rad_s"] =
+      std::vector<double>{12.0, 12.0, 50.1, 12.0};
+  Expect(!ValidateConfiguration(parameters).ok,
+         "ADRC observer bandwidth above its maximum must be rejected");
+
+  for (const std::string key :
+       {"input_gain_rps_per_second_per_permille", "controller_bandwidth_rad_s",
+        "observer_bandwidth_rad_s"}) {
+    parameters = ValidParameters();
+    parameters[key] = std::vector<double>{1.0, 0.0, 1.0, 1.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           "zero ADRC dynamics value must be rejected");
+    parameters[key] = std::vector<double>{1.0, -0.1, 1.0, 1.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           "negative ADRC dynamics value must be rejected");
+    parameters[key] = std::vector<double>{
+        1.0, std::numeric_limits<double>::quiet_NaN(), 1.0, 1.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           "non-finite ADRC dynamics value must be rejected");
+    parameters[key] = std::vector<double>{1.0, 1.0, 1.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           "ADRC array must contain exactly four values");
+  }
+
+  parameters = ValidParameters();
+  parameters["controller_bandwidth_rad_s"] =
+      std::vector<double>{13.0, 4.0, 4.0, 4.0};
+  Expect(!ValidateConfiguration(parameters).ok,
+         "controller bandwidth above observer bandwidth must be rejected");
+
+  parameters = ValidParameters();
+  parameters["velocity_filter_new_weight"] =
+      std::vector<double>{0.0, 1.0, 0.5, 0.5};
+  Expect(ValidateConfiguration(parameters).ok,
+         "inclusive velocity-filter boundaries must be accepted");
+  parameters["velocity_filter_new_weight"] =
+      std::vector<double>{0.0, 1.1, 0.5, 0.5};
+  Expect(!ValidateConfiguration(parameters).ok,
+         "velocity-filter weight above one must be rejected");
 }
 
 void TestConfigurationValueSemanticsAndWireMappings() {
@@ -155,6 +228,10 @@ void TestConfigurationValueSemanticsAndWireMappings() {
   changed.battery_low_threshold_mv = 6301;
   Expect(!(valid.configuration == changed),
          "battery threshold participates in configuration equality");
+  changed = valid.configuration;
+  changed.input_gain_rps_per_second_per_permille[0] = 0.031F;
+  Expect(!(valid.configuration == changed),
+         "LADRC gains participate in configuration equality");
   changed = valid.configuration;
   changed.pwm_servo_offsets_us[3] = 1;
   Expect(!(valid.configuration == changed),

@@ -25,7 +25,7 @@ constexpr std::uint32_t kBusServiceDeadlineMs = 200U;
 
 enum class ServiceSlotIndex : std::uint8_t {
   kMotorModel = 0U,
-  kMotorPid,
+  kMotorAdrc,
   kPwmOffsets,
   kBatteryThreshold,
   kBus,
@@ -33,7 +33,7 @@ enum class ServiceSlotIndex : std::uint8_t {
 
 enum class ServiceRequestGroupIndex : std::uint8_t {
   kMotorModel = 0U,
-  kMotorPid,
+  kMotorAdrc,
   kPwmOffsets,
   kBatteryThreshold,
   kBus,
@@ -111,8 +111,8 @@ bool MicroRosRuntime::TakeOneServiceRequest(std::uint32_t now_ms) {
       case ServiceRequestGroupIndex::kMotorModel:
         taken = TakeMotorModelRequest(now_ms);
         break;
-      case ServiceRequestGroupIndex::kMotorPid:
-        taken = TakeMotorPidRequest(now_ms);
+      case ServiceRequestGroupIndex::kMotorAdrc:
+        taken = TakeMotorAdrcRequest(now_ms);
         break;
       case ServiceRequestGroupIndex::kPwmOffsets:
         taken = TakePwmOffsetsRequest(now_ms);
@@ -231,11 +231,11 @@ bool MicroRosRuntime::TakeMotorModelRequest(std::uint32_t now_ms) {
   return true;
 }
 
-bool MicroRosRuntime::TakeMotorPidRequest(std::uint32_t now_ms) {
+bool MicroRosRuntime::TakeMotorAdrcRequest(std::uint32_t now_ms) {
   rmw_request_id_t request_id{};
   const rcl_ret_t take =
-      TakeServiceRequest(ToIndex(ServiceIndex::kMotorPid), &request_id,
-                         &service_messages_.motor_pid_request);
+      TakeServiceRequest(ToIndex(ServiceIndex::kMotorAdrc), &request_id,
+                         &service_messages_.motor_adrc_request);
   if (take == RCL_RET_SERVICE_TAKE_FAILED) {
     return false;
   }
@@ -246,51 +246,54 @@ bool MicroRosRuntime::TakeMotorPidRequest(std::uint32_t now_ms) {
   }
   SaturatingIncrement(&counters_.service_requests);
 
-  auto& response = service_messages_.motor_pid_response;
+  auto& response = service_messages_.motor_adrc_response;
   response = {};
-  if (motor_pid_slot_.occupied) {
+  if (motor_adrc_slot_.occupied) {
     const auto result = BusyResult();
     SetWireResult(&response, result);
     SaturatingIncrement(&counters_.service_busy_rejections);
-    static_cast<void>(SendServiceResponse(ToIndex(ServiceIndex::kMotorPid),
+    static_cast<void>(SendServiceResponse(ToIndex(ServiceIndex::kMotorAdrc),
                                           &request_id, &response, result));
     return true;
   }
 
-  const auto& request = service_messages_.motor_pid_request;
-  mentor_pi::mcu::SetMotorPidCommand command{};
+  const auto& request = service_messages_.motor_adrc_request;
+  mentor_pi::mcu::SetMotorAdrcCommand command{};
   command.update_mask = request.update_mask;
-  std::copy_n(request.proportional_gain, command.proportional_gain.size(),
-              command.proportional_gain.begin());
-  std::copy_n(request.integral_gain, command.integral_gain.size(),
-              command.integral_gain.begin());
-  std::copy_n(request.derivative_gain, command.derivative_gain.size(),
-              command.derivative_gain.begin());
+  std::copy_n(request.input_gain_rps_per_second_per_permille,
+              command.input_gain_rps_per_second_per_permille.size(),
+              command.input_gain_rps_per_second_per_permille.begin());
+  std::copy_n(request.controller_bandwidth_rad_s,
+              command.controller_bandwidth_rad_s.size(),
+              command.controller_bandwidth_rad_s.begin());
+  std::copy_n(request.observer_bandwidth_rad_s,
+              command.observer_bandwidth_rad_s.size(),
+              command.observer_bandwidth_rad_s.begin());
   std::copy_n(request.velocity_filter_new_weight,
               command.velocity_filter_new_weight.size(),
               command.velocity_filter_new_weight.begin());
   const mentor_pi::mcu::Result validation =
-      mentor_pi::mcu::ValidateSetMotorPidCommand(command);
+      mentor_pi::mcu::ValidateSetMotorAdrcCommand(command);
   if (!validation.ok()) {
     SetWireResult(&response, validation);
-    static_cast<void>(SendServiceResponse(ToIndex(ServiceIndex::kMotorPid),
+    static_cast<void>(SendServiceResponse(ToIndex(ServiceIndex::kMotorAdrc),
                                           &request_id, &response, validation));
     return true;
   }
 
   const ServiceToken token = NewServiceToken();
-  if (!hooks_.dispatch_motor_pid(hooks_.context, token, command)) {
+  if (!hooks_.dispatch_motor_adrc(hooks_.context, token, command)) {
     const auto result = BusyResult();
     SetWireResult(&response, result);
     SaturatingIncrement(&counters_.service_busy_rejections);
-    static_cast<void>(SendServiceResponse(ToIndex(ServiceIndex::kMotorPid),
+    static_cast<void>(SendServiceResponse(ToIndex(ServiceIndex::kMotorAdrc),
                                           &request_id, &response, result));
     return true;
   }
-  motor_pid_slot_.request_id = request_id;
-  motor_pid_slot_.token = token;
-  motor_pid_slot_.deadline_ms = now_ms + kLocalServiceDeadlineMs;
-  motor_pid_slot_.occupied = true;
+  motor_adrc_slot_.request_id = request_id;
+  motor_adrc_slot_.token = token;
+  motor_adrc_slot_.deadline_ms = now_ms + kLocalServiceDeadlineMs;
+  motor_adrc_slot_.occupied = true;
   return true;
 }
 
@@ -582,8 +585,8 @@ bool MicroRosRuntime::PollOneServiceCompletion(std::uint32_t now_ms) {
       case ServiceSlotIndex::kMotorModel:
         occupied = motor_model_slot_.occupied;
         break;
-      case ServiceSlotIndex::kMotorPid:
-        occupied = motor_pid_slot_.occupied;
+      case ServiceSlotIndex::kMotorAdrc:
+        occupied = motor_adrc_slot_.occupied;
         break;
       case ServiceSlotIndex::kPwmOffsets:
         occupied = pwm_offsets_slot_.occupied;
@@ -603,8 +606,8 @@ bool MicroRosRuntime::PollOneServiceCompletion(std::uint32_t now_ms) {
     switch (static_cast<ServiceSlotIndex>(slot)) {
       case ServiceSlotIndex::kMotorModel:
         return PollMotorModelCompletion(now_ms);
-      case ServiceSlotIndex::kMotorPid:
-        return PollMotorPidCompletion(now_ms);
+      case ServiceSlotIndex::kMotorAdrc:
+        return PollMotorAdrcCompletion(now_ms);
       case ServiceSlotIndex::kPwmOffsets:
         return PollPwmOffsetsCompletion(now_ms);
       case ServiceSlotIndex::kBatteryThreshold:
@@ -654,48 +657,48 @@ bool MicroRosRuntime::PollMotorModelCompletion(std::uint32_t now_ms) {
   return true;
 }
 
-bool MicroRosRuntime::PollMotorPidCompletion(std::uint32_t now_ms) {
-  if (!motor_pid_slot_.occupied) {
+bool MicroRosRuntime::PollMotorAdrcCompletion(std::uint32_t now_ms) {
+  if (!motor_adrc_slot_.occupied) {
     return false;
   }
-  MotorPidReply reply{};
+  MotorAdrcReply reply{};
   bool complete =
-      hooks_.poll_motor_pid(hooks_.context, motor_pid_slot_.token, &reply);
-  if (motor_pid_slot_.response_sent) {
+      hooks_.poll_motor_adrc(hooks_.context, motor_adrc_slot_.token, &reply);
+  if (motor_adrc_slot_.response_sent) {
     if (complete) {
       SaturatingIncrement(&counters_.late_response_drops);
-      motor_pid_slot_ = {};
+      motor_adrc_slot_ = {};
     }
     return false;
   }
   const bool deadline_reached =
-      DeadlineReached(now_ms, motor_pid_slot_.deadline_ms);
+      DeadlineReached(now_ms, motor_adrc_slot_.deadline_ms);
   if (!complete && !deadline_reached) {
     return false;
   }
   bool canceled = false;
   if (!complete) {
-    canceled = hooks_.cancel_motor_pid(hooks_.context, motor_pid_slot_.token);
+    canceled = hooks_.cancel_motor_adrc(hooks_.context, motor_adrc_slot_.token);
     if (!canceled) {
-      complete =
-          hooks_.poll_motor_pid(hooks_.context, motor_pid_slot_.token, &reply);
+      complete = hooks_.poll_motor_adrc(hooks_.context, motor_adrc_slot_.token,
+                                        &reply);
     }
     if (!complete) {
       reply.result = TimeoutResult();
       SaturatingIncrement(&counters_.service_timeouts);
     }
   }
-  auto& response = service_messages_.motor_pid_response;
+  auto& response = service_messages_.motor_adrc_response;
   response = {};
   SetWireResult(&response, reply.result);
   response.applied_mask = reply.applied_mask;
-  const bool sent =
-      SendServiceResponse(ToIndex(ServiceIndex::kMotorPid),
-                          &motor_pid_slot_.request_id, &response, reply.result);
+  const bool sent = SendServiceResponse(ToIndex(ServiceIndex::kMotorAdrc),
+                                        &motor_adrc_slot_.request_id, &response,
+                                        reply.result);
   if (complete || canceled || !sent) {
-    motor_pid_slot_ = {};
+    motor_adrc_slot_ = {};
   } else {
-    motor_pid_slot_.response_sent = true;
+    motor_adrc_slot_.response_sent = true;
   }
   return true;
 }
@@ -901,7 +904,7 @@ bool MicroRosRuntime::SendServiceResponse(std::size_t service_index,
     counters_.last_error_detail = result.detail;
     counters_.last_error_code = static_cast<std::uint8_t>(result.code);
     if (service_index == ToIndex(ServiceIndex::kMotorModel) ||
-        service_index == ToIndex(ServiceIndex::kMotorPid)) {
+        service_index == ToIndex(ServiceIndex::kMotorAdrc)) {
       counters_.last_error_source = ErrorSource::kMotors;
     } else if (service_index == ToIndex(ServiceIndex::kPwmOffsets)) {
       counters_.last_error_source = ErrorSource::kPwmServos;

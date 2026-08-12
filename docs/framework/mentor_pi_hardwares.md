@@ -34,7 +34,8 @@ Mode-specific profiles under `config/mecanum` and `config/ackermann` own:
 - vehicle geometry and joint names;
 - the `ros2_control` URDF and plugin selection;
 - controller parameters;
-- `feedback_timeout_ms`, defaulting to 100 ms;
+- wheel geometry and chassis ADRC parameters;
+- `feedback_timeout_ms` and `imu_timeout_ms`, both defaulting to 100 ms;
 - Ackermann PWM channel, min/center/max pulse, inversion, angle limits, and
   command duration.
 
@@ -68,6 +69,33 @@ wiring normalization.
 
 Ackermann drive commands select only M2 and M4. Steering uses the configured
 PWM channel.
+
+## Chassis feedback control
+
+Both hardware plugins run first-order linear ADRC at the existing 30 Hz
+`ros2_control` update rate, after the drive controller has produced its wheel
+or steering references. Consequently manual commands and tracker/MPC commands
+use the same feedback path without a new node or topic.
+
+Mecanum reconstructs reference and measured body `vx` and `vy` from the four
+wheel velocities. It reconstructs reference yaw rate from wheel commands and
+uses `/mentor_pi/imu.angular_velocity_rad_s[2]` as measured yaw rate. Independent
+ADRC corrections are mapped back through the mecanum kinematics and uniformly
+scaled if any wheel would exceed the active motor profile.
+
+Ackermann reconstructs longitudinal speed from the two rear wheels and applies
+one common ADRC speed correction, preserving their requested differential. Its
+yaw reference is `speed * tan(steering) / wheelbase`; gyro Z is the measured
+yaw rate. The yaw input gain is the configured coefficient times signed
+measured speed. Below `0.1 m/s` measured speed, yaw ADRC resets and steering is
+centered because steering cannot reliably control yaw at standstill.
+
+The chassis defaults are provisional: linear input gain `5 s^-1`, controller
+bandwidth `1 rad/s`, and observer bandwidth `3 rad/s`; mecanum yaw uses the same
+values, while Ackermann yaw uses coefficient `30` times measured speed. Missing,
+invalid, or older-than-100-ms IMU or actuator feedback resets chassis ADRC,
+publishes zero/center commands, and enters the existing authorized hardware
+error path. Acceleration is not integrated for velocity feedback.
 
 ## Lifecycle and failure behavior
 
@@ -107,10 +135,9 @@ systemctl is-active mentor-pi-agent.service
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 : "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
 ros2 launch mentor_pi_hardwares mecanum.launch.py
 ```
 
-The default PID firmware accepts bounded nonzero commands only after its normal
+The default ADRC firmware accepts bounded nonzero commands only after its normal
 session and configuration gates are satisfied. Loading a hardware plugin never
 bypasses the firmware limits, per-motor leases, or guarded-HIL prerequisites.

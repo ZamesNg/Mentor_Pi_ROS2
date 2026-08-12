@@ -14,18 +14,19 @@ namespace mentor_pi::mcu {
 constexpr std::uint32_t kMotorLeaseExpiryUs = 198000U;
 constexpr std::uint32_t kMotorControlPeriodUs = 10000U;
 constexpr std::int16_t kMotorOutputLimitPermille = 1000;
-constexpr std::int16_t kMotorOutputDeadbandPermille = 250;
+constexpr std::int16_t kMotorMinimumDrivePermille = 250;
 constexpr float kMotorImplementationMaximumRps = 6.0F;
-constexpr float kMotorPidUpdateMaximumMeasuredRps = 0.01F;
-constexpr float kMotorDefaultPidProportionalGain = 250.0F;
-constexpr float kMotorDefaultPidIntegralGain = 0.1F;
-constexpr float kMotorDefaultPidDerivativeGain = 0.5F;
+constexpr float kMotorAdrcUpdateMaximumMeasuredRps = 0.01F;
+constexpr float kMotorDefaultAdrcInputGainRpsPerSecondPerPermille = 0.03F;
+constexpr float kMotorDefaultAdrcControllerBandwidthRadS = 4.0F;
+constexpr float kMotorDefaultAdrcObserverBandwidthRadS = 12.0F;
 constexpr float kMotorDefaultVelocityFilterNewWeight = 0.5F;
 
-struct PidCalibration {
-  float proportional_gain{kMotorDefaultPidProportionalGain};
-  float integral_gain{kMotorDefaultPidIntegralGain};
-  float derivative_gain{kMotorDefaultPidDerivativeGain};
+struct AdrcCalibration {
+  float input_gain_rps_per_second_per_permille{
+      kMotorDefaultAdrcInputGainRpsPerSecondPerPermille};
+  float controller_bandwidth_rad_s{kMotorDefaultAdrcControllerBandwidthRadS};
+  float observer_bandwidth_rad_s{kMotorDefaultAdrcObserverBandwidthRadS};
   float velocity_filter_new_weight{kMotorDefaultVelocityFilterNewWeight};
 };
 
@@ -33,7 +34,7 @@ struct MotorProfile {
   MotorModel model{MotorModel::kJga27};
   std::uint32_t ticks_per_revolution{1040};
   float max_rps{6.0F};
-  PidCalibration pid{};
+  AdrcCalibration adrc{};
 };
 
 const MotorProfile& GetMotorProfile(MotorModel model);
@@ -52,7 +53,7 @@ struct MotorModelChange {
   MotorProfile active_profile{};
 };
 
-struct MotorPidUpdate {
+struct MotorAdrcUpdate {
   Result result{};
   std::uint8_t applied_mask{0U};
 };
@@ -68,16 +69,16 @@ struct MotorControlConfiguration {
   std::int16_t output_limit_permille{kMotorOutputLimitPermille};
 };
 
-// The production target and native tests share this single PID configuration.
+// The production target and native tests share this single LADRC configuration.
 // Per-model limits still constrain the accepted target below the implementation
 // ceiling where required.
-constexpr MotorControlConfiguration DefaultPidMotorControlConfiguration() {
+constexpr MotorControlConfiguration DefaultAdrcMotorControlConfiguration() {
   return {};
 }
 
-static_assert(DefaultPidMotorControlConfiguration().maximum_accepted_rps ==
+static_assert(DefaultAdrcMotorControlConfiguration().maximum_accepted_rps ==
               kMotorImplementationMaximumRps);
-static_assert(DefaultPidMotorControlConfiguration().output_limit_permille ==
+static_assert(DefaultAdrcMotorControlConfiguration().output_limit_permille ==
               kMotorOutputLimitPermille);
 
 class MotorController {
@@ -89,7 +90,7 @@ class MotorController {
 
   Result AcceptCommand(const MotorCommand& command, std::uint32_t now_us);
   MotorModelChange SetModel(MotorModel model);
-  MotorPidUpdate SetPid(const SetMotorPidCommand& command);
+  MotorAdrcUpdate SetAdrc(const SetMotorAdrcCommand& command);
 
   // Called by the independent 1 kHz safety release.
   void EvaluateLeases(std::uint32_t now_us);
@@ -129,24 +130,25 @@ class MotorController {
   static std::int8_t ProvisionalModelEncoderPolarity(MotorModel model);
 
  private:
-  struct PidState {
-    float accumulated_error{0.0F};
-    float previous_error{0.0F};
+  struct AdrcState {
+    float observed_velocity_rps{0.0F};
+    float observed_disturbance_rps_per_second{0.0F};
+    float applied_output_permille{0.0F};
   };
 
-  struct MotorPidOverride {
+  struct MotorAdrcOverride {
     bool active{false};
-    PidCalibration gains{};
+    AdrcCalibration calibration{};
   };
 
-  void ResetPid(std::size_t index);
+  void ResetAdrc(std::size_t index);
   void StopChannel(std::size_t index, bool watchdog_stop);
 
   MotorControlConfiguration configuration_{};
   const MotorProfile* profile_;
   std::array<MotorChannelState, kMotorCount> channels_{};
-  std::array<PidState, kMotorCount> pid_state_{};
-  std::array<MotorPidOverride, kMotorCount> pid_overrides_{};
+  std::array<AdrcState, kMotorCount> adrc_state_{};
+  std::array<MotorAdrcOverride, kMotorCount> adrc_overrides_{};
   std::array<std::uint32_t, kMotorCount> last_command_us_{};
   std::array<std::uint32_t, kMotorCount> previous_counter_{};
   std::array<SaturatingCounter<std::uint32_t>, kMotorCount>

@@ -32,8 +32,9 @@ bool RuntimeHooksAreComplete(const RuntimeHooks& hooks) {
          hooks.read_worker_diagnostics != nullptr &&
          hooks.dispatch_motor_model != nullptr &&
          hooks.poll_motor_model != nullptr &&
-         hooks.dispatch_motor_pid != nullptr &&
-         hooks.poll_motor_pid != nullptr && hooks.cancel_motor_pid != nullptr &&
+         hooks.dispatch_motor_adrc != nullptr &&
+         hooks.poll_motor_adrc != nullptr &&
+         hooks.cancel_motor_adrc != nullptr &&
          hooks.dispatch_pwm_offsets != nullptr &&
          hooks.poll_pwm_offsets != nullptr &&
          hooks.dispatch_battery_threshold != nullptr &&

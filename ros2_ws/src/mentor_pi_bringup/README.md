@@ -11,11 +11,13 @@ After each new nonzero MCU/Agent session, `/mentor_pi/configuration_supervisor`
 applies the immutable controller configuration in this order:
 
 1. `/mentor_pi/motors/set_model`
-2. `/mentor_pi/pwm_servos/set_offsets`
-3. `/mentor_pi/battery/set_low_threshold`
+2. `/mentor_pi/motors/set_adrc`
+3. `/mentor_pi/pwm_servos/set_offsets`
+4. `/mentor_pi/battery/set_low_threshold`
 
 The transient-local topic `/mentor_pi/configuration/motion_enabled` stays false
-until all three calls return a contract-consistent `OK`. The companion
+until all four calls return a contract-consistent `OK`. ADRC configuration must
+also return an `applied_mask` covering all motors. The companion
 `/mentor_pi/configuration/motion_authorization` value is zero while disarmed.
 A nonzero value packs the configuration generation in its upper 32 bits and
 the current `agent_session_id` in its lower 32 bits.
@@ -49,7 +51,6 @@ Only after completing the passive safety gates, launch an application manually:
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 : "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \
 ros2 launch mentor_pi_hardwares mecanum.launch.py
 ```
 
@@ -71,7 +72,7 @@ sudo make install-evidence-tools
 ```
 
 Then use the root integration commands from the onboard tutorial. A successful
-software preflight or campaign never establishes PID performance, powered
+software preflight or campaign never establishes ADRC performance, powered
 motion safety, or release qualification. Those claims require recorded HIL and
 instrument evidence from the ordered onboard tutorial.
 

@@ -112,9 +112,9 @@ const rosidl_service_type_support_t* ServiceTypeSupport(std::size_t index) {
     case ServiceIndex::kMotorModel:
       return ROSIDL_GET_SRV_TYPE_SUPPORT(mentor_pi_interfaces, srv,
                                          SetMotorModel);
-    case ServiceIndex::kMotorPid:
+    case ServiceIndex::kMotorAdrc:
       return ROSIDL_GET_SRV_TYPE_SUPPORT(mentor_pi_interfaces, srv,
-                                         SetMotorPid);
+                                         SetMotorAdrc);
     case ServiceIndex::kPwmOffsets:
       return ROSIDL_GET_SRV_TYPE_SUPPORT(mentor_pi_interfaces, srv,
                                          SetPwmServoOffsets);
@@ -1001,7 +1001,7 @@ void MicroRosRuntime::RecordTransportFault(std::uint8_t flags) {
 
 void MicroRosRuntime::ClearServiceSlots() {
   motor_model_slot_ = {};
-  motor_pid_slot_ = {};
+  motor_adrc_slot_ = {};
   pwm_offsets_slot_ = {};
   battery_threshold_slot_ = {};
   bus_service_slot_ = {};

@@ -29,7 +29,7 @@ set(service_files
   "srv/GetBusServoState.srv"
   "srv/SetBatteryThreshold.srv"
   "srv/SetMotorModel.srv"
-  "srv/SetMotorPid.srv"
+  "srv/SetMotorAdrc.srv"
   "srv/SetPwmServoOffsets.srv"
   "srv/StopBusServos.srv"
 )

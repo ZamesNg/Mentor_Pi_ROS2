@@ -298,7 +298,7 @@ void ControllerRuntime::InvalidateSessionWork(std::uint32_t generation) {
     bus_stop_watermark_ = last_bus_command_generation_;
   }
   Cancel(&motor_model_slot_, generation);
-  Cancel(&motor_pid_slot_, generation);
+  Cancel(&motor_adrc_slot_, generation);
   Cancel(&pwm_offsets_slot_, generation);
   Cancel(&battery_threshold_slot_, generation);
   Cancel(&bus_service_slot_, generation);

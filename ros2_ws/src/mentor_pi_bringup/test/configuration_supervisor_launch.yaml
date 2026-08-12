@@ -1,5 +1,9 @@
 /mentor_pi/configuration_supervisor:
   ros__parameters:
     motor_model: "JGB37"
+    input_gain_rps_per_second_per_permille: [0.03, 0.031, 0.032, 0.033]
+    controller_bandwidth_rad_s: [4.0, 4.1, 4.2, 4.3]
+    observer_bandwidth_rad_s: [12.0, 12.1, 12.2, 12.3]
+    velocity_filter_new_weight: [0.5, 0.6, 0.7, 0.8]
     pwm_servo_offsets_us: [-100, -50, 50, 100]
     battery_low_threshold_mv: 9000

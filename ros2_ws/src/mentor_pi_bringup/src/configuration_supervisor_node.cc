@@ -18,6 +18,7 @@
 #include "mentor_pi_interfaces/msg/heartbeat.hpp"
 #include "mentor_pi_interfaces/msg/result.hpp"
 #include "mentor_pi_interfaces/srv/set_battery_threshold.hpp"
+#include "mentor_pi_interfaces/srv/set_motor_adrc.hpp"
 #include "mentor_pi_interfaces/srv/set_motor_model.hpp"
 #include "mentor_pi_interfaces/srv/set_pwm_servo_offsets.hpp"
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
@@ -32,9 +33,11 @@ using HeartbeatMessage = mentor_pi_interfaces::msg::Heartbeat;
 using ResultMessage = mentor_pi_interfaces::msg::Result;
 using SetBatteryThreshold = mentor_pi_interfaces::srv::SetBatteryThreshold;
 using SetMotorModel = mentor_pi_interfaces::srv::SetMotorModel;
+using SetMotorAdrc = mentor_pi_interfaces::srv::SetMotorAdrc;
 using SetPwmServoOffsets = mentor_pi_interfaces::srv::SetPwmServoOffsets;
 using BatteryClient = rclcpp::Client<SetBatteryThreshold>;
 using MotorClient = rclcpp::Client<SetMotorModel>;
+using MotorAdrcClient = rclcpp::Client<SetMotorAdrc>;
 using PwmClient = rclcpp::Client<SetPwmServoOffsets>;
 
 constexpr std::chrono::milliseconds kStateMachinePeriod{10};
@@ -59,6 +62,8 @@ ConfigurationValue ConvertParameterValue(const rclcpp::ParameterValue& value) {
       return value.get<std::int64_t>();
     case rclcpp::ParameterType::PARAMETER_INTEGER_ARRAY:
       return value.get<std::vector<std::int64_t>>();
+    case rclcpp::ParameterType::PARAMETER_DOUBLE_ARRAY:
+      return value.get<std::vector<double>>();
     default:
       return std::monostate{};
   }
@@ -152,6 +157,8 @@ class ConfigurationSupervisorNode final : public rclcpp::Node {
     const auto& service_qos_profile = service_qos.get_rmw_qos_profile();
     motor_client_ =
         create_client<SetMotorModel>("motors/set_model", service_qos_profile);
+    motor_adrc_client_ =
+        create_client<SetMotorAdrc>("motors/set_adrc", service_qos_profile);
     pwm_client_ = create_client<SetPwmServoOffsets>("pwm_servos/set_offsets",
                                                     service_qos_profile);
     battery_client_ = create_client<SetBatteryThreshold>(
@@ -249,6 +256,9 @@ class ConfigurationSupervisorNode final : public rclcpp::Node {
         case ApplyOperation::kMotorModel:
           DispatchMotorModel(token);
           return;
+        case ApplyOperation::kMotorAdrc:
+          DispatchMotorAdrc(token);
+          return;
         case ApplyOperation::kPwmServoOffsets:
           DispatchPwmOffsets(token);
           return;
@@ -318,6 +328,48 @@ class ConfigurationSupervisorNode final : public rclcpp::Node {
         request, [this, token](PwmClient::SharedFuture response_future) {
           try {
             const auto response = response_future.get();
+            HandleServiceResponse(token, response->result.code,
+                                  response->result.detail);
+          } catch (const std::exception& error) {
+            HandleServiceException(token, error);
+          }
+        });
+    pending_call_->sent = true;
+    pending_call_->request_id = future.request_id;
+  }
+
+  void DispatchMotorAdrc(const RequestToken& token) {
+    if (!motor_adrc_client_->service_is_ready()) {
+      return;
+    }
+    auto request = std::make_shared<SetMotorAdrc::Request>();
+    request->update_mask = SetMotorAdrc::Request::ALL_MOTORS;
+    request->input_gain_rps_per_second_per_permille =
+        core_->configuration().input_gain_rps_per_second_per_permille;
+    request->controller_bandwidth_rad_s =
+        core_->configuration().controller_bandwidth_rad_s;
+    request->observer_bandwidth_rad_s =
+        core_->configuration().observer_bandwidth_rad_s;
+    request->velocity_filter_new_weight =
+        core_->configuration().velocity_filter_new_weight;
+    const auto future = motor_adrc_client_->async_send_request(
+        request, [this, token](MotorAdrcClient::SharedFuture response_future) {
+          try {
+            const auto response = response_future.get();
+            const std::uint8_t expected_mask =
+                response->result.code == ResultMessage::OK
+                    ? SetMotorAdrc::Request::ALL_MOTORS
+                    : std::uint8_t{0U};
+            if (response->applied_mask != expected_mask) {
+              RCLCPP_ERROR(
+                  get_logger(),
+                  "motors/set_adrc returned code=%u with applied_mask=%u",
+                  static_cast<unsigned int>(response->result.code),
+                  static_cast<unsigned int>(response->applied_mask));
+              HandleServiceResponse(token, ResultMessage::IO_ERROR,
+                                    response->applied_mask);
+              return;
+            }
             HandleServiceResponse(token, response->result.code,
                                   response->result.detail);
           } catch (const std::exception& error) {
@@ -402,6 +454,10 @@ class ConfigurationSupervisorNode final : public rclcpp::Node {
         static_cast<void>(
             motor_client_->remove_pending_request(call.request_id));
         return;
+      case ApplyOperation::kMotorAdrc:
+        static_cast<void>(
+            motor_adrc_client_->remove_pending_request(call.request_id));
+        return;
       case ApplyOperation::kPwmServoOffsets:
         static_cast<void>(pwm_client_->remove_pending_request(call.request_id));
         return;
@@ -461,6 +517,7 @@ class ConfigurationSupervisorNode final : public rclcpp::Node {
 
   std::optional<SupervisorCore> core_;
   MotorClient::SharedPtr motor_client_;
+  MotorAdrcClient::SharedPtr motor_adrc_client_;
   PwmClient::SharedPtr pwm_client_;
   BatteryClient::SharedPtr battery_client_;
   rclcpp::Subscription<HeartbeatMessage>::SharedPtr heartbeat_subscription_;

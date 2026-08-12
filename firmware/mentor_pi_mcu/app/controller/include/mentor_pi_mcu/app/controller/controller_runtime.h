@@ -115,11 +115,11 @@ class ControllerRuntime {
                           mentor_pi::mcu::MotorModel model);
   bool PollMotorModel(mentor_pi_mcu::app::microros::ServiceToken token,
                       mentor_pi_mcu::app::microros::MotorModelReply* output);
-  bool DispatchMotorPid(mentor_pi_mcu::app::microros::ServiceToken token,
-                        const mentor_pi::mcu::SetMotorPidCommand& command);
-  bool PollMotorPid(mentor_pi_mcu::app::microros::ServiceToken token,
-                    mentor_pi_mcu::app::microros::MotorPidReply* output);
-  bool CancelMotorPid(mentor_pi_mcu::app::microros::ServiceToken token);
+  bool DispatchMotorAdrc(mentor_pi_mcu::app::microros::ServiceToken token,
+                         const mentor_pi::mcu::SetMotorAdrcCommand& command);
+  bool PollMotorAdrc(mentor_pi_mcu::app::microros::ServiceToken token,
+                     mentor_pi_mcu::app::microros::MotorAdrcReply* output);
+  bool CancelMotorAdrc(mentor_pi_mcu::app::microros::ServiceToken token);
   bool DispatchPwmOffsets(mentor_pi_mcu::app::microros::ServiceToken token,
                           const mentor_pi::mcu::PwmServoOffsetCommand& command);
   bool PollPwmOffsets(mentor_pi_mcu::app::microros::ServiceToken token,
@@ -314,7 +314,7 @@ class ControllerRuntime {
   bool TokenIsCurrent(mentor_pi_mcu::app::microros::ServiceToken token) const;
   void ConsumeMotorCommand(std::uint32_t now_us);
   void ProcessMotorModelService();
-  void ProcessMotorPidService();
+  void ProcessMotorAdrcService();
   void PublishMotorSnapshot(std::uint32_t now_ms);
   void SynchronizePwmSession(std::uint32_t now_ms);
   void ProcessPwmCommands(std::uint32_t now_ms);
@@ -407,9 +407,9 @@ class ControllerRuntime {
 
   ServiceSlot<MotorModelRequest, mentor_pi_mcu::app::microros::MotorModelReply>
       motor_model_slot_{};
-  ServiceSlot<mentor_pi::mcu::SetMotorPidCommand,
-              mentor_pi_mcu::app::microros::MotorPidReply>
-      motor_pid_slot_{};
+  ServiceSlot<mentor_pi::mcu::SetMotorAdrcCommand,
+              mentor_pi_mcu::app::microros::MotorAdrcReply>
+      motor_adrc_slot_{};
   ServiceSlot<mentor_pi::mcu::PwmServoOffsetCommand,
               mentor_pi_mcu::app::microros::PwmOffsetsReply>
       pwm_offsets_slot_{};

@@ -54,6 +54,23 @@ std::optional<float> RadiansPerSecondToRps(double radians_per_second,
 std::optional<double> MotorMaximumRps(std::uint8_t model);
 std::optional<std::uint32_t> MotorTicksPerRevolution(std::uint8_t model);
 
+class FirstOrderLadrc {
+ public:
+  bool Configure(double controller_bandwidth_rad_s,
+                 double observer_bandwidth_rad_s);
+  void Reset();
+  std::optional<double> Update(double reference, double measurement,
+                               double applied_control, double input_gain,
+                               double period_seconds);
+
+ private:
+  double controller_bandwidth_rad_s_{1.0};
+  double observer_bandwidth_rad_s_{3.0};
+  double observed_output_{0.0};
+  double observed_disturbance_{0.0};
+  bool initialized_{false};
+};
+
 struct SteeringCalibration {
   std::size_t servo_index{2U};
   std::uint16_t minimum_pulse_us{500U};

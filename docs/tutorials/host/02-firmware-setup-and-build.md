@@ -16,7 +16,7 @@ checked Humble micro-ROS SDK before compilation; it does not build the ROS
 workspace.
 
 The package is written below
-`firmware/build/packages/<UTC>/firmware-pid-release/` unless `PACKAGE_OUTPUT`
+`firmware/build/packages/<UTC>/firmware-adrc-release/` unless `PACKAGE_OUTPUT`
 is set. It contains one ELF/Hex/Bin/Map set plus build mode, metadata, and
 hashes.
 

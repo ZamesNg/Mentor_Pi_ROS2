@@ -59,7 +59,7 @@ BoundedText MakeText(const char* text) {
 }
 
 MotorControlConfiguration FullRangeTestMotorConfiguration() {
-  return DefaultPidMotorControlConfiguration();
+  return DefaultAdrcMotorControlConfiguration();
 }
 
 template <typename Command>
@@ -171,37 +171,42 @@ void TestValidationBoundaries() {
   CHECK(ValidateMotorCommand(motor, std::numeric_limits<float>::quiet_NaN())
             .code == ResultCode::kInvalidArgument);
 
-  SetMotorPidCommand pid{};
-  pid.update_mask = 1U;
-  pid.proportional_gain[0] = 1000.0F;
-  pid.integral_gain[0] = 1000.0F;
-  pid.derivative_gain[0] = 1000.0F;
-  pid.velocity_filter_new_weight[0] = 1.0F;
-  CHECK(ValidateSetMotorPidCommand(pid).ok());
-  pid.update_mask = 0U;
-  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
-  pid.update_mask = 0x10U;
-  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
-  pid.update_mask = 1U;
-  pid.proportional_gain[0] = std::nextafter(
-      kMotorPidMaximumGain, std::numeric_limits<float>::infinity());
-  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kOutOfRange);
-  pid.proportional_gain[0] = -std::numeric_limits<float>::epsilon();
-  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kOutOfRange);
-  pid.proportional_gain[0] = std::numeric_limits<float>::quiet_NaN();
-  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
-  pid.proportional_gain[0] = 0.0F;
-  pid.integral_gain[0] = std::numeric_limits<float>::infinity();
-  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
-  pid.integral_gain[0] = 0.0F;
-  pid.derivative_gain[0] = -std::numeric_limits<float>::infinity();
-  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
-  pid.derivative_gain[0] = 0.0F;
-  pid.velocity_filter_new_weight[0] =
+  SetMotorAdrcCommand adrc{};
+  adrc.update_mask = 1U;
+  adrc.input_gain_rps_per_second_per_permille[0] = 0.03F;
+  adrc.controller_bandwidth_rad_s[0] = 4.0F;
+  adrc.observer_bandwidth_rad_s[0] = 12.0F;
+  adrc.velocity_filter_new_weight[0] = 1.0F;
+  CHECK(ValidateSetMotorAdrcCommand(adrc).ok());
+  adrc.update_mask = 0U;
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kInvalidArgument);
+  adrc.update_mask = 0x10U;
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kInvalidArgument);
+  adrc.update_mask = 1U;
+  adrc.input_gain_rps_per_second_per_permille[0] = std::nextafter(
+      kMotorAdrcMaximumInputGain, std::numeric_limits<float>::infinity());
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kOutOfRange);
+  adrc.input_gain_rps_per_second_per_permille[0] = 0.0F;
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kOutOfRange);
+  adrc.input_gain_rps_per_second_per_permille[0] =
+      std::numeric_limits<float>::quiet_NaN();
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kInvalidArgument);
+  adrc.input_gain_rps_per_second_per_permille[0] = 0.03F;
+  adrc.controller_bandwidth_rad_s[0] = 13.0F;
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kOutOfRange);
+  adrc.controller_bandwidth_rad_s[0] = 4.0F;
+  adrc.observer_bandwidth_rad_s[0] =
+      std::nextafter(kMotorAdrcMaximumObserverBandwidthRadS,
+                     std::numeric_limits<float>::infinity());
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kOutOfRange);
+  adrc.observer_bandwidth_rad_s[0] = -std::numeric_limits<float>::infinity();
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kInvalidArgument);
+  adrc.observer_bandwidth_rad_s[0] = 12.0F;
+  adrc.velocity_filter_new_weight[0] =
       std::nextafter(1.0F, std::numeric_limits<float>::infinity());
-  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kOutOfRange);
-  pid.velocity_filter_new_weight[0] = std::numeric_limits<float>::quiet_NaN();
-  CHECK(ValidateSetMotorPidCommand(pid).code == ResultCode::kInvalidArgument);
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kOutOfRange);
+  adrc.velocity_filter_new_weight[0] = std::numeric_limits<float>::quiet_NaN();
+  CHECK(ValidateSetMotorAdrcCommand(adrc).code == ResultCode::kInvalidArgument);
 
   PwmServoCommand pwm{};
   pwm.duration_ms = 20U;
@@ -746,7 +751,7 @@ void TestMotorController() {
   CHECK(controller.AcceptCommand(drive, 400U).ok());
   const std::array<std::uint32_t, kMotorCount> counters{};
   const auto outputs = controller.ControlStep(counters);
-  CHECK(outputs[0] >= kMotorOutputDeadbandPermille);
+  CHECK(outputs[0] >= kMotorMinimumDrivePermille);
   CHECK(outputs[0] <= kMotorOutputLimitPermille);
   controller.SetSessionActive(false);
   CHECK(controller.channels()[0].output_permille == 0);
@@ -781,15 +786,15 @@ void TestMotorController() {
   zero_target.EvaluateLeases(1000000U);
   CHECK(zero_target.watchdog_stop_mask() == 0U);
 
-  // The only default configuration admits PID motion for every valid subset
+  // The only default configuration admits LADRC motion for every valid subset
   // while enforcing the active model limit and atomic stop semantics.
   constexpr std::array<MotorModel, 4> kModels{
       MotorModel::kJgb520, MotorModel::kJgb37, MotorModel::kJga27,
       MotorModel::kJgb528};
-  MotorController default_pid;
-  default_pid.SetSessionActive(true);
+  MotorController default_adrc;
+  default_adrc.SetSessionActive(true);
   for (MotorModel model : kModels) {
-    CHECK(default_pid.SetModel(model).result.ok());
+    CHECK(default_adrc.SetModel(model).result.ok());
     for (std::uint16_t raw_mask = 1U; raw_mask <= kAllMotorMask; ++raw_mask) {
       MotorCommand requested{};
       requested.update_mask = static_cast<std::uint8_t>(raw_mask);
@@ -801,22 +806,22 @@ void TestMotorController() {
           requested.target_rps[motor] = 0.1F;
         }
       }
-      CHECK(default_pid.AcceptCommand(requested, 1000U).ok());
+      CHECK(default_adrc.AcceptCommand(requested, 1000U).ok());
       for (std::size_t motor = 0U; motor < kMotorCount; ++motor) {
         const auto bit = static_cast<std::uint8_t>(1U << motor);
-        CHECK(default_pid.channels()[motor].armed ==
+        CHECK(default_adrc.channels()[motor].armed ==
               ((requested.update_mask & bit) != 0U));
       }
-      CHECK(default_pid.AcceptCommand(zero_selected, 2000U).ok());
+      CHECK(default_adrc.AcceptCommand(zero_selected, 2000U).ok());
     }
   }
   MotorCommand over_limit{};
   over_limit.update_mask = 3U;
   over_limit.target_rps[0] = kMotorImplementationMaximumRps + 0.01F;
   over_limit.target_rps[1] = 0.1F;
-  CHECK(default_pid.AcceptCommand(over_limit, 3000U).code ==
+  CHECK(default_adrc.AcceptCommand(over_limit, 3000U).code ==
         ResultCode::kOutOfRange);
-  for (const MotorChannelState& channel : default_pid.channels()) {
+  for (const MotorChannelState& channel : default_adrc.channels()) {
     CHECK(!channel.armed);
     CHECK_NEAR(channel.target_rps, 0.0F, 0.0001F);
   }
@@ -833,93 +838,103 @@ void TestMotorController() {
   CHECK(rejection_accounting.command_rejection_count(1U) == 0U);
   CHECK(rejection_accounting.command_rejection_count(2U) == 1U);
   CHECK(rejection_accounting.command_rejection_count(3U) == 0U);
-  SetMotorPidCommand pid_update{};
-  pid_update.update_mask = 3U;
-  pid_update.proportional_gain[0] = 1000.0F;
-  pid_update.proportional_gain[1] = 500.0F;
-  pid_update.velocity_filter_new_weight[0] = 1.0F;
-  pid_update.velocity_filter_new_weight[1] = 1.0F;
+  SetMotorAdrcCommand adrc_update{};
+  adrc_update.update_mask = 3U;
+  adrc_update.input_gain_rps_per_second_per_permille[0] = 0.005F;
+  adrc_update.input_gain_rps_per_second_per_permille[1] = 0.01F;
+  adrc_update.controller_bandwidth_rad_s[0] = 4.0F;
+  adrc_update.controller_bandwidth_rad_s[1] = 4.0F;
+  adrc_update.observer_bandwidth_rad_s[0] = 12.0F;
+  adrc_update.observer_bandwidth_rad_s[1] = 12.0F;
+  adrc_update.velocity_filter_new_weight[0] = 1.0F;
+  adrc_update.velocity_filter_new_weight[1] = 1.0F;
   MotorControlConfiguration invalid_configuration{};
   invalid_configuration.maximum_accepted_rps = 0.0F;
   MotorController invalid_controller(invalid_configuration);
   CHECK(!invalid_controller.configuration_valid());
-  CHECK(invalid_controller.SetPid(pid_update).result.code ==
+  CHECK(invalid_controller.SetAdrc(adrc_update).result.code ==
         ResultCode::kUnsupported);
 
-  MotorController pid_controller(FullRangeTestMotorConfiguration());
-  MotorPidUpdate pid_result = pid_controller.SetPid(pid_update);
-  CHECK(pid_result.result.ok());
-  CHECK(pid_result.applied_mask == 3U);
+  MotorController adrc_controller(FullRangeTestMotorConfiguration());
+  MotorAdrcUpdate adrc_result = adrc_controller.SetAdrc(adrc_update);
+  CHECK(adrc_result.result.ok());
+  CHECK(adrc_result.applied_mask == 3U);
 
-  SetMotorPidCommand invalid_atomic = pid_update;
-  invalid_atomic.proportional_gain[1] = 1000.1F;
-  pid_result = pid_controller.SetPid(invalid_atomic);
-  CHECK(pid_result.result.code == ResultCode::kOutOfRange);
-  CHECK(pid_result.applied_mask == 0U);
+  SetMotorAdrcCommand invalid_atomic = adrc_update;
+  invalid_atomic.input_gain_rps_per_second_per_permille[1] = 1000.1F;
+  adrc_result = adrc_controller.SetAdrc(invalid_atomic);
+  CHECK(adrc_result.result.code == ResultCode::kOutOfRange);
+  CHECK(adrc_result.applied_mask == 0U);
 
-  pid_controller.SetSessionActive(true);
-  MotorCommand pid_drive{};
-  pid_drive.update_mask = 3U;
-  pid_drive.target_rps[0] = 0.5F;
-  pid_drive.target_rps[1] = 0.5F;
-  CHECK(pid_controller.AcceptCommand(pid_drive, 0U).ok());
+  adrc_controller.SetSessionActive(true);
+  MotorCommand adrc_drive{};
+  adrc_drive.update_mask = 3U;
+  adrc_drive.target_rps[0] = 0.5F;
+  adrc_drive.target_rps[1] = 0.5F;
+  CHECK(adrc_controller.AcceptCommand(adrc_drive, 0U).ok());
   std::array<std::uint32_t, kMotorCount> stationary{};
-  const auto overridden_output = pid_controller.ControlStep(stationary);
-  CHECK(overridden_output[0] == 500);
-  CHECK(overridden_output[1] == kMotorOutputDeadbandPermille);
-  CHECK(pid_controller.SetPid(pid_update).result.code == ResultCode::kBusy);
+  const auto overridden_output = adrc_controller.ControlStep(stationary);
+  CHECK(overridden_output[0] == 400);
+  CHECK(overridden_output[1] == kMotorMinimumDrivePermille);
+  CHECK(adrc_controller.SetAdrc(adrc_update).result.code == ResultCode::kBusy);
 
-  MotorCommand pid_stop = pid_drive;
-  pid_stop.target_rps.fill(0.0F);
-  CHECK(pid_controller.AcceptCommand(pid_stop, 1U).ok());
-  CHECK(pid_controller.SetPid(pid_update).result.ok());
+  MotorCommand adrc_stop = adrc_drive;
+  adrc_stop.target_rps.fill(0.0F);
+  CHECK(adrc_controller.AcceptCommand(adrc_stop, 1U).ok());
+  CHECK(adrc_controller.SetAdrc(adrc_update).result.ok());
 
-  // A transport/session loss disarms and clears PID history, but the volatile
+  // A transport/session loss disarms and clears LADRC state, but the volatile
   // gain override survives reconnection until reset or a model change.
-  pid_controller.SetSessionActive(false);
-  pid_controller.SetSessionActive(true);
-  CHECK(pid_controller.AcceptCommand(pid_drive, 2U).ok());
-  CHECK(pid_controller.ControlStep(stationary)[0] == 500);
-  CHECK(pid_controller.AcceptCommand(pid_stop, 3U).ok());
-  CHECK(pid_controller.SetModel(MotorModel::kJgb37).result.ok());
-  CHECK(pid_controller.AcceptCommand(pid_drive, 4U).ok());
-  CHECK(pid_controller.ControlStep(stationary)[0] ==
-        kMotorOutputDeadbandPermille);
+  adrc_controller.SetSessionActive(false);
+  adrc_controller.SetSessionActive(true);
+  CHECK(adrc_controller.AcceptCommand(adrc_drive, 2U).ok());
+  CHECK(adrc_controller.ControlStep(stationary)[0] == 400);
+  CHECK(adrc_controller.AcceptCommand(adrc_stop, 3U).ok());
+  CHECK(adrc_controller.SetModel(MotorModel::kJgb37).result.ok());
+  CHECK(adrc_controller.AcceptCommand(adrc_drive, 4U).ok());
+  CHECK(adrc_controller.ControlStep(stationary)[0] ==
+        kMotorMinimumDrivePermille);
 
   // Measured motion alone blocks all-channel updates, even while disarmed.
-  MotorController moving_pid(FullRangeTestMotorConfiguration());
-  moving_pid.ControlStep(stationary);
+  MotorController moving_adrc(FullRangeTestMotorConfiguration());
+  moving_adrc.ControlStep(stationary);
   stationary[0] = 1U;
-  moving_pid.ControlStep(stationary);
-  CHECK(std::fabs(moving_pid.channels()[0].measured_rps) >=
-        kMotorPidUpdateMaximumMeasuredRps);
-  CHECK(moving_pid.SetPid(pid_update).result.code == ResultCode::kBusy);
-  CHECK(moving_pid.SetModel(MotorModel::kJgb37).result.ok());
-  CHECK(moving_pid.SetPid(pid_update).result.ok());
+  moving_adrc.ControlStep(stationary);
+  CHECK(std::fabs(moving_adrc.channels()[0].measured_rps) >=
+        kMotorAdrcUpdateMaximumMeasuredRps);
+  CHECK(moving_adrc.SetAdrc(adrc_update).result.code == ResultCode::kBusy);
+  CHECK(moving_adrc.SetModel(MotorModel::kJgb37).result.ok());
+  CHECK(moving_adrc.SetAdrc(adrc_update).result.ok());
 
-  MotorController saturated_pid(FullRangeTestMotorConfiguration());
-  SetMotorPidCommand saturation_gains{};
-  saturation_gains.update_mask = 1U;
-  saturation_gains.proportional_gain[0] = 1000.0F;
-  saturation_gains.velocity_filter_new_weight[0] = 1.0F;
-  CHECK(saturated_pid.SetPid(saturation_gains).result.ok());
-  saturated_pid.SetSessionActive(true);
+  MotorController saturated_adrc(FullRangeTestMotorConfiguration());
+  SetMotorAdrcCommand saturation_calibration{};
+  saturation_calibration.update_mask = 1U;
+  saturation_calibration.input_gain_rps_per_second_per_permille[0] = 0.001F;
+  saturation_calibration.controller_bandwidth_rad_s[0] = 4.0F;
+  saturation_calibration.observer_bandwidth_rad_s[0] = 12.0F;
+  saturation_calibration.velocity_filter_new_weight[0] = 1.0F;
+  CHECK(saturated_adrc.SetAdrc(saturation_calibration).result.ok());
+  saturated_adrc.SetSessionActive(true);
   MotorCommand saturation_drive{};
   saturation_drive.update_mask = 1U;
   saturation_drive.target_rps[0] = 6.0F;
-  CHECK(saturated_pid.AcceptCommand(saturation_drive, 0U).ok());
+  CHECK(saturated_adrc.AcceptCommand(saturation_drive, 0U).ok());
   stationary.fill(0U);
-  CHECK(saturated_pid.ControlStep(stationary)[0] == 1000);
+  CHECK(saturated_adrc.ControlStep(stationary)[0] == 1000);
 
   constexpr std::array<float, 4> kProfileLimits{1.5F, 3.0F, 6.0F, 1.1F};
   MotorController profile_limits(FullRangeTestMotorConfiguration());
   profile_limits.SetSessionActive(true);
   for (std::size_t index = 0U; index < kModels.size(); ++index) {
     CHECK(profile_limits.SetModel(kModels[index]).result.ok());
-    CHECK_NEAR(profile_limits.profile().pid.proportional_gain, 250.0F, 0.0001F);
-    CHECK_NEAR(profile_limits.profile().pid.integral_gain, 0.1F, 0.0001F);
-    CHECK_NEAR(profile_limits.profile().pid.derivative_gain, 0.5F, 0.0001F);
-    CHECK_NEAR(profile_limits.profile().pid.velocity_filter_new_weight, 0.5F,
+    CHECK_NEAR(
+        profile_limits.profile().adrc.input_gain_rps_per_second_per_permille,
+        0.03F, 0.0001F);
+    CHECK_NEAR(profile_limits.profile().adrc.controller_bandwidth_rad_s, 4.0F,
+               0.0001F);
+    CHECK_NEAR(profile_limits.profile().adrc.observer_bandwidth_rad_s, 12.0F,
+               0.0001F);
+    CHECK_NEAR(profile_limits.profile().adrc.velocity_filter_new_weight, 0.5F,
                0.0001F);
     MotorCommand limit_command{};
     limit_command.update_mask = 1U;
@@ -958,17 +973,18 @@ void TestMotorController() {
   CHECK(compensated.channels()[0].encoder_count == 10);
 }
 
-void TestPositionalPidController() {
+void TestFirstOrderAdrcController() {
   const std::array<std::uint32_t, kMotorCount> stationary{};
-  auto configure_pid = [](MotorController* controller, float kp, float ki,
-                          float kd, float filter_weight = 1.0F) {
-    SetMotorPidCommand gains{};
-    gains.update_mask = 1U;
-    gains.proportional_gain[0] = kp;
-    gains.integral_gain[0] = ki;
-    gains.derivative_gain[0] = kd;
-    gains.velocity_filter_new_weight[0] = filter_weight;
-    CHECK(controller->SetPid(gains).result.ok());
+  auto configure_adrc = [](MotorController* controller, float input_gain,
+                           float controller_bandwidth, float observer_bandwidth,
+                           float filter_weight = 1.0F) {
+    SetMotorAdrcCommand calibration{};
+    calibration.update_mask = 1U;
+    calibration.input_gain_rps_per_second_per_permille[0] = input_gain;
+    calibration.controller_bandwidth_rad_s[0] = controller_bandwidth;
+    calibration.observer_bandwidth_rad_s[0] = observer_bandwidth;
+    calibration.velocity_filter_new_weight[0] = filter_weight;
+    CHECK(controller->SetAdrc(calibration).result.ok());
     controller->SetSessionActive(true);
   };
   auto command_speed = [](MotorController* controller, float target_rps,
@@ -979,102 +995,61 @@ void TestPositionalPidController() {
     CHECK(controller->AcceptCommand(command, now_us).ok());
   };
 
-  // P uses the current error directly: u = Kp * e.
-  MotorController proportional(FullRangeTestMotorConfiguration());
-  configure_pid(&proportional, 400.0F, 0.0F, 0.0F);
-  command_speed(&proportional, 1.0F);
-  CHECK(proportional.ControlStep(stationary)[0] == 400);
-  command_speed(&proportional, 0.75F, 1U);
-  CHECK(proportional.ControlStep(stationary)[0] == 300);
+  MotorController nominal(FullRangeTestMotorConfiguration());
+  configure_adrc(&nominal, 0.01F, 4.0F, 12.0F);
+  command_speed(&nominal, 1.0F);
+  CHECK(nominal.ControlStep(stationary)[0] == 400);
+  CHECK(nominal.ControlStep(stationary)[0] == 384);
 
-  // I stores the time integral of error. Five 10 ms samples at 6 RPS with
-  // Ki=1000 produce 1000 * (6 * 0.05) = 300 permille.
-  MotorController integral(FullRangeTestMotorConfiguration());
-  configure_pid(&integral, 0.0F, 1000.0F, 0.0F);
-  command_speed(&integral, 6.0F);
-  std::int16_t integral_output = 0;
-  for (std::size_t sample = 0U; sample < 5U; ++sample) {
-    integral_output = integral.ControlStep(stationary, 10000U)[0];
-  }
-  CHECK(integral_output == 300);
+  MotorController negative(FullRangeTestMotorConfiguration());
+  configure_adrc(&negative, 0.01F, 4.0F, 12.0F);
+  command_speed(&negative, -1.0F);
+  CHECK(negative.ControlStep(stationary)[0] == -400);
 
-  MotorController longer_period(FullRangeTestMotorConfiguration());
-  configure_pid(&longer_period, 0.0F, 1000.0F, 0.0F);
-  command_speed(&longer_period, 6.0F);
-  for (std::size_t sample = 0U; sample < 3U; ++sample) {
-    integral_output = longer_period.ControlStep(stationary, 20000U)[0];
-  }
-  CHECK(integral_output == 360);
+  MotorController saturated(FullRangeTestMotorConfiguration());
+  configure_adrc(&saturated, 0.001F, 4.0F, 12.0F);
+  command_speed(&saturated, 6.0F);
+  CHECK(saturated.ControlStep(stationary)[0] == kMotorOutputLimitPermille);
 
-  // D is the first difference of error. A 1.0 RPS step at 10 ms with Kd=6
-  // produces 600; changing the target to 0.5 RPS produces -300.
-  MotorController derivative(FullRangeTestMotorConfiguration());
-  configure_pid(&derivative, 0.0F, 0.0F, 6.0F);
-  command_speed(&derivative, 1.0F);
-  CHECK(derivative.ControlStep(stationary)[0] == 600);
-  command_speed(&derivative, 0.5F, 1U);
-  CHECK(derivative.ControlStep(stationary)[0] == -300);
+  // The ESO observes filtered encoder velocity and reduces the command as the
+  // measured speed approaches the reference.
+  MotorController observed(FullRangeTestMotorConfiguration());
+  configure_adrc(&observed, 0.01F, 4.0F, 12.0F, 1.0F);
+  std::array<std::uint32_t, kMotorCount> counters{};
+  counters[0] = 100U;
+  command_speed(&observed, 1.0F);
+  const std::int16_t initial_output = observed.ControlStep(counters)[0];
+  counters[0] = 99U;
+  const std::int16_t feedback_output = observed.ControlStep(counters)[0];
+  CHECK(initial_output == 400);
+  CHECK(feedback_output > 0);
+  CHECK(feedback_output < initial_output);
+  CHECK(observed.channels()[0].measured_rps > 0.0F);
 
-  MotorController combined(FullRangeTestMotorConfiguration());
-  configure_pid(&combined, 300.0F, 1000.0F, 2.0F);
-  command_speed(&combined, 1.0F);
-  CHECK(combined.ControlStep(stationary)[0] == 510);
-
-  // Saturation rejects only an integral update that would push farther into
-  // the active limit. The next smaller same-sign command therefore starts
-  // from zero stored integral: 1000*0.5 + 1000*(0.5*0.01) = 505.
-  MotorController positive_windup(FullRangeTestMotorConfiguration());
-  configure_pid(&positive_windup, 1000.0F, 1000.0F, 0.0F);
-  command_speed(&positive_windup, 6.0F);
-  CHECK(positive_windup.ControlStep(stationary)[0] == 1000);
-  command_speed(&positive_windup, 0.5F, 1U);
-  CHECK(positive_windup.ControlStep(stationary)[0] == 505);
-
-  MotorController negative_windup(FullRangeTestMotorConfiguration());
-  configure_pid(&negative_windup, 1000.0F, 1000.0F, 0.0F);
-  command_speed(&negative_windup, -6.0F);
-  CHECK(negative_windup.ControlStep(stationary)[0] == -1000);
-  command_speed(&negative_windup, -0.5F, 1U);
-  CHECK(negative_windup.ControlStep(stationary)[0] == -505);
-
-  MotorController deadband(FullRangeTestMotorConfiguration());
-  configure_pid(&deadband, 100.0F, 0.0F, 0.0F);
-  command_speed(&deadband, 1.0F);
-  CHECK(deadband.ControlStep(stationary)[0] == kMotorOutputDeadbandPermille);
-  command_speed(&deadband, -1.0F, 1U);
-  CHECK(deadband.ControlStep(stationary)[0] == -kMotorOutputDeadbandPermille);
-
-  // The PID error uses filtered RPS. For default JGA27 polarity, decrementing
-  // the raw counter by one yields positive instantaneous speed.
-  MotorController filtered(FullRangeTestMotorConfiguration());
-  configure_pid(&filtered, 500.0F, 0.0F, 0.0F, 0.5F);
-  command_speed(&filtered, 1.0F);
-  std::array<std::uint32_t, kMotorCount> filter_counters{};
-  filter_counters[0] = 100U;
-  CHECK(filtered.ControlStep(filter_counters)[0] == 500);
-  filter_counters[0] = 99U;
-  CHECK_NEAR(filtered.ControlStep(filter_counters)[0], 476, 0.0F);
-  CHECK_NEAR(filtered.channels()[0].measured_rps, 0.0480769F, 0.000001F);
-
-  // Stop and lease-expiry paths clear positional I and D history.
+  // Zero, lease, and session-loss paths clear the observer and applied-output
+  // state without clearing the volatile calibration override.
   MotorController reset(FullRangeTestMotorConfiguration());
-  configure_pid(&reset, 0.0F, 1000.0F, 0.0F);
-  command_speed(&reset, 6.0F);
-  for (std::size_t sample = 0U; sample < 5U; ++sample) {
-    integral_output = reset.ControlStep(stationary)[0];
-  }
-  CHECK(integral_output == 300);
+  configure_adrc(&reset, 0.01F, 4.0F, 12.0F);
+  command_speed(&reset, 1.0F);
+  CHECK(reset.ControlStep(stationary)[0] == 400);
+  static_cast<void>(reset.ControlStep(stationary));
   command_speed(&reset, 0.0F, 10U);
-  command_speed(&reset, 6.0F, 11U);
-  CHECK(reset.ControlStep(stationary)[0] == kMotorOutputDeadbandPermille);
+  command_speed(&reset, 1.0F, 11U);
+  CHECK(reset.ControlStep(stationary)[0] == 400);
   reset.EvaluateLeases(11U + kMotorLeaseExpiryUs);
   CHECK(!reset.channels()[0].armed);
-  command_speed(&reset, 6.0F, 12U + kMotorLeaseExpiryUs);
-  CHECK(reset.ControlStep(stationary)[0] == kMotorOutputDeadbandPermille);
   reset.SetSessionActive(false);
   reset.SetSessionActive(true);
-  command_speed(&reset, 6.0F, 13U + kMotorLeaseExpiryUs);
-  CHECK(reset.ControlStep(stationary)[0] == kMotorOutputDeadbandPermille);
+  command_speed(&reset, 1.0F, 12U + kMotorLeaseExpiryUs);
+  CHECK(reset.ControlStep(stationary)[0] == 400);
+
+  // Forward-Euler observer timing is fail-closed outside wo * dt <= 0.5.
+  MotorController invalid_period(FullRangeTestMotorConfiguration());
+  configure_adrc(&invalid_period, 0.01F, 4.0F, 12.0F);
+  command_speed(&invalid_period, 1.0F);
+  CHECK(invalid_period.ControlStep(stationary, 50000U)[0] == 0);
+  CHECK(!invalid_period.channels()[0].armed);
+  CHECK(invalid_period.watchdog_stop_mask() == 1U);
 }
 
 void TestMotorLeaseBoundariesAndScheduleModel() {
@@ -1917,7 +1892,7 @@ int main() {
   mentor_pi::mcu::TestFixedContainers();
   mentor_pi::mcu::TestCommandMailboxes();
   mentor_pi::mcu::TestMotorController();
-  mentor_pi::mcu::TestPositionalPidController();
+  mentor_pi::mcu::TestFirstOrderAdrcController();
   mentor_pi::mcu::TestMotorLeaseBoundariesAndScheduleModel();
   mentor_pi::mcu::TestPwmServoController();
   mentor_pi::mcu::TestButtons();

@@ -87,14 +87,19 @@ void TestOrderedApplication() {
   Expect(!core.status().motion_enabled,
          "motor model alone cannot enable motion");
 
-  call = RequireCall(&core, At(1ms), ApplyOperation::kPwmServoOffsets,
-                     "PWM offsets");
+  call = RequireCall(&core, At(1ms), ApplyOperation::kMotorAdrc, "motor LADRC");
   core.OnServiceResult(call.token, ResultCode::kOk, 0, At(2ms));
-  call = RequireCall(&core, At(2ms), ApplyOperation::kBatteryThreshold,
-                     "battery threshold");
+  Expect(!core.status().motion_enabled,
+         "motor LADRC alone cannot enable motion");
+
+  call = RequireCall(&core, At(2ms), ApplyOperation::kPwmServoOffsets,
+                     "PWM offsets");
   core.OnServiceResult(call.token, ResultCode::kOk, 0, At(3ms));
+  call = RequireCall(&core, At(3ms), ApplyOperation::kBatteryThreshold,
+                     "battery threshold");
+  core.OnServiceResult(call.token, ResultCode::kOk, 0, At(4ms));
   Expect(core.status().motion_enabled,
-         "all three ordered OK responses enable motion");
+         "all four ordered OK responses enable motion");
   Expect(core.status().phase == SupervisorPhase::kReady,
          "successful configuration reports READY");
 }
@@ -249,8 +254,9 @@ void TestReservedSessionIdStopsApplication() {
 }
 
 void TestStableDiagnosticNames() {
-  const std::array<std::pair<ApplyOperation, std::string>, 3> operations{{
+  const std::array<std::pair<ApplyOperation, std::string>, 4> operations{{
       {ApplyOperation::kMotorModel, "motors/set_model"},
+      {ApplyOperation::kMotorAdrc, "motors/set_adrc"},
       {ApplyOperation::kPwmServoOffsets, "pwm_servos/set_offsets"},
       {ApplyOperation::kBatteryThreshold, "battery/set_low_threshold"},
   }};
@@ -262,11 +268,12 @@ void TestStableDiagnosticNames() {
              "unknown operation",
          "unknown apply operation has a defensive diagnostic name");
 
-  const std::array<std::pair<SupervisorPhase, std::string>, 8> phases{{
+  const std::array<std::pair<SupervisorPhase, std::string>, 9> phases{{
       {SupervisorPhase::kDisconnected, "DISCONNECTED"},
       {SupervisorPhase::kWaitingForHeartbeat, "WAITING_FOR_HEARTBEAT"},
       {SupervisorPhase::kWaitingForReady, "WAITING_FOR_READY"},
       {SupervisorPhase::kApplyingMotorModel, "APPLYING_MOTOR_MODEL"},
+      {SupervisorPhase::kApplyingMotorAdrc, "APPLYING_MOTOR_ADRC"},
       {SupervisorPhase::kApplyingPwmServoOffsets, "APPLYING_PWM_SERVO_OFFSETS"},
       {SupervisorPhase::kApplyingBatteryThreshold,
        "APPLYING_BATTERY_THRESHOLD"},

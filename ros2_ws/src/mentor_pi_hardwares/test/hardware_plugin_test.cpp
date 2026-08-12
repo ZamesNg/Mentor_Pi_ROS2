@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <mentor_pi_interfaces/msg/heartbeat.hpp>
+#include <mentor_pi_interfaces/msg/imu_state.hpp>
 #include <mentor_pi_interfaces/msg/motor_command.hpp>
 #include <mentor_pi_interfaces/msg/motor_state.hpp>
 #include <mentor_pi_interfaces/msg/pwm_servo_command.hpp>
@@ -141,6 +142,9 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   auto state_publisher =
       node->create_publisher<mentor_pi_interfaces::msg::MotorState>(
           "/mentor_pi/motors/state", qos);
+  auto imu_publisher =
+      node->create_publisher<mentor_pi_interfaces::msg::ImuState>(
+          "/mentor_pi/imu", qos);
   std::optional<mentor_pi_interfaces::msg::MotorCommand> received;
   auto command_subscription =
       node->create_subscription<mentor_pi_interfaces::msg::MotorCommand>(
@@ -178,6 +182,9 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   feedback.motor_model = mentor_pi_interfaces::msg::MotorState::MODEL_JGA27;
   feedback.measured_rps = {1.0F, 2.0F, 3.0F, 4.0F};
   feedback.encoder_count = {1040, 2080, 3120, 4160};
+  mentor_pi_interfaces::msg::ImuState imu;
+  imu.valid = true;
+  imu.angular_velocity_rad_s.fill(0.0F);
   ASSERT_TRUE(WaitUntil(
       &executor,
       [&hardware, &states]() {
@@ -187,7 +194,10 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
         }
         return std::fabs(states[1].get_value()) > 1.0;
       },
-      [&state_publisher, &feedback]() { state_publisher->publish(feedback); }));
+      [&state_publisher, &imu_publisher, &feedback, &imu]() {
+        state_publisher->publish(feedback);
+        imu_publisher->publish(imu);
+      }));
 
   constexpr double kTwoPi = 6.28318530717958647692;
   EXPECT_NEAR(states[0].get_value(), kTwoPi, 1.0e-9);
@@ -216,9 +226,10 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
   std_msgs::msg::UInt64 authorization;
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(42);
-  const std::array<float, 4U> expected_command{1.0F, 3.0F, -2.0F, -4.0F};
-  const auto received_expected_command = [&received, &expected_command]() {
-    return received.has_value() && received->target_rps == expected_command;
+  const auto received_motion_command = [&received]() {
+    return received.has_value() && received->target_rps[0] > 0.0F &&
+           received->target_rps[1] > 0.0F && received->target_rps[2] < 0.0F &&
+           received->target_rps[3] < 0.0F;
   };
   const auto received_zero_command = [&received]() {
     return received.has_value() &&
@@ -228,14 +239,31 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
     heartbeat_publisher->publish(heartbeat);
     authorization_publisher->publish(authorization);
     state_publisher->publish(feedback);
+    imu_publisher->publish(imu);
     static_cast<void>(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)));
   };
   received.reset();
   ASSERT_TRUE(
-      WaitUntil(&executor, received_expected_command, publish_state_and_write));
+      WaitUntil(&executor, received_motion_command, publish_state_and_write));
   EXPECT_EQ(received->update_mask,
             mentor_pi_interfaces::msg::MotorCommand::ALL_MOTORS);
-  EXPECT_EQ(received->target_rps, expected_command);
+  for (const float value : received->target_rps) {
+    EXPECT_LE(std::fabs(value), 6.0F);
+  }
+
+  imu.valid = false;
+  ASSERT_TRUE(WaitUntil(
+      &executor,
+      [&hardware]() {
+        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
+               ReturnType::ERROR;
+      },
+      [&imu_publisher, &imu]() { imu_publisher->publish(imu); }));
+  received.reset();
+  ASSERT_TRUE(WaitUntil(&executor, received_zero_command, [&hardware]() {
+    static_cast<void>(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)));
+  }));
+  imu.valid = true;
 
   authorization.data = UINT64_C(42);
   received.reset();
@@ -252,7 +280,7 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(42);
   received.reset();
   ASSERT_TRUE(
-      WaitUntil(&executor, received_expected_command, publish_state_and_write));
+      WaitUntil(&executor, received_motion_command, publish_state_and_write));
 
   authorization.data = 0U;
   received.reset();
@@ -263,7 +291,7 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(42);
   received.reset();
   ASSERT_TRUE(
-      WaitUntil(&executor, received_expected_command, publish_state_and_write));
+      WaitUntil(&executor, received_motion_command, publish_state_and_write));
 
   commands[0].set_value(std::numeric_limits<double>::quiet_NaN());
   received.reset();
@@ -310,6 +338,9 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   auto pwm_state_publisher =
       node->create_publisher<mentor_pi_interfaces::msg::PwmServoState>(
           "/mentor_pi/pwm_servos/state", qos);
+  auto imu_publisher =
+      node->create_publisher<mentor_pi_interfaces::msg::ImuState>(
+          "/mentor_pi/imu", qos);
   std::optional<mentor_pi_interfaces::msg::MotorCommand> motor_received;
   std::optional<mentor_pi_interfaces::msg::PwmServoCommand> pwm_received;
   auto motor_subscription =
@@ -365,6 +396,9 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   motor_feedback.encoder_count = {0, 2080, 0, 4160};
   mentor_pi_interfaces::msg::PwmServoState pwm_feedback;
   pwm_feedback.output_pulse_width_us.fill(1500U);
+  mentor_pi_interfaces::msg::ImuState imu;
+  imu.valid = true;
+  imu.angular_velocity_rad_s.fill(0.0F);
   ASSERT_TRUE(WaitUntil(
       &executor,
       [&hardware, &states]() {
@@ -374,10 +408,11 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
         }
         return std::fabs(states[3].get_value()) > 1.0;
       },
-      [&motor_state_publisher, &pwm_state_publisher, &motor_feedback,
-       &pwm_feedback]() {
+      [&motor_state_publisher, &pwm_state_publisher, &imu_publisher,
+       &motor_feedback, &pwm_feedback, &imu]() {
         motor_state_publisher->publish(motor_feedback);
         pwm_state_publisher->publish(pwm_feedback);
+        imu_publisher->publish(imu);
       }));
 
   constexpr double kTwoPi = 6.28318530717958647692;
@@ -402,10 +437,14 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
         return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
                ReturnType::OK;
       },
-      [&heartbeat_publisher, &authorization_publisher, &heartbeat,
-       &authorization]() {
+      [&heartbeat_publisher, &authorization_publisher, &motor_state_publisher,
+       &pwm_state_publisher, &imu_publisher, &heartbeat, &authorization,
+       &motor_feedback, &pwm_feedback, &imu]() {
         heartbeat_publisher->publish(heartbeat);
         authorization_publisher->publish(authorization);
+        motor_state_publisher->publish(motor_feedback);
+        pwm_state_publisher->publish(pwm_feedback);
+        imu_publisher->publish(imu);
       }));
   motor_received.reset();
   pwm_received.reset();
@@ -414,14 +453,54 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   ASSERT_TRUE(WaitUntil(
       &executor,
       [&motor_received, &pwm_received]() {
-        return motor_received.has_value() && pwm_received.has_value();
+        return motor_received.has_value() && pwm_received.has_value() &&
+               motor_received->target_rps[1] > 2.0F &&
+               motor_received->target_rps[3] < -4.0F &&
+               pwm_received->pulse_width_us[2] != 1500U;
       },
       []() {}));
   EXPECT_EQ(motor_received->update_mask, 0x0aU);
-  EXPECT_EQ(motor_received->target_rps,
-            (std::array<float, 4U>{0.0F, 2.0F, 0.0F, -4.0F}));
+  EXPECT_GT(motor_received->target_rps[1], 2.0F);
+  EXPECT_LT(motor_received->target_rps[3], -4.0F);
+  EXPECT_LE(std::fabs(motor_received->target_rps[1]), 6.0F);
+  EXPECT_LE(std::fabs(motor_received->target_rps[3]), 6.0F);
   EXPECT_EQ(pwm_received->update_mask, 0x04U);
-  EXPECT_EQ(pwm_received->pulse_width_us[2], 1300U);
+  EXPECT_NE(pwm_received->pulse_width_us[2], 1500U);
+
+  motor_feedback.measured_rps.fill(0.0F);
+  motor_received.reset();
+  pwm_received.reset();
+  ASSERT_TRUE(WaitUntil(
+      &executor,
+      [&hardware, &motor_received, &pwm_received]() {
+        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
+                   ReturnType::OK &&
+               motor_received.has_value() && pwm_received.has_value() &&
+               pwm_received->pulse_width_us[2] == 1500U;
+      },
+      [&motor_state_publisher, &pwm_state_publisher, &imu_publisher,
+       &motor_feedback, &pwm_feedback, &imu]() {
+        motor_state_publisher->publish(motor_feedback);
+        pwm_state_publisher->publish(pwm_feedback);
+        imu_publisher->publish(imu);
+      }));
+  EXPECT_EQ(pwm_received->pulse_width_us[2], 1500U);
+
+  imu.valid = false;
+  motor_received.reset();
+  pwm_received.reset();
+  ASSERT_TRUE(WaitUntil(
+      &executor,
+      [&hardware, &motor_received, &pwm_received]() {
+        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
+                   ReturnType::ERROR &&
+               motor_received.has_value() && pwm_received.has_value() &&
+               motor_received->target_rps == std::array<float, 4U>{} &&
+               pwm_received->pulse_width_us[2] == 1500U;
+      },
+      [&imu_publisher, &imu]() { imu_publisher->publish(imu); }));
+  EXPECT_EQ(motor_received->target_rps, (std::array<float, 4U>{}));
+  EXPECT_EQ(pwm_received->pulse_width_us[2], 1500U);
 
   motor_received.reset();
   pwm_received.reset();

@@ -31,7 +31,7 @@ Before connecting actuator power:
 - confirm the CH9102F adapter is the intended board before changing access;
 - stop on unexpected heating, sound, motion, reset, or telemetry.
 
-The checked firmware is the single `NORMAL_CLOSED_LOOP_DEFAULT` PID artifact.
+The checked firmware is the single `NORMAL_CLOSED_LOOP_DEFAULT` ADRC artifact.
 No successful build, mock, Dev Container test, or passive observation qualifies
 powered motion. Record HIL evidence before making a release claim.
 

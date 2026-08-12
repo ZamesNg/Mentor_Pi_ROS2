@@ -38,15 +38,13 @@ grep -Fq 'DEFAULT_CAPTURE_TOOL="/opt/mentor_pi/tools/capture_board_diagnostics"'
   Fail "installed native capture tool is not the production default"
 grep -Fq 'PACKAGED_FIRMWARE_SHA256' "${SCRIPT_DIR}/run_runtime_action.sh" || \
   Fail "production actions do not bind a packaged firmware hash"
-grep -Fq 'production firmware identity does not match the verified PID artifact' \
+grep -Fq 'production firmware identity does not match the verified ADRC artifact' \
   "${SCRIPT_DIR}/run_runtime_action.sh" || \
   Fail "production actions do not compare the claimed and verified firmware hashes"
 grep -Fq '/var/log/mentor-pi/actions' "${SCRIPT_DIR}/install_evidence_tools.sh" || \
   Fail "evidence installer does not create the production log tree"
 
 readonly CONTROLLER_LAUNCH="${PROJECT_ROOT}/ros2_ws/src/mentor_pi_bringup/launch/controller.launch.py"
-grep -Fq 'RRCLITE_RUNTIME_ACK' "${CONTROLLER_LAUNCH}" || \
-  Fail "manual supervisor launch lacks its safety acknowledgement"
 grep -Fq 'OnProcessExit' "${CONTROLLER_LAUNCH}" || \
   Fail "manual launch no longer shuts down on supervisor exit"
 ! rg -Fq 'make -C ros2_ws run' \
@@ -64,9 +62,6 @@ for runtime_tutorial in \
   grep -Fq 'ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first' \
     "${runtime_tutorial}" || \
     Fail "runtime tutorial does not require the deployment domain: ${runtime_tutorial}"
-  grep -Fq 'RRCLITE_RUNTIME_ACK=PID_FIRMWARE_ACTUATORS_PREPARED \' \
-    "${runtime_tutorial}" || \
-    Fail "runtime tutorial lacks the safety acknowledgement: ${runtime_tutorial}"
   grep -Fq 'ros2 launch mentor_pi_hardwares mecanum.launch.py' \
     "${runtime_tutorial}" || \
     Fail "runtime tutorial lacks the direct mecanum launch: ${runtime_tutorial}"

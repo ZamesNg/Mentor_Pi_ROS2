@@ -14,6 +14,7 @@
 #include <mentor_pi_hardwares/hardware_common.hpp>
 #include <mentor_pi_hardwares/joint.hpp>
 #include <mentor_pi_interfaces/msg/heartbeat.hpp>
+#include <mentor_pi_interfaces/msg/imu_state.hpp>
 #include <mentor_pi_interfaces/msg/motor_command.hpp>
 #include <mentor_pi_interfaces/msg/motor_state.hpp>
 #include <mentor_pi_interfaces/msg/pwm_servo_command.hpp>
@@ -60,6 +61,8 @@ class AckermannHardware : public hardware_interface::SystemInterface {
 
   void MotorStateCallback(
       const mentor_pi_interfaces::msg::MotorState::SharedPtr message);
+  void ImuStateCallback(
+      const mentor_pi_interfaces::msg::ImuState::SharedPtr message);
   void PwmServoStateCallback(
       const mentor_pi_interfaces::msg::PwmServoState::SharedPtr message);
   void HeartbeatCallback(
@@ -70,8 +73,9 @@ class AckermannHardware : public hardware_interface::SystemInterface {
   void StopExecutor();
   bool FeedbackIsFresh(SteadyClock::time_point now) const;
   bool MotionIsAuthorized() const;
+  void ResetChassisAdrc();
   void SendZeroCommands();
-  bool SendDriveAndSteeringCommands();
+  bool SendDriveAndSteeringCommands(double period_seconds);
   std::size_t ParseWheelSlot(const std::string& joint_name) const;
 
   rclcpp::Node::SharedPtr node_;
@@ -83,6 +87,8 @@ class AckermannHardware : public hardware_interface::SystemInterface {
       pwm_command_publisher_;
   rclcpp::Subscription<mentor_pi_interfaces::msg::MotorState>::SharedPtr
       motor_state_subscription_;
+  rclcpp::Subscription<mentor_pi_interfaces::msg::ImuState>::SharedPtr
+      imu_state_subscription_;
   rclcpp::Subscription<mentor_pi_interfaces::msg::PwmServoState>::SharedPtr
       pwm_state_subscription_;
   rclcpp::Subscription<mentor_pi_interfaces::msg::Heartbeat>::SharedPtr
@@ -101,12 +107,23 @@ class AckermannHardware : public hardware_interface::SystemInterface {
   std::array<double, hardware::kWheelCount> velocity_rad_s_{};
   std::array<double, hardware::kWheelCount> position_rad_{};
   double steering_position_rad_{0.0};
+  double yaw_rate_rad_s_{0.0};
   double maximum_rps_{0.0};
   SteadyClock::time_point last_motor_state_{};
+  SteadyClock::time_point last_imu_state_{};
   SteadyClock::time_point last_pwm_state_{};
-  SteadyClock::time_point activated_at_{};
   std::chrono::milliseconds feedback_timeout_{100};
+  std::chrono::milliseconds imu_timeout_{100};
   hardware::SteeringCalibration steering_calibration_{};
+  hardware::FirstOrderLadrc linear_adrc_{};
+  hardware::FirstOrderLadrc yaw_adrc_{};
+  double applied_linear_correction_m_s_{0.0};
+  double applied_steering_correction_rad_{0.0};
+  double rear_wheel_radius_m_{0.0333};
+  double wheelbase_m_{0.145};
+  double linear_adrc_input_gain_per_second_{5.0};
+  double yaw_adrc_input_gain_per_mps_{30.0};
+  double yaw_adrc_minimum_speed_mps_{0.1};
   std::uint16_t steering_duration_ms_{20U};
   std::uint64_t motion_authorization_{0U};
   std::uint32_t heartbeat_session_id_{0U};
@@ -114,6 +131,8 @@ class AckermannHardware : public hardware_interface::SystemInterface {
   bool has_heartbeat_{false};
   std::atomic<bool> executor_failed_{false};
   bool has_motor_state_{false};
+  bool has_imu_state_{false};
+  bool imu_valid_{false};
   bool has_pwm_state_{false};
   bool active_{false};
   std::string robot_name_{"mentor_pi"};

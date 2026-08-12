@@ -18,6 +18,8 @@ SupervisorPhase PhaseForOperation(ApplyOperation operation) {
   switch (operation) {
     case ApplyOperation::kMotorModel:
       return SupervisorPhase::kApplyingMotorModel;
+    case ApplyOperation::kMotorAdrc:
+      return SupervisorPhase::kApplyingMotorAdrc;
     case ApplyOperation::kPwmServoOffsets:
       return SupervisorPhase::kApplyingPwmServoOffsets;
     case ApplyOperation::kBatteryThreshold:
@@ -263,6 +265,9 @@ void SupervisorCore::RetryOrReject(ResultCode result, std::uint16_t detail,
 void SupervisorCore::CompleteOperation(TimePoint now) {
   switch (status_.operation) {
     case ApplyOperation::kMotorModel:
+      SetOperation(ApplyOperation::kMotorAdrc, now);
+      return;
+    case ApplyOperation::kMotorAdrc:
       SetOperation(ApplyOperation::kPwmServoOffsets, now);
       return;
     case ApplyOperation::kPwmServoOffsets:
@@ -304,6 +309,8 @@ const char* ApplyOperationName(ApplyOperation operation) {
   switch (operation) {
     case ApplyOperation::kMotorModel:
       return "motors/set_model";
+    case ApplyOperation::kMotorAdrc:
+      return "motors/set_adrc";
     case ApplyOperation::kPwmServoOffsets:
       return "pwm_servos/set_offsets";
     case ApplyOperation::kBatteryThreshold:
@@ -322,6 +329,8 @@ const char* SupervisorPhaseName(SupervisorPhase phase) {
       return "WAITING_FOR_READY";
     case SupervisorPhase::kApplyingMotorModel:
       return "APPLYING_MOTOR_MODEL";
+    case SupervisorPhase::kApplyingMotorAdrc:
+      return "APPLYING_MOTOR_ADRC";
     case SupervisorPhase::kApplyingPwmServoOffsets:
       return "APPLYING_PWM_SERVO_OFFSETS";
     case SupervisorPhase::kApplyingBatteryThreshold:

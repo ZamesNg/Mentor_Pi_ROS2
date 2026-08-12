@@ -11,7 +11,7 @@ non-returning task entries for production.
 | Owner | Work | Normal bound |
 | --- | --- | --- |
 | `SafetySupervisorTask` | Peer liveness, emergency motor stop, sole watchdog refresh | 20 ms period; 250 ms boot grace |
-| `MotorControlTask` | Per-channel lease checks, encoder sampling, PID, motor output | Lease check at most every 2 ms; PID every tenth release |
+| `MotorControlTask` | Per-channel lease checks, encoder sampling, ADRC, motor output | Lease check at most every 2 ms; ADRC every tenth release |
 | `MicroRosTask` | ROS executor, services, telemetry, USART1 transport | Supplied by `app/microros` |
 | `BusServoTask` | UART5 frame sequencing and all bus-servo services | At most 10 ms wait between iterations |
 | `SensorTask` | IMU, buttons, battery, battery-threshold service | At most 4 ms wait between iterations |
@@ -94,17 +94,17 @@ so adapter vtables contain no deleting destructor and import no global
   the same signed permutation to acceleration and angular velocity. Positive
   rotation and extended timing HIL remain release-qualification checks.
 - `MotorControlConfiguration{}` and
-  `DefaultPidMotorControlConfiguration()` describe the same production PID
+  `DefaultAdrcMotorControlConfiguration()` describe the same production ADRC
   configuration: a 6 RPS implementation ceiling and a 1000-permille output
   limit. The active model can impose a lower RPS limit. Invalid configuration
   values fail closed: nonzero selected targets return `UNSUPPORTED`, cannot
   arm, and cannot refresh a lease, while selected zero targets remain valid
   stops. There is no alternate firmware motor mode.
-- Encoder direction and all PID/filter/deadband values are release-provisional.
-  The legacy evidence supplies provisional model polarity -1 for JGA27 and +1
+- Encoder direction and all ADRC/filter/minimum-drive values are
+  release-provisional. The legacy PID evidence supplies provisional model
+  polarity -1 for JGA27 and +1
   for JGB520/JGB37/JGB528, multiplied by each channel's wiring sign. These are
-  They remain unqualified until guarded raised-wheel control tests record each
-  profile.
+  unqualified until guarded raised-wheel control tests record each profile.
 - The controller uses the platform's pulse-shadow generator rather than the
   separate driver edge-plan abstraction; there must be only one PWM frame
   generator in the target.

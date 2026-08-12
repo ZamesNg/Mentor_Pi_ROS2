@@ -16,6 +16,7 @@
 #include "mentor_pi_interfaces/msg/heartbeat.hpp"
 #include "mentor_pi_interfaces/msg/result.hpp"
 #include "mentor_pi_interfaces/srv/set_battery_threshold.hpp"
+#include "mentor_pi_interfaces/srv/set_motor_adrc.hpp"
 #include "mentor_pi_interfaces/srv/set_motor_model.hpp"
 #include "mentor_pi_interfaces/srv/set_pwm_servo_offsets.hpp"
 #include "rclcpp/executors/single_threaded_executor.hpp"
@@ -30,10 +31,12 @@ using Heartbeat = mentor_pi_interfaces::msg::Heartbeat;
 using Result = mentor_pi_interfaces::msg::Result;
 using SetBatteryThreshold = mentor_pi_interfaces::srv::SetBatteryThreshold;
 using SetMotorModel = mentor_pi_interfaces::srv::SetMotorModel;
+using SetMotorAdrc = mentor_pi_interfaces::srv::SetMotorAdrc;
 using SetPwmServoOffsets = mentor_pi_interfaces::srv::SetPwmServoOffsets;
 
 enum class Operation {
   kMotorModel,
+  kMotorAdrc,
   kPwmOffsets,
   kBatteryThreshold,
 };
@@ -43,7 +46,20 @@ enum class MotorResponseMode {
   kMismatchedTicks,
 };
 
+enum class MotorAdrcResponseMode {
+  kExact,
+  kOkWithIncompleteMask,
+  kFailureWithNonzeroMask,
+};
+
 constexpr std::array<std::int16_t, 4> kExpectedOffsets{10, -20, 30, -40};
+constexpr std::array<float, 4> kExpectedInputGain{0.03F, 0.031F, 0.032F,
+                                                  0.033F};
+constexpr std::array<float, 4> kExpectedControllerBandwidth{4.0F, 4.1F, 4.2F,
+                                                            4.3F};
+constexpr std::array<float, 4> kExpectedObserverBandwidth{12.0F, 12.1F, 12.2F,
+                                                          12.3F};
+constexpr std::array<float, 4> kExpectedFilterWeight{0.5F, 0.6F, 0.7F, 0.8F};
 constexpr std::uint16_t kExpectedBatteryThresholdMv = 7000;
 
 int g_failures = 0;
@@ -58,9 +74,12 @@ void Expect(bool condition, const std::string& message) {
 class ControllerStub {
  public:
   explicit ControllerStub(
-      MotorResponseMode motor_response_mode = MotorResponseMode::kExact)
+      MotorResponseMode motor_response_mode = MotorResponseMode::kExact,
+      MotorAdrcResponseMode motor_adrc_response_mode =
+          MotorAdrcResponseMode::kExact)
       : node_(std::make_shared<rclcpp::Node>("controller_stub", "/mentor_pi")),
-        motor_response_mode_(motor_response_mode) {
+        motor_response_mode_(motor_response_mode),
+        motor_adrc_response_mode_(motor_adrc_response_mode) {
     const auto reliable_depth_one =
         rclcpp::QoS{rclcpp::KeepLast{std::size_t{1}}}
             .reliable()
@@ -104,6 +123,32 @@ class ControllerStub {
           response->ticks_per_revolution =
               motor_response_mode_ == MotorResponseMode::kExact ? 1040U : 1041U;
           response->max_rps = 6.0F;
+        });
+    motor_adrc_service_ = node_->create_service<SetMotorAdrc>(
+        "motors/set_adrc",
+        [this](const std::shared_ptr<SetMotorAdrc::Request> request,
+               std::shared_ptr<SetMotorAdrc::Response> response) {
+          operations_.push_back(Operation::kMotorAdrc);
+          Expect(request->update_mask == SetMotorAdrc::Request::ALL_MOTORS,
+                 "LADRC service receives the complete update mask");
+          Expect(
+              request->input_gain_rps_per_second_per_permille ==
+                      kExpectedInputGain &&
+                  request->controller_bandwidth_rad_s ==
+                      kExpectedControllerBandwidth &&
+                  request->observer_bandwidth_rad_s ==
+                      kExpectedObserverBandwidth &&
+                  request->velocity_filter_new_weight == kExpectedFilterWeight,
+              "LADRC service receives every configured gain array");
+          response->result.code =
+              motor_adrc_response_mode_ ==
+                      MotorAdrcResponseMode::kFailureWithNonzeroMask
+                  ? Result::INVALID_ARGUMENT
+                  : Result::OK;
+          response->applied_mask =
+              motor_adrc_response_mode_ == MotorAdrcResponseMode::kExact
+                  ? SetMotorAdrc::Request::ALL_MOTORS
+                  : SetMotorAdrc::Request::MOTOR_1;
         });
     pwm_service_ = node_->create_service<SetPwmServoOffsets>(
         "pwm_servos/set_offsets",
@@ -163,6 +208,7 @@ class ControllerStub {
   rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr
       authorization_subscription_;
   rclcpp::Service<SetMotorModel>::SharedPtr motor_service_;
+  rclcpp::Service<SetMotorAdrc>::SharedPtr motor_adrc_service_;
   rclcpp::Service<SetPwmServoOffsets>::SharedPtr pwm_service_;
   rclcpp::Service<SetBatteryThreshold>::SharedPtr battery_service_;
   std::vector<Operation> operations_;
@@ -172,6 +218,7 @@ class ControllerStub {
   std::uint32_t heartbeat_sequence_ = 0;
   bool second_session_busy_injected_ = false;
   MotorResponseMode motor_response_mode_;
+  MotorAdrcResponseMode motor_adrc_response_mode_;
 };
 
 template <typename Predicate>
@@ -226,6 +273,14 @@ void RunIntegrationTest() {
   rclcpp::NodeOptions options;
   options.parameter_overrides({
       rclcpp::Parameter("motor_model", "JGA27"),
+      rclcpp::Parameter("input_gain_rps_per_second_per_permille",
+                        std::vector<double>{0.03, 0.031, 0.032, 0.033}),
+      rclcpp::Parameter("controller_bandwidth_rad_s",
+                        std::vector<double>{4.0, 4.1, 4.2, 4.3}),
+      rclcpp::Parameter("observer_bandwidth_rad_s",
+                        std::vector<double>{12.0, 12.1, 12.2, 12.3}),
+      rclcpp::Parameter("velocity_filter_new_weight",
+                        std::vector<double>{0.5, 0.6, 0.7, 0.8}),
       rclcpp::Parameter("pwm_servo_offsets_us",
                         std::vector<std::int64_t>{10, -20, 30, -40}),
       rclcpp::Parameter("battery_low_threshold_mv", std::int64_t{7000}),
@@ -242,7 +297,7 @@ void RunIntegrationTest() {
       [&controller]() {
         const auto& events = controller.motion_gate_events();
         const auto& authorization_events = controller.authorization_events();
-        return controller.operations().size() >= 3U && !events.empty() &&
+        return controller.operations().size() >= 4U && !events.empty() &&
                events.back() && !authorization_events.empty() &&
                authorization_events.back() ==
                    ((UINT64_C(1) << 32U) | UINT64_C(1));
@@ -250,13 +305,15 @@ void RunIntegrationTest() {
       5s);
   Expect(first_session_ready,
          "first session opens a generation- and session-bound authorization");
-  Expect(controller.operations().size() == 3U,
-         "first session uses exactly three service calls");
+  Expect(controller.operations().size() == 4U,
+         "first session uses exactly four service calls");
   ExpectOperation(controller.operations(), 0, Operation::kMotorModel,
                   "first session motor model");
-  ExpectOperation(controller.operations(), 1, Operation::kPwmOffsets,
+  ExpectOperation(controller.operations(), 1, Operation::kMotorAdrc,
+                  "first session motor LADRC");
+  ExpectOperation(controller.operations(), 2, Operation::kPwmOffsets,
                   "first session PWM offsets");
-  ExpectOperation(controller.operations(), 2, Operation::kBatteryThreshold,
+  ExpectOperation(controller.operations(), 3, Operation::kBatteryThreshold,
                   "first session battery threshold");
 
   const auto immutable_result = supervisor->set_parameter(
@@ -283,7 +340,7 @@ void RunIntegrationTest() {
   const bool second_session_ready = SpinUntil(
       &executor, &controller,
       [&controller, event_count_before_reconnect]() {
-        return controller.operations().size() >= 7U &&
+        return controller.operations().size() >= 9U &&
                ContainsEventAfter(controller.motion_gate_events(),
                                   event_count_before_reconnect, true) &&
                !controller.authorization_events().empty() &&
@@ -293,15 +350,17 @@ void RunIntegrationTest() {
       5s);
   Expect(second_session_ready,
          "second controller session reapplies configuration and reopens gate");
-  Expect(controller.operations().size() == 7U,
-         "second session has one bounded BUSY retry plus three successes");
-  ExpectOperation(controller.operations(), 3, Operation::kMotorModel,
-                  "second session BUSY motor attempt");
+  Expect(controller.operations().size() == 9U,
+         "second session has one bounded BUSY retry plus four successes");
   ExpectOperation(controller.operations(), 4, Operation::kMotorModel,
+                  "second session BUSY motor attempt");
+  ExpectOperation(controller.operations(), 5, Operation::kMotorModel,
                   "second session successful motor retry");
-  ExpectOperation(controller.operations(), 5, Operation::kPwmOffsets,
+  ExpectOperation(controller.operations(), 6, Operation::kMotorAdrc,
+                  "second session motor LADRC");
+  ExpectOperation(controller.operations(), 7, Operation::kPwmOffsets,
                   "second session PWM offsets");
-  ExpectOperation(controller.operations(), 6, Operation::kBatteryThreshold,
+  ExpectOperation(controller.operations(), 8, Operation::kBatteryThreshold,
                   "second session battery threshold");
 
   executor.remove_node(controller.node());
@@ -312,6 +371,14 @@ void RunInconsistentMotorProfileTest() {
   rclcpp::NodeOptions options;
   options.parameter_overrides({
       rclcpp::Parameter("motor_model", "JGA27"),
+      rclcpp::Parameter("input_gain_rps_per_second_per_permille",
+                        std::vector<double>{0.03, 0.031, 0.032, 0.033}),
+      rclcpp::Parameter("controller_bandwidth_rad_s",
+                        std::vector<double>{4.0, 4.1, 4.2, 4.3}),
+      rclcpp::Parameter("observer_bandwidth_rad_s",
+                        std::vector<double>{12.0, 12.1, 12.2, 12.3}),
+      rclcpp::Parameter("velocity_filter_new_weight",
+                        std::vector<double>{0.5, 0.6, 0.7, 0.8}),
       rclcpp::Parameter("pwm_servo_offsets_us",
                         std::vector<std::int64_t>{10, -20, 30, -40}),
       rclcpp::Parameter("battery_low_threshold_mv", std::int64_t{7000}),
@@ -349,6 +416,43 @@ void RunInconsistentMotorProfileTest() {
   executor.remove_node(supervisor);
 }
 
+void RunAdrcAppliedMaskMismatchTest(MotorAdrcResponseMode response_mode,
+                                    const std::string& description) {
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+      rclcpp::Parameter("motor_model", "JGA27"),
+      rclcpp::Parameter("input_gain_rps_per_second_per_permille",
+                        std::vector<double>{0.03, 0.031, 0.032, 0.033}),
+      rclcpp::Parameter("controller_bandwidth_rad_s",
+                        std::vector<double>{4.0, 4.1, 4.2, 4.3}),
+      rclcpp::Parameter("observer_bandwidth_rad_s",
+                        std::vector<double>{12.0, 12.1, 12.2, 12.3}),
+      rclcpp::Parameter("velocity_filter_new_weight",
+                        std::vector<double>{0.5, 0.6, 0.7, 0.8}),
+      rclcpp::Parameter("pwm_servo_offsets_us",
+                        std::vector<std::int64_t>{10, -20, 30, -40}),
+      rclcpp::Parameter("battery_low_threshold_mv", std::int64_t{7000}),
+  });
+
+  auto supervisor = mentor_pi_bringup::MakeConfigurationSupervisorNode(options);
+  ControllerStub controller{MotorResponseMode::kExact, response_mode};
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(supervisor);
+  executor.add_node(controller.node());
+  const bool adrc_response_observed = SpinUntil(
+      &executor, &controller,
+      [&controller]() { return controller.operations().size() >= 2U; }, 2s);
+  Expect(adrc_response_observed, description + ": receives the LADRC request");
+  SpinFor(&executor, &controller, 300ms);
+  Expect(controller.operations().size() == 2U,
+         description + ": prevents later configuration calls");
+  for (const bool enabled : controller.motion_gate_events()) {
+    Expect(!enabled, description + ": never enables motion");
+  }
+  executor.remove_node(controller.node());
+  executor.remove_node(supervisor);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -356,6 +460,11 @@ int main(int argc, char** argv) {
   try {
     RunIntegrationTest();
     RunInconsistentMotorProfileTest();
+    RunAdrcAppliedMaskMismatchTest(MotorAdrcResponseMode::kOkWithIncompleteMask,
+                                   "LADRC OK with incomplete applied mask");
+    RunAdrcAppliedMaskMismatchTest(
+        MotorAdrcResponseMode::kFailureWithNonzeroMask,
+        "LADRC failure with nonzero applied mask");
   } catch (const std::exception& error) {
     std::cerr << "FAIL: unexpected exception: " << error.what() << '\n';
     ++g_failures;

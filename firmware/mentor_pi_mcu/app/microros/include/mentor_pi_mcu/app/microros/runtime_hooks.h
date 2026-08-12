@@ -102,7 +102,7 @@ struct MotorModelReply {
   float max_rps{0.0F};
 };
 
-struct MotorPidReply {
+struct MotorAdrcReply {
   mentor_pi::mcu::Result result{};
   std::uint8_t applied_mask{0U};
 };
@@ -211,12 +211,12 @@ struct RuntimeHooks {
                                mentor_pi::mcu::MotorModel model){nullptr};
   bool (*poll_motor_model)(void* context, ServiceToken token,
                            MotorModelReply* output){nullptr};
-  bool (*dispatch_motor_pid)(void* context, ServiceToken token,
-                             const mentor_pi::mcu::SetMotorPidCommand& command){
-      nullptr};
-  bool (*poll_motor_pid)(void* context, ServiceToken token,
-                         MotorPidReply* output){nullptr};
-  bool (*cancel_motor_pid)(void* context, ServiceToken token){nullptr};
+  bool (*dispatch_motor_adrc)(
+      void* context, ServiceToken token,
+      const mentor_pi::mcu::SetMotorAdrcCommand& command){nullptr};
+  bool (*poll_motor_adrc)(void* context, ServiceToken token,
+                          MotorAdrcReply* output){nullptr};
+  bool (*cancel_motor_adrc)(void* context, ServiceToken token){nullptr};
   bool (*dispatch_pwm_offsets)(
       void* context, ServiceToken token,
       const mentor_pi::mcu::PwmServoOffsetCommand& command){nullptr};

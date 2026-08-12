@@ -120,7 +120,7 @@ InsideRuntime() {
         /mentor_pi/bus_servos/get_state
         /mentor_pi/bus_servos/stop
         /mentor_pi/motors/set_model
-        /mentor_pi/motors/set_pid
+        /mentor_pi/motors/set_adrc
         /mentor_pi/pwm_servos/set_offsets
       )
       echo "CONTROLLER WAIT [${phase}]: monitoring graph and heartbeat for up to ${timeout_seconds} seconds."
@@ -219,7 +219,7 @@ InsideRuntime() {
       if [[ "${RUNTIME_CONTEXT}" == development ]]; then
         "${PROJECT_ROOT}/firmware/tools/verify.sh"
       else
-        echo "Verified packaged PID firmware SHA-256: ${PACKAGED_FIRMWARE_SHA256}"
+        echo "Verified packaged ADRC firmware SHA-256: ${PACKAGED_FIRMWARE_SHA256}"
       fi
       ros2 node list --no-daemon --spin-time 2.0 \
         | tee "${output}.nodes.txt"
@@ -241,7 +241,7 @@ InsideRuntime() {
       fi
       echo "PASSIVE CHECK [2/3]: collecting diagnostics and monitoring telemetry for 60 seconds."
       "${CAPTURE_TOOL}" "${capture_arguments[@]}"
-      echo "PASSIVE CHECK [3/3]: proving the PID image remains at zero with actuator power disconnected."
+      echo "PASSIVE CHECK [3/3]: proving the ADRC image remains at zero with actuator power disconnected."
       ros2 topic pub --once --qos-reliability best_effort \
         --qos-durability volatile --qos-depth 1 \
         /mentor_pi/motors/command mentor_pi_interfaces/msg/MotorCommand \
@@ -249,11 +249,11 @@ InsideRuntime() {
       timeout 10 ros2 topic echo --once --qos-reliability best_effort \
         --qos-durability volatile /mentor_pi/motors/state \
         mentor_pi_interfaces/msg/MotorState \
-        | tee "${output}/pid-zero-motor-state.yaml"
-      RequireZeroMotorTargets "${output}/pid-zero-motor-state.yaml"
+        | tee "${output}/adrc-zero-motor-state.yaml"
+      RequireZeroMotorTargets "${output}/adrc-zero-motor-state.yaml"
       timeout 10 ros2 topic echo --once --qos-reliability reliable \
         /mentor_pi/diagnostics mentor_pi_interfaces/msg/ControllerDiagnostics \
-        | tee "${output}/pid-zero-motor-diagnostics.yaml"
+        | tee "${output}/adrc-zero-motor-diagnostics.yaml"
       if [[ "${RUNTIME_CONTEXT}" == production ]]; then
         sed -i 's/^development_runtime=1$/development_runtime=0/' \
           "${output}/SUMMARY.txt"
@@ -418,7 +418,7 @@ if [[ "${RUNTIME_CONTEXT}" == production ]]; then
     "${PROJECT_ROOT}/firmware/mentor_pi_mcu/build/stm32/mentor_pi_mcu.elf" \
     | awk '{print $1}')"
   [[ "${PACKAGED_FIRMWARE_SHA256}" == "${verified_firmware_sha}" ]] || \
-    Fail "production firmware identity does not match the verified PID artifact"
+    Fail "production firmware identity does not match the verified ADRC artifact"
 fi
 [[ -r "${PROJECT_ROOT}/ros2_ws/install/setup.bash" ]] || \
   Fail "ROS applications are not built; run make -C ros2_ws build"

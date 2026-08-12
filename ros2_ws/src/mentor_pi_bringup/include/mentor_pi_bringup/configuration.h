@@ -25,6 +25,11 @@ struct DeploymentConfiguration {
   static constexpr std::uint16_t kDefaultBatteryLowThresholdMv = 6300;
 
   MotorModel motor_model = MotorModel::kJga27;
+  std::array<float, 4> input_gain_rps_per_second_per_permille{0.03F, 0.03F,
+                                                              0.03F, 0.03F};
+  std::array<float, 4> controller_bandwidth_rad_s{4.0F, 4.0F, 4.0F, 4.0F};
+  std::array<float, 4> observer_bandwidth_rad_s{12.0F, 12.0F, 12.0F, 12.0F};
+  std::array<float, 4> velocity_filter_new_weight{0.5F, 0.5F, 0.5F, 0.5F};
   std::array<std::int16_t, 4> pwm_servo_offsets_us{0, 0, 0, 0};
   std::uint16_t battery_low_threshold_mv = kDefaultBatteryLowThresholdMv;
 
@@ -36,7 +41,7 @@ struct DeploymentConfiguration {
 // schema validation available to host-native tests.
 using ConfigurationValue =
     std::variant<std::monostate, std::string, std::int64_t,
-                 std::vector<std::int64_t>>;
+                 std::vector<std::int64_t>, std::vector<double>>;
 using ConfigurationMap = std::map<std::string, ConfigurationValue>;
 
 struct ConfigurationValidation {
@@ -55,8 +60,8 @@ enum class MotorProfileResponseError : std::uint8_t {
   kMaxRpsMismatch = 4,
 };
 
-// Validates the exact schema from architecture.md (HOST-001). All three keys
-// are required; unknown keys and values of the wrong variant are rejected.
+// Validates the exact schema from architecture.md (HOST-001). Every key is
+// required; unknown keys and values of the wrong variant are rejected.
 ConfigurationValidation ValidateConfiguration(
     const ConfigurationMap& parameters);
 

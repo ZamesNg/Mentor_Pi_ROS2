@@ -16,8 +16,8 @@ using mentor_pi_mcu::app::microros::ConfigureBusServoReply;
 using mentor_pi_mcu::app::microros::GetBusServoStateReply;
 using mentor_pi_mcu::app::microros::HealthSnapshot;
 using mentor_pi_mcu::app::microros::ImuTelemetry;
+using mentor_pi_mcu::app::microros::MotorAdrcReply;
 using mentor_pi_mcu::app::microros::MotorModelReply;
-using mentor_pi_mcu::app::microros::MotorPidReply;
 using mentor_pi_mcu::app::microros::MotorTelemetry;
 using mentor_pi_mcu::app::microros::PwmOffsetsReply;
 using mentor_pi_mcu::app::microros::PwmServoTelemetry;
@@ -141,18 +141,18 @@ bool HookPollMotorModel(void* context, ServiceToken token,
   return Runtime(context)->PollMotorModel(token, output);
 }
 
-bool HookDispatchMotorPid(void* context, ServiceToken token,
-                          const mentor_pi::mcu::SetMotorPidCommand& command) {
-  return Runtime(context)->DispatchMotorPid(token, command);
+bool HookDispatchMotorAdrc(void* context, ServiceToken token,
+                           const mentor_pi::mcu::SetMotorAdrcCommand& command) {
+  return Runtime(context)->DispatchMotorAdrc(token, command);
 }
 
-bool HookPollMotorPid(void* context, ServiceToken token,
-                      MotorPidReply* output) {
-  return Runtime(context)->PollMotorPid(token, output);
+bool HookPollMotorAdrc(void* context, ServiceToken token,
+                       MotorAdrcReply* output) {
+  return Runtime(context)->PollMotorAdrc(token, output);
 }
 
-bool HookCancelMotorPid(void* context, ServiceToken token) {
-  return Runtime(context)->CancelMotorPid(token);
+bool HookCancelMotorAdrc(void* context, ServiceToken token) {
+  return Runtime(context)->CancelMotorAdrc(token);
 }
 
 bool HookDispatchPwmOffsets(
@@ -238,9 +238,9 @@ RuntimeHooks ControllerRuntime::BuildMicroRosHooks() {
   hooks.read_worker_diagnostics = &HookReadDiagnostics;
   hooks.dispatch_motor_model = &HookDispatchMotorModel;
   hooks.poll_motor_model = &HookPollMotorModel;
-  hooks.dispatch_motor_pid = &HookDispatchMotorPid;
-  hooks.poll_motor_pid = &HookPollMotorPid;
-  hooks.cancel_motor_pid = &HookCancelMotorPid;
+  hooks.dispatch_motor_adrc = &HookDispatchMotorAdrc;
+  hooks.poll_motor_adrc = &HookPollMotorAdrc;
+  hooks.cancel_motor_adrc = &HookCancelMotorAdrc;
   hooks.dispatch_pwm_offsets = &HookDispatchPwmOffsets;
   hooks.poll_pwm_offsets = &HookPollPwmOffsets;
   hooks.dispatch_battery_threshold = &HookDispatchBatteryThreshold;

@@ -43,6 +43,23 @@ TEST(HardwareCommonTest, ExposesLegacyMotorProfileLimits) {
   EXPECT_FALSE(MotorMaximumRps(4U).has_value());
 }
 
+TEST(HardwareCommonTest, FirstOrderLadrcRejectsInvalidTimingAndResets) {
+  FirstOrderLadrc controller;
+  EXPECT_FALSE(controller.Configure(0.0, 3.0));
+  EXPECT_FALSE(controller.Configure(4.0, 3.0));
+  ASSERT_TRUE(controller.Configure(1.0, 3.0));
+
+  const auto first = controller.Update(1.0, 0.0, 0.0, 5.0, 1.0 / 30.0);
+  ASSERT_TRUE(first.has_value());
+  EXPECT_NEAR(*first, 0.2, 1.0e-9);
+  EXPECT_FALSE(controller.Update(1.0, 0.0, 0.0, 5.0, 0.2).has_value());
+
+  controller.Reset();
+  const auto reverse = controller.Update(1.0, 0.0, 0.0, -5.0, 1.0 / 30.0);
+  ASSERT_TRUE(reverse.has_value());
+  EXPECT_NEAR(*reverse, -0.2, 1.0e-9);
+}
+
 TEST(HardwareCommonTest, ConvertsConfiguredSteeringCalibration) {
   SteeringCalibration calibration;
   EXPECT_TRUE(IsValidSteeringCalibration(calibration));

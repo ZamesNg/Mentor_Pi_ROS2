@@ -40,8 +40,8 @@
 #include "mentor_pi_interfaces/srv/configure_bus_servo.hpp"
 #include "mentor_pi_interfaces/srv/get_bus_servo_state.hpp"
 #include "mentor_pi_interfaces/srv/set_battery_threshold.hpp"
+#include "mentor_pi_interfaces/srv/set_motor_adrc.hpp"
 #include "mentor_pi_interfaces/srv/set_motor_model.hpp"
-#include "mentor_pi_interfaces/srv/set_motor_pid.hpp"
 #include "mentor_pi_interfaces/srv/set_pwm_servo_offsets.hpp"
 #include "mentor_pi_interfaces/srv/stop_bus_servos.hpp"
 #include "rclcpp/serialization.hpp"
@@ -367,22 +367,24 @@ void SetBoundaryFields(srv::SetMotorModel::Response* message,
   message->max_rps = NumericBoundary<float>(boundary);
 }
 
-void SetBoundaryFields(srv::SetMotorPid::Request* message, Boundary boundary) {
+void SetBoundaryFields(srv::SetMotorAdrc::Request* message, Boundary boundary) {
   message->update_mask = boundary == Boundary::kLower
-                             ? srv::SetMotorPid::Request::MOTOR_1
-                             : srv::SetMotorPid::Request::ALL_MOTORS;
+                             ? srv::SetMotorAdrc::Request::MOTOR_1
+                             : srv::SetMotorAdrc::Request::ALL_MOTORS;
   const float gain = boundary == Boundary::kLower ? 0.0F : 1000.0F;
   const float filter = boundary == Boundary::kLower ? 0.0F : 1.0F;
-  message->proportional_gain.fill(gain);
-  message->integral_gain.fill(gain);
-  message->derivative_gain.fill(gain);
+  message->input_gain_rps_per_second_per_permille.fill(gain);
+  message->controller_bandwidth_rad_s.fill(gain);
+  message->observer_bandwidth_rad_s.fill(gain);
   message->velocity_filter_new_weight.fill(filter);
 }
 
-void SetBoundaryFields(srv::SetMotorPid::Response* message, Boundary boundary) {
+void SetBoundaryFields(srv::SetMotorAdrc::Response* message,
+                       Boundary boundary) {
   SetBoundaryFields(&message->result, boundary);
-  message->applied_mask =
-      boundary == Boundary::kLower ? 0U : srv::SetMotorPid::Request::ALL_MOTORS;
+  message->applied_mask = boundary == Boundary::kLower
+                              ? 0U
+                              : srv::SetMotorAdrc::Request::ALL_MOTORS;
 }
 
 void SetBoundaryFields(srv::SetPwmServoOffsets::Request* message,
@@ -473,7 +475,7 @@ using GeneratedServicePartTypes = ::testing::Types<
     srv::GetBusServoState::Request, srv::GetBusServoState::Response,
     srv::SetBatteryThreshold::Request, srv::SetBatteryThreshold::Response,
     srv::SetMotorModel::Request, srv::SetMotorModel::Response,
-    srv::SetMotorPid::Request, srv::SetMotorPid::Response,
+    srv::SetMotorAdrc::Request, srv::SetMotorAdrc::Response,
     srv::SetPwmServoOffsets::Request, srv::SetPwmServoOffsets::Response,
     srv::StopBusServos::Request, srv::StopBusServos::Response>;
 

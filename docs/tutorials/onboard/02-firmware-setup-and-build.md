@@ -12,7 +12,7 @@ make -C firmware package
 
 The build uses CMake/Ninja, the checksummed Arm GNU 13.2.Rel1 toolchain, and the
 checked Humble micro-ROS SDK. It does not invoke colcon. The verified package
-contains a single `NORMAL_CLOSED_LOOP_DEFAULT` PID ELF/Hex/Bin/Map set.
+contains a single `NORMAL_CLOSED_LOOP_DEFAULT` ADRC ELF/Hex/Bin/Map set.
 
 Record:
 

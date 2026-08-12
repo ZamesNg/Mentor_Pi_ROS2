@@ -3,3 +3,12 @@ vehicle:
   vehicle_type: mecanum
 hardware:
   feedback_timeout_ms: 100
+  imu_timeout_ms: 100
+  wheel_radius_m: 0.0325
+  wheel_projection_sum_m: 0.14
+  linear_adrc_input_gain_per_second: 5.0
+  linear_adrc_controller_bandwidth_rad_s: 1.0
+  linear_adrc_observer_bandwidth_rad_s: 3.0
+  yaw_adrc_input_gain_per_second: 5.0
+  yaw_adrc_controller_bandwidth_rad_s: 1.0
+  yaw_adrc_observer_bandwidth_rad_s: 3.0

@@ -132,7 +132,7 @@ rrclite_require_file(
   "${RRCLITE_MICROROS_ROOT}/include/mentor_pi_interfaces/srv/set_motor_model.h"
   "Regenerate libmicroros with the project-owned interface package.")
 rrclite_require_file(
-  "${RRCLITE_MICROROS_ROOT}/include/mentor_pi_interfaces/srv/set_motor_pid.h"
+  "${RRCLITE_MICROROS_ROOT}/include/mentor_pi_interfaces/srv/set_motor_adrc.h"
   "Regenerate libmicroros with the project-owned interface package.")
 rrclite_require_file(
   "${RRCLITE_LINKER_SCRIPT}"
@@ -465,7 +465,7 @@ add_custom_command(TARGET mentor_pi_mcu POST_BUILD
 )
 
 message(STATUS "RRCLite target: STM32F407VET6")
-message(STATUS "RRCLite motor mode: PID CLOSED_LOOP (6 RPS, ±1000 permille)")
+message(STATUS "RRCLite motor mode: ADRC CLOSED_LOOP (6 RPS, ±1000 permille)")
 message(STATUS "STM32CubeF4: ${RRCLITE_CUBE_COMMIT}")
 message(STATUS "libmicroros: ${RRCLITE_MICROROS_LIBRARY}")
 message(STATUS "linker script: ${RRCLITE_LINKER_SCRIPT}")

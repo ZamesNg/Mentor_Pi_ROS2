@@ -70,7 +70,7 @@ FreeRTOS shall use native static creation APIs. Priority 0 is idle and
 | Priority | Task | Static stack | Responsibility and release |
 | ---: | --- | ---: | --- |
 | 7 | `SafetySupervisorTask` | 1 KiB | Every 20 ms: validate task heartbeats, invoke emergency motor shutdown on a critical stall, and conditionally refresh IWDG. |
-| 6 | `MotorControlTask` | 2 KiB | A 1 kHz safety release checks per-motor command leases; every tenth release performs encoder sampling and PID at 100 Hz. Sole normal owner of motor state and PWM. |
+| 6 | `MotorControlTask` | 2 KiB | A 1 kHz safety release checks per-motor command leases; every tenth release performs encoder sampling and ADRC at 100 Hz. Sole normal owner of motor state and PWM. |
 | 5 | `MicroRosTask` | 16 KiB | Own USART1 transport, allocator lifecycle, rmw/rcl/rclc entities, executor, publications, services, and Agent state. It shall never wait for hardware other than bounded USART1 transport waits. |
 | 4 | `BusServoTask` | 3 KiB | Own UART5 half-duplex direction, request/response buffers, timeouts, and all bus-servo movement/configuration/read/stop transactions. |
 | 3 | `SensorTask` | 4 KiB | Own QMI8658 acquisition, button debounce/event generation, battery ADC conversion/filtering, and sensor snapshots. |
@@ -90,7 +90,7 @@ command acceptance.
 ## Motor build-time safety gate
 
 Motor motion authority is a compile-time property and has no ROS unlock. The
-only supported build is the normal PID release artifact:
+only supported build is the normal ADRC release artifact:
 
 ```sh
 make -C firmware build
@@ -107,8 +107,8 @@ required HIL evidence is recorded.
 
 Before its first powered command, each channel shall pass a passive encoder
 direction test with motor PWM disabled. The current JGA27 model polarity factor
-is provisionally `-1`, inferred from the legacy JGA27 profile's negative gains;
-it is evidence to test, not a verified physical fact. All motor PID constants
+is provisionally `-1`, inferred from the legacy JGA27 profile's negative PID
+gains; it is evidence to test, not a verified physical fact. All motor ADRC constants
 and model/channel polarity factors remain provisional until D3 HIL records
 qualify or replace them. A later production-motion enable requires those
 records and reviewed change control; host configuration success alone cannot
@@ -375,12 +375,22 @@ diagnostics publication, selected by a separate round-robin cursor. Spreading
 simultaneously due state does not change the source rates and prevents three
 consecutive physical TX waits in one slice.
 
-The closed-loop motor calculation is a positional PID over filtered measured
-RPS: P uses current speed error, I stores the time integral of that error, and
-D uses its first time difference. Conditional integration prevents windup at
-the configured output limit. PID state is owned exclusively by
-`MotorControlTask`; ROS callbacks can only submit validated gain updates to the
-motor owner.
+The closed-loop motor calculation is first-order linear ADRC over filtered
+measured RPS. With observer error `e = z1 - measured_rps`, each 100 Hz update
+uses the previously applied post-floor motor output:
+
+```text
+z1 += dt * (z2 + b0 * applied_output - 2 * wo * e)
+z2 += dt * (-wo * wo * e)
+output = (wc * (target_rps - z1) - z2) / b0
+```
+
+`b0` is the input gain in RPS/s/permille, `wc` is controller bandwidth, and
+`wo` is observer bandwidth. The output is clamped to +/-1000 permille and any
+nonzero magnitude below 250 permille is raised to that existing minimum-drive
+floor. ADRC state is owned exclusively by `MotorControlTask`; ROS callbacks
+can only submit validated parameter updates to the motor owner. Non-finite
+state or `wo * dt > 0.5` fails closed.
 
 Every overwrite, drop, invalid command, busy response, timeout, UART error, DMA
 overrun, reconnect, missed release, and high-water mark shall be counted.
@@ -399,7 +409,7 @@ SAFE_BOOT -> WAIT_AGENT -> CREATE_ENTITIES -> ACTIVE
 
 Initialize clocks and GPIO with all motor compares zero and motor outputs
 disabled. Create all static RTOS objects and start hardware owners. Configure
-the custom transport, but do not arm motors. The default PID image retains its
+the custom transport, but do not arm motors. The default ADRC image retains its
 compile-time model limit, implementation ceiling, and output clamp after
 entering `ACTIVE`; a session transition does not change build authority.
 PWM-servo GPIO remains low until
@@ -593,11 +603,22 @@ parameter YAML file with this exact schema:
 /mentor_pi/configuration_supervisor:
   ros__parameters:
     motor_model: "JGA27"
+    input_gain_rps_per_second_per_permille: [0.03, 0.03, 0.03, 0.03]
+    controller_bandwidth_rad_s: [4.0, 4.0, 4.0, 4.0]
+    observer_bandwidth_rad_s: [12.0, 12.0, 12.0, 12.0]
+    velocity_filter_new_weight: [0.5, 0.5, 0.5, 0.5]
     pwm_servo_offsets_us: [0, 0, 0, 0]
     battery_low_threshold_mv: 6300
 ```
 
 `motor_model` is exactly `JGB520`, `JGB37`, `JGA27`, or `JGB528`;
+`input_gain_rps_per_second_per_permille` contains exactly four finite positive
+doubles no greater than 1000. `controller_bandwidth_rad_s` and
+`observer_bandwidth_rad_s` each contain exactly four finite positive doubles no
+greater than 50, and each controller bandwidth shall not exceed its matching
+observer bandwidth. `velocity_filter_new_weight` contains exactly four finite
+doubles from 0 through 1. All four arrays use firmware connector order M1, M2,
+M3, M4;
 `pwm_servo_offsets_us` contains exactly four integers from -100 through +100 in
 connector order; and `battery_low_threshold_mv` is 5000 through 20000. Unknown
 keys, wrong types/counts, and out-of-range values are startup errors. The Agent
@@ -617,9 +638,13 @@ heartbeat state `READY` or `DEGRADED`, and idempotently applies the validated
 deployment configuration in this order:
 
 1. call `motors/set_model`;
-2. call `pwm_servos/set_offsets`;
-3. call `battery/set_low_threshold`;
-4. set the host-local motion-enable gate true only after all three return `OK`.
+2. call `motors/set_adrc` with `ALL_MOTORS` and all configured ADRC and filter
+   arrays;
+3. require its `OK` response to report `applied_mask == ALL_MOTORS`;
+4. call `pwm_servos/set_offsets`;
+5. call `battery/set_low_threshold`;
+6. set the host-local motion-enable gate true only after all four calls are
+   contract-consistent.
 
 The supervisor publishes that state with transient-local reliable QoS on both
 `/mentor_pi/configuration/motion_enabled` (`std_msgs/msg/Bool`) and
@@ -642,9 +667,9 @@ after that event. Consequently, a retained token cannot authorize a new MCU
 boot whose first `agent_session_id` collides with an earlier boot.
 
 Project-owned host motion publishers shall not publish while this gate is
-false. A true host-local gate means only that the three configuration services
+false. A true host-local gate means only that the four configuration services
 completed; it neither overrides the firmware motor limits nor qualifies
-PID/polarity. The MCU independently applies its compile-time authority and
+ADRC/polarity. The MCU independently applies its compile-time authority and
 requires a fresh valid command, so the host gate is an additional sequencing
 rule, not the motor safety mechanism.
 
@@ -658,7 +683,7 @@ tagged with both the host-local configuration generation and the observed
 or Agent session other than the current pair is discarded and cannot advance
 configuration or enable motion. The supervisor exposes or logs its pending,
 applied, or rejected state.
-It reapplies all three values after an Agent-only reconnect as well as an MCU
+It reapplies all four values after an Agent-only reconnect as well as an MCU
 reset; values read from a previous session are not assumed to remain effective.
 Reapplying an already-active battery threshold shall be an idempotent no-op that
 does not restart battery-alarm debounce state.

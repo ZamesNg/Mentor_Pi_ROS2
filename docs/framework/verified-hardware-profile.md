@@ -36,9 +36,9 @@ noise/settling observation rather than used to change firmware polarity.
 
 JGA27 remains the firmware reset default and the host supervisor still applies
 the configured JGA27 model at each ROS session. The existing JGA27 reference
-values for ticks per revolution, maximum speed, filter, and PID gains remain
+values for ticks per revolution, maximum speed, filter, and ADRC gains remain
 provisional until a later powered, current-limited control stage measures them.
-The default image now uses the shared closed-loop PID implementation. That
+The default image now uses the shared closed-loop ADRC implementation. That
 software state does not qualify the provisional gains, polarity, or regulated
 speed. Encoder sign and the operator-observed physical direction must agree
 before another channel is attempted, and powered characterization still needs

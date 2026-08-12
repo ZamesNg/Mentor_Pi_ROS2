@@ -13,10 +13,10 @@
 namespace mentor_pi::mcu {
 namespace {
 
-// Every model intentionally shares the same positional-PID starting values.
+// Every model intentionally shares the same first-order LADRC starting values.
 // They are safe-bounded but remain release-provisional until D3 motor HIL
-// records the final gains, filter, and deadband for each physical motor
-// profile.
+// records the final gains, filter, and minimum-drive floor for each physical
+// motor profile.
 constexpr const auto& kJgb520Contract =
     mentor_pi_interfaces::kMotorProfileContracts[0];
 constexpr const auto& kJgb37Contract =
@@ -175,9 +175,9 @@ MotorModelChange MotorController::SetModel(MotorModel model) {
   }
   profile_ = &GetMotorProfile(model);
   for (std::size_t index = 0; index < kMotorCount; ++index) {
-    ResetPid(index);
+    ResetAdrc(index);
     channels_[index].measured_rps = 0.0F;
-    pid_overrides_[index] = {};
+    adrc_overrides_[index] = {};
   }
   // Tick scale and provisional polarity are model properties. Establish a
   // fresh counter baseline on the next sample so changing either cannot turn
@@ -186,8 +186,8 @@ MotorModelChange MotorController::SetModel(MotorModel model) {
   return {OkResult(), *profile_};
 }
 
-MotorPidUpdate MotorController::SetPid(const SetMotorPidCommand& command) {
-  const Result validation = ValidateSetMotorPidCommand(command);
+MotorAdrcUpdate MotorController::SetAdrc(const SetMotorAdrcCommand& command) {
+  const Result validation = ValidateSetMotorAdrcCommand(command);
   if (!validation.ok()) {
     return {validation, 0U};
   }
@@ -197,7 +197,7 @@ MotorPidUpdate MotorController::SetPid(const SetMotorPidCommand& command) {
 
   for (const MotorChannelState& channel : channels_) {
     if (channel.armed || channel.target_rps != 0.0F ||
-        std::fabs(channel.measured_rps) >= kMotorPidUpdateMaximumMeasuredRps) {
+        std::fabs(channel.measured_rps) >= kMotorAdrcUpdateMaximumMeasuredRps) {
       return {{ResultCode::kBusy, 0U}, 0U};
     }
   }
@@ -207,12 +207,13 @@ MotorPidUpdate MotorController::SetPid(const SetMotorPidCommand& command) {
     if ((command.update_mask & bit) == 0U) {
       continue;
     }
-    pid_overrides_[index].active = true;
-    pid_overrides_[index].gains = {command.proportional_gain[index],
-                                   command.integral_gain[index],
-                                   command.derivative_gain[index],
-                                   command.velocity_filter_new_weight[index]};
-    ResetPid(index);
+    adrc_overrides_[index].active = true;
+    adrc_overrides_[index].calibration = {
+        command.input_gain_rps_per_second_per_permille[index],
+        command.controller_bandwidth_rad_s[index],
+        command.observer_bandwidth_rad_s[index],
+        command.velocity_filter_new_weight[index]};
+    ResetAdrc(index);
   }
   return {OkResult(), command.update_mask};
 }
@@ -266,10 +267,10 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
     const float instantaneous_rps =
         static_cast<float>(normalized_delta) /
         (static_cast<float>(profile_->ticks_per_revolution) * period_seconds);
-    const PidCalibration gains = pid_overrides_[index].active
-                                     ? pid_overrides_[index].gains
-                                     : profile_->pid;
-    const float filter_weight = gains.velocity_filter_new_weight;
+    const AdrcCalibration calibration = adrc_overrides_[index].active
+                                            ? adrc_overrides_[index].calibration
+                                            : profile_->adrc;
+    const float filter_weight = calibration.velocity_filter_new_weight;
     channel.measured_rps = filter_weight * instantaneous_rps +
                            (1.0F - filter_weight) * channel.measured_rps;
 
@@ -278,51 +279,57 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
       outputs[index] = 0;
       continue;
     }
-
-    PidState& pid = pid_state_[index];
-    const float error = channel.target_rps - channel.measured_rps;
-    const float proportional = gains.proportional_gain * error;
-    const float derivative =
-        gains.derivative_gain * (error - pid.previous_error) / period_seconds;
-
-    float trial_accumulated_error = pid.accumulated_error;
-    if (gains.integral_gain > 0.0F) {
-      const float trial = pid.accumulated_error + period_seconds * error;
-      if (std::isfinite(trial)) {
-        trial_accumulated_error = trial;
-      }
-    } else {
-      trial_accumulated_error = 0.0F;
+    if (calibration.observer_bandwidth_rad_s * period_seconds > 0.5F) {
+      StopChannel(index, true);
+      outputs[index] = 0;
+      continue;
     }
 
-    const float trial_integral = gains.integral_gain * trial_accumulated_error;
-    float candidate = proportional + trial_integral + derivative;
-    // Conditional integration prevents the integral state from growing while
-    // the positional PID output is saturated and the current error would drive
-    // it farther into saturation. P and D remain able to recover immediately.
+    AdrcState& state = adrc_state_[index];
+    const float observer_error =
+        state.observed_velocity_rps - channel.measured_rps;
+    const float observer_bandwidth = calibration.observer_bandwidth_rad_s;
+    state.observed_velocity_rps +=
+        period_seconds * (state.observed_disturbance_rps_per_second +
+                          calibration.input_gain_rps_per_second_per_permille *
+                              state.applied_output_permille -
+                          2.0F * observer_bandwidth * observer_error);
+    state.observed_disturbance_rps_per_second +=
+        period_seconds *
+        (-observer_bandwidth * observer_bandwidth * observer_error);
+    if (!std::isfinite(state.observed_velocity_rps) ||
+        !std::isfinite(state.observed_disturbance_rps_per_second)) {
+      StopChannel(index, true);
+      outputs[index] = 0;
+      continue;
+    }
+
+    const float candidate =
+        (calibration.controller_bandwidth_rad_s *
+             (channel.target_rps - state.observed_velocity_rps) -
+         state.observed_disturbance_rps_per_second) /
+        calibration.input_gain_rps_per_second_per_permille;
+    if (!std::isfinite(candidate)) {
+      StopChannel(index, true);
+      outputs[index] = 0;
+      continue;
+    }
     const float output_limit =
         static_cast<float>(configuration_.output_limit_permille);
-    if ((candidate > output_limit && error > 0.0F) ||
-        (candidate < -output_limit && error < 0.0F)) {
-      candidate = proportional + gains.integral_gain * pid.accumulated_error +
-                  derivative;
-    } else {
-      pid.accumulated_error = trial_accumulated_error;
-    }
-    pid.previous_error = error;
     const float output = ClampOutput(candidate, output_limit);
 
     const float absolute_output = std::fabs(output);
-    const std::int16_t effective_deadband = std::min(
-        kMotorOutputDeadbandPermille, configuration_.output_limit_permille);
+    const std::int16_t effective_minimum_drive = std::min(
+        kMotorMinimumDrivePermille, configuration_.output_limit_permille);
     if (absolute_output > 0.0F &&
-        absolute_output < static_cast<float>(effective_deadband)) {
+        absolute_output < static_cast<float>(effective_minimum_drive)) {
       channel.output_permille =
-          output > 0.0F ? effective_deadband
-                        : static_cast<std::int16_t>(-effective_deadband);
+          output > 0.0F ? effective_minimum_drive
+                        : static_cast<std::int16_t>(-effective_minimum_drive);
     } else {
       channel.output_permille = static_cast<std::int16_t>(std::lround(output));
     }
+    state.applied_output_permille = static_cast<float>(channel.output_permille);
     outputs[index] = channel.output_permille;
   }
   return outputs;
@@ -394,8 +401,9 @@ std::int32_t MotorController::SignedCounterDelta(std::uint32_t current,
   return static_cast<std::int32_t>(signed_difference);
 }
 
-void MotorController::ResetPid(std::size_t index) {
-  pid_state_[index] = {};
+void MotorController::ResetAdrc(std::size_t index) {
+  adrc_state_[index] = {};
+  adrc_state_[index].observed_velocity_rps = channels_[index].measured_rps;
   channels_[index].output_permille = 0;
 }
 
@@ -407,7 +415,7 @@ void MotorController::StopChannel(std::size_t index, bool watchdog_stop) {
   if (watchdog_stop) {
     channel.watchdog_stopped = true;
   }
-  ResetPid(index);
+  ResetAdrc(index);
 }
 
 void MotorController::RecordRejectedCommand(std::uint8_t update_mask) {

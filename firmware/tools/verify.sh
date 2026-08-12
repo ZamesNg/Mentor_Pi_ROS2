@@ -25,7 +25,7 @@ for expected in \
     'target=STM32F407VET6' \
     'ros_distro=humble' \
     'builder_mode=native-pinned' \
-    'motor_mode=PID' \
+    'motor_mode=ADRC' \
     'control_mode=CLOSED_LOOP' \
     'artifact_mode=NORMAL' \
     'classification=NORMAL_CLOSED_LOOP_DEFAULT' \

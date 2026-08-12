@@ -14,6 +14,7 @@
 #include <mentor_pi_hardwares/hardware_common.hpp>
 #include <mentor_pi_hardwares/joint.hpp>
 #include <mentor_pi_interfaces/msg/heartbeat.hpp>
+#include <mentor_pi_interfaces/msg/imu_state.hpp>
 #include <mentor_pi_interfaces/msg/motor_command.hpp>
 #include <mentor_pi_interfaces/msg/motor_state.hpp>
 #include <mutex>
@@ -58,6 +59,8 @@ class MecanumHardware : public hardware_interface::SystemInterface {
 
   void MotorStateCallback(
       const mentor_pi_interfaces::msg::MotorState::SharedPtr message);
+  void ImuStateCallback(
+      const mentor_pi_interfaces::msg::ImuState::SharedPtr message);
   void HeartbeatCallback(
       const mentor_pi_interfaces::msg::Heartbeat::SharedPtr message);
   void MotionAuthorizationCallback(
@@ -66,8 +69,9 @@ class MecanumHardware : public hardware_interface::SystemInterface {
   void StopExecutor();
   bool FeedbackIsFresh(SteadyClock::time_point now) const;
   bool MotionIsAuthorized() const;
+  void ResetChassisAdrc();
   void SendZeroMotorCommand();
-  bool SendMotorCommand();
+  bool SendMotorCommand(double period_seconds);
   std::size_t ParseWheelSlot(const std::string& joint_name) const;
 
   rclcpp::Node::SharedPtr node_;
@@ -77,6 +81,8 @@ class MecanumHardware : public hardware_interface::SystemInterface {
       motor_command_publisher_;
   rclcpp::Subscription<mentor_pi_interfaces::msg::MotorState>::SharedPtr
       motor_state_subscription_;
+  rclcpp::Subscription<mentor_pi_interfaces::msg::ImuState>::SharedPtr
+      imu_state_subscription_;
   rclcpp::Subscription<mentor_pi_interfaces::msg::Heartbeat>::SharedPtr
       heartbeat_subscription_;
   rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr
@@ -90,16 +96,26 @@ class MecanumHardware : public hardware_interface::SystemInterface {
   mutable std::mutex authorization_mutex_;
   std::array<double, hardware::kWheelCount> velocity_rad_s_{};
   std::array<double, hardware::kWheelCount> position_rad_{};
+  double yaw_rate_rad_s_{0.0};
   double maximum_rps_{0.0};
   SteadyClock::time_point last_motor_state_{};
-  SteadyClock::time_point activated_at_{};
+  SteadyClock::time_point last_imu_state_{};
   std::chrono::milliseconds feedback_timeout_{100};
+  std::chrono::milliseconds imu_timeout_{100};
+  std::array<hardware::FirstOrderLadrc, 3U> chassis_adrc_{};
+  std::array<double, 3U> applied_correction_{};
+  double wheel_radius_m_{0.0325};
+  double wheel_projection_sum_m_{0.14};
+  double linear_adrc_input_gain_per_second_{5.0};
+  double yaw_adrc_input_gain_per_second_{5.0};
   std::uint64_t motion_authorization_{0U};
   std::uint32_t heartbeat_session_id_{0U};
   bool heartbeat_ready_{false};
   bool has_heartbeat_{false};
   std::atomic<bool> executor_failed_{false};
   bool has_motor_state_{false};
+  bool has_imu_state_{false};
+  bool imu_valid_{false};
   bool active_{false};
   std::string robot_name_{"mentor_pi"};
 };

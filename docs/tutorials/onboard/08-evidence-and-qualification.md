@@ -29,6 +29,6 @@ PREFLIGHT_ACK=ACTUATORS_DISCONNECTED make qualification-preflight
 
 Campaign commands require their documented fixture variables and exact
 acknowledgements; inspect `make help` before use. Do not infer powered motion,
-PID performance, endurance, or release qualification from a software build,
+ADRC performance, endurance, or release qualification from a software build,
 mock, passive capture, or green campaign JUnit result. Those claims remain open
 until the required instrumented HIL files are recorded and reviewed.

@@ -3,12 +3,30 @@
 
   <xacro:arg name="robot_name" default="mentor_pi"/>
   <xacro:arg name="feedback_timeout_ms" default="100"/>
+  <xacro:arg name="imu_timeout_ms" default="100"/>
+  <xacro:arg name="wheel_radius_m" default="0.0325"/>
+  <xacro:arg name="wheel_projection_sum_m" default="0.14"/>
+  <xacro:arg name="linear_adrc_input_gain_per_second" default="5.0"/>
+  <xacro:arg name="linear_adrc_controller_bandwidth_rad_s" default="1.0"/>
+  <xacro:arg name="linear_adrc_observer_bandwidth_rad_s" default="3.0"/>
+  <xacro:arg name="yaw_adrc_input_gain_per_second" default="5.0"/>
+  <xacro:arg name="yaw_adrc_controller_bandwidth_rad_s" default="1.0"/>
+  <xacro:arg name="yaw_adrc_observer_bandwidth_rad_s" default="3.0"/>
 
   <xacro:include filename="$(find mentor_pi_hardwares)/config/mecanum/description.urdf.xacro"/>
   <xacro:include filename="$(find mentor_pi_hardwares)/config/mecanum/ros2_control.xacro"/>
 
   <xacro:mecanum_car/>
   <xacro:mecanum_control robot_name="$(arg robot_name)"
-                         feedback_timeout_ms="$(arg feedback_timeout_ms)"/>
+                         feedback_timeout_ms="$(arg feedback_timeout_ms)"
+                         imu_timeout_ms="$(arg imu_timeout_ms)"
+                         wheel_radius_m="$(arg wheel_radius_m)"
+                         wheel_projection_sum_m="$(arg wheel_projection_sum_m)"
+                         linear_adrc_input_gain_per_second="$(arg linear_adrc_input_gain_per_second)"
+                         linear_adrc_controller_bandwidth_rad_s="$(arg linear_adrc_controller_bandwidth_rad_s)"
+                         linear_adrc_observer_bandwidth_rad_s="$(arg linear_adrc_observer_bandwidth_rad_s)"
+                         yaw_adrc_input_gain_per_second="$(arg yaw_adrc_input_gain_per_second)"
+                         yaw_adrc_controller_bandwidth_rad_s="$(arg yaw_adrc_controller_bandwidth_rad_s)"
+                         yaw_adrc_observer_bandwidth_rad_s="$(arg yaw_adrc_observer_bandwidth_rad_s)"/>
 
 </robot>

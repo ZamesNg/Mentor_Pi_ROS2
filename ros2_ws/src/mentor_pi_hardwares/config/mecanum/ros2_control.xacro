@@ -2,12 +2,21 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:macro name="mecanum_control"
-               params="robot_name:=mentor_pi feedback_timeout_ms:=100">
+               params="robot_name:=mentor_pi feedback_timeout_ms:=100 imu_timeout_ms:=100 wheel_radius_m:=0.0325 wheel_projection_sum_m:=0.14 linear_adrc_input_gain_per_second:=5.0 linear_adrc_controller_bandwidth_rad_s:=1.0 linear_adrc_observer_bandwidth_rad_s:=3.0 yaw_adrc_input_gain_per_second:=5.0 yaw_adrc_controller_bandwidth_rad_s:=1.0 yaw_adrc_observer_bandwidth_rad_s:=3.0">
     <ros2_control name="mentor_pi_hardware" type="system">
       <hardware>
         <plugin>mentor_pi/MecanumHardware</plugin>
         <param name="robot_name">${robot_name}</param>
         <param name="feedback_timeout_ms">${feedback_timeout_ms}</param>
+        <param name="imu_timeout_ms">${imu_timeout_ms}</param>
+        <param name="wheel_radius_m">${wheel_radius_m}</param>
+        <param name="wheel_projection_sum_m">${wheel_projection_sum_m}</param>
+        <param name="linear_adrc_input_gain_per_second">${linear_adrc_input_gain_per_second}</param>
+        <param name="linear_adrc_controller_bandwidth_rad_s">${linear_adrc_controller_bandwidth_rad_s}</param>
+        <param name="linear_adrc_observer_bandwidth_rad_s">${linear_adrc_observer_bandwidth_rad_s}</param>
+        <param name="yaw_adrc_input_gain_per_second">${yaw_adrc_input_gain_per_second}</param>
+        <param name="yaw_adrc_controller_bandwidth_rad_s">${yaw_adrc_controller_bandwidth_rad_s}</param>
+        <param name="yaw_adrc_observer_bandwidth_rad_s">${yaw_adrc_observer_bandwidth_rad_s}</param>
       </hardware>
 
       <joint name="wheel_left_front_joint">

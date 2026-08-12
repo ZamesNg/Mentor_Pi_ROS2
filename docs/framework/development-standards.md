@@ -135,7 +135,7 @@ not permit a new host-side C or Python control bridge.
   and deadlines are fixed by the architecture.
 - Safety state and the 200 ms per-motor lease use a monotonic clock and are
   independent of ROS/system time. The 1 kHz safety release must not share a
-  blocking path with the 100 Hz PID update.
+  blocking path with the 100 Hz ADRC update.
 - Shared counters visible across ISR/task boundaries use an atomic or a proven
   critical section. Diagnostic counters do not silently wrap; use the saturation
   behavior defined by their type/contract.
@@ -171,14 +171,14 @@ as `geometry2/tf2_msgs`, reject missing or unexpected repositories, and verify
 the final archive SHA-256. Recording branch-head commits only after a build is
 not a reproducible dependency lock.
 
-Firmware configuration shall fail closed to the single supported PID release
+Firmware configuration shall fail closed to the single supported ADRC release
 artifact. Normal, CI release, and reproducibility builds shall report
 `NORMAL_CLOSED_LOOP_DEFAULT` and `control_mode=CLOSED_LOOP`; legacy mode flags,
 aliases, and alternate artifacts are rejected. The build uses a 6 RPS
 implementation ceiling and a 1000-permille output clamp while retaining each
 motor model's lower profile limit. Release records include the binary and
 source hashes. No build flag, unit test, or legacy-derived constant may label
-PID performance or polarity release-qualified without the required physical
+ADRC performance or polarity release-qualified without the required physical
 HIL record.
 
 Mandatory gates:
@@ -213,7 +213,7 @@ use no project secret and cover documentation/traceability, format,
 `clang-tidy`, native Debug ASan/UBSan, native Release, TSan, deterministic fuzz
 smoke, generated CDR/introspection checks on ROS 2 Humble amd64 and arm64, and
 the pinned
-default PID firmware reproducibility/size build. The documentation gate is
+default ADRC firmware reproducibility/size build. The documentation gate is
 implemented by `tools/check_framework_docs.py`; it checks relative files and
 anchors, mandatory requirement mappings, every stable audit row, referenced
 verification definitions, and orphaned verification cases.
@@ -237,7 +237,7 @@ session-parser campaign, wire-level XRCE reply/ACK injection and
 withheld-XRCE-ACK campaign, and target transport TX-DMA/TC fault injection
 remain mandatory before D5 even though part of that work can be completed
 without the board. The checked-in firmware workflow now adds a separate
-default-PID CMake `Debug` build and runs Clang 18 over every first-party
+default-ADRC CMake `Debug` build and runs Clang 18 over every first-party
 translation unit in its actual Arm GNU compile database. This is in addition
 to, and does not overwrite, the `MinSizeRel` reproducibility artifact.
 

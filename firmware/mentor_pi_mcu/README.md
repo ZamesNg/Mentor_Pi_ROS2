@@ -11,35 +11,38 @@ the single owning task. The adapter remains responsible for immediate
 register-level emergency motor shutdown; `MotorController::DisarmAll()` is the
 matching software-state transition.
 
-The per-model PID values and direction factors are deliberately
+The per-model ADRC values and direction factors are deliberately
 release-provisional in `motor_controller.cc`. They are bounded starting values,
 not a claim that an untested motor may safely run under load. The JGA27 profile
-currently uses direction factor `-1`, based on the negative gains in the legacy
-firmware; the other retained profiles currently use `+1`. These values remain
-hypotheses until physical evidence confirms them.
+currently uses direction factor `-1`, based on the negative PID gains in the
+legacy firmware; the other retained profiles currently use `+1`. These values
+remain hypotheses until physical evidence confirms them.
 
-Closed-loop control uses a positional PID at 100 Hz. Its error is target RPS
-minus filtered measured RPS; P acts on the current error, I on its accumulated
-time integral, and D on its first time difference. Output is bounded to 1000
-permille with conditional-integration anti-windup and the documented minimum
-effective duty. Every model defaults to `Kp=250.0`, `Ki=0.1`, `Kd=0.5`, and a
-velocity-filter new-sample weight of `0.5`. These are provisional starting
-values under the stated units and require guarded physical retuning.
+Closed-loop control uses first-order linear ADRC at 100 Hz. The extended-state
+observer estimates motor speed and the combined disturbance from filtered
+encoder velocity and the previously applied output. The controller then uses
+the speed error and disturbance estimate to produce signed permille output.
+Output is bounded to 1000 permille and retains the documented 250-permille
+minimum-drive floor. The floor is applied after the ADRC calculation and is not
+an ADRC tuning parameter. Every model defaults to input gain `b0=0.03
+RPS/s/permille`, controller bandwidth `wc=4 rad/s`, observer bandwidth `wo=12
+rad/s`, and velocity-filter new-sample weight `0.5`. These are provisional
+starting values and require guarded physical tuning.
 
 ## Motor safety configuration
 
-The only supported firmware build is the closed-loop PID image
+The only supported firmware build is the closed-loop ADRC image
 (`control_mode=CLOSED_LOOP`, 6 RPS ceiling, ±1000 permille output,
 `release_qualified=0` pending HIL). It accepts all validated zero-speed commands and
 atomically rejects invalid or out-of-range commands without refreshing leases.
 An invalid build-time controller configuration rejects otherwise-valid nonzero
 commands as `UNSUPPORTED`. Valid nonzero commands are accepted
-and applied through closed-loop PID control, bounded by the model-specific
+and applied through closed-loop ADRC control, bounded by the model-specific
 RPS profile, the 6 RPS implementation ceiling, and the ±1000 permille
 output limit. Passive encoder telemetry remains active whenever the MCU is
 powered.
 
-Build and inspect the PID release profile from the repository root:
+Build and inspect the ADRC release profile from the repository root:
 
 ```sh
 make -C firmware setup
@@ -60,7 +63,7 @@ Run this command as the normal Ubuntu or Dev Container user, never with
 reopen the Dev Container if the generator reports that the cache is
 unavailable.
 
-The verifier must report `motor_mode=PID`, `artifact_mode=NORMAL`,
+The verifier must report `motor_mode=ADRC`, `artifact_mode=NORMAL`,
 `control_mode=CLOSED_LOOP`, `release_qualified=0`, valid provenance, and at
 least 20% headroom in every
 memory class. The configuration supervisor gate, model-specific RPS limits,
@@ -75,8 +78,9 @@ keep a physical motor-power stop reachable, follow the guarded checkout in
 [onboard Tutorial 07](../../docs/tutorials/onboard/07-integrated-runtime-and-recovery.md),
 and record the required evidence through
 [onboard Tutorial 08](../../docs/tutorials/onboard/08-evidence-and-qualification.md).
-D3 HIL must qualify or replace every PID, filter, deadband, motor/channel
-polarity, and full-range behavior before production nonzero-motion claims.
+D3 HIL must qualify or replace every ADRC, filter, minimum-drive floor,
+motor/channel polarity, and full-range behavior before production
+nonzero-motion claims.
 
 Every successful supported build also writes
 `build/stm32/rrclite-build-metadata.txt`. The direct CubeProgrammer flash
@@ -101,7 +105,7 @@ documented physical BOOT/RST fallback.
 |---|---|---|
 | Validation and bounded text | `ROS-004`, `SAFE-001`, systemic defect 1 | `TestValidationAndStateMerging` |
 | Latest mailboxes and button FIFO | `RT-003`, `RT-005`, `HW-MEM-01` | `TestFixedContainers`, `TestCommandMailboxes` |
-| Motor profiles, PID, and leases | `CTRL-001`–`CTRL-004`, `ROS-MOT-01`, `HW-MOT-01` | `TestMotorController`; HIL still required |
+| Motor profiles, ADRC, and leases | `CTRL-001`–`CTRL-004`, `ROS-MOT-01`, `HW-MOT-01` | `TestMotorController`; HIL still required |
 | PWM interpolation and offsets | `CTRL-005`, `CTRL-006`, `ROS-PWM-01` | `TestPwmServoController` |
 | Bus framing and stop watermark | `CTRL-007`–`CTRL-009`, `ROS-BUS-01` | `TestBusServoCodecAndScheduler` |
 | LED and buzzer patterns | `CTRL-010`, `HW-LED-01`, `HW-BUZ-01` | `TestPatterns` |

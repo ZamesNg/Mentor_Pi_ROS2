@@ -120,7 +120,7 @@ if(open_clear EQUAL -1)
   message(FATAL_ERROR "OpenUsart1Transport no longer clears the fault latch")
 endif()
 
-# The target has exactly one motor authority profile: PID CLOSED_LOOP with
+# The target has exactly one motor authority profile: ADRC CLOSED_LOOP with
 # bounded authority (6 RPS, ±1000 permille). Legacy mode selection has
 # collapsed into this single default profile.
 string(FIND "${target_source}"
@@ -137,7 +137,7 @@ math(EXPR motor_profile_length
 string(SUBSTRING "${target_source}" ${motor_profile_start}
        ${motor_profile_length} motor_profile_body)
 foreach(required_marker
-    "DefaultPidMotorControlConfiguration()"
+    "DefaultAdrcMotorControlConfiguration()"
     "channel_wiring_sign")
   string(FIND "${motor_profile_body}" "${required_marker}" marker_position)
   if(marker_position EQUAL -1)
@@ -157,7 +157,7 @@ endforeach()
 foreach(required_profile_constant
     "kMotorImplementationMaximumRps = 6.0F"
     "kMotorOutputLimitPermille = 1000"
-    "constexpr MotorControlConfiguration DefaultPidMotorControlConfiguration()")
+    "constexpr MotorControlConfiguration DefaultAdrcMotorControlConfiguration()")
   string(FIND "${motor_header}" "${required_profile_constant}"
          profile_constant_position)
   if(profile_constant_position EQUAL -1)
@@ -206,7 +206,7 @@ function(run_profile_probe expected_mode expected_control_mode
   endforeach()
 endfunction()
 
-run_profile_probe(PID CLOSED_LOOP 6.0 1000)
+run_profile_probe(ADRC CLOSED_LOOP 6.0 1000)
 file(REMOVE_RECURSE "${PROFILE_PROBE_ROOT}")
 
 message(STATUS "STM32 motor transport/profile gate contract passed")

@@ -16,8 +16,8 @@ using mentor_pi::mcu::BusServoCommand;
 using mentor_pi::mcu::BusServoFrame;
 using mentor_pi::mcu::BusServoOpcode;
 using mentor_pi::mcu::BuzzerCommand;
-using mentor_pi::mcu::DefaultPidMotorControlConfiguration;
 using mentor_pi::mcu::ConfigureBusServoCommand;
+using mentor_pi::mcu::DefaultAdrcMotorControlConfiguration;
 using mentor_pi::mcu::GetBusServoStateCommand;
 using mentor_pi::mcu::LedCommand;
 using mentor_pi::mcu::MotorCommand;
@@ -30,7 +30,7 @@ using mentor_pi::mcu::PwmServoOffsetCommand;
 using mentor_pi::mcu::Result;
 using mentor_pi::mcu::ResultCode;
 using mentor_pi::mcu::RgbCommand;
-using mentor_pi::mcu::SetMotorPidCommand;
+using mentor_pi::mcu::SetMotorAdrcCommand;
 using mentor_pi::mcu::StopBusServosCommand;
 using mentor_pi::mcu::drivers::AxisTransform;
 using mentor_pi::mcu::drivers::IoStatus;
@@ -50,8 +50,8 @@ using mentor_pi_mcu::app::microros::ConfigureBusServoReply;
 using mentor_pi_mcu::app::microros::GetBusServoStateReply;
 using mentor_pi_mcu::app::microros::HealthSnapshot;
 using mentor_pi_mcu::app::microros::ImuTelemetry;
+using mentor_pi_mcu::app::microros::MotorAdrcReply;
 using mentor_pi_mcu::app::microros::MotorModelReply;
-using mentor_pi_mcu::app::microros::MotorPidReply;
 using mentor_pi_mcu::app::microros::MotorTelemetry;
 using mentor_pi_mcu::app::microros::PwmOffsetsReply;
 using mentor_pi_mcu::app::microros::PwmServoTelemetry;
@@ -69,7 +69,7 @@ using mentor_pi_mcu::app::microros::WorkerDiagnostics;
   } while (false)
 
 MotorControlConfiguration FullRangeTestMotorConfiguration() {
-  return DefaultPidMotorControlConfiguration();
+  return DefaultAdrcMotorControlConfiguration();
 }
 
 struct FakePlatform {
@@ -2117,17 +2117,19 @@ bool TestMotorCalibrationGate() {
   CHECK(locked.PublishMotorCommand(motion, 1000U).result.code ==
         ResultCode::kUnsupported);
 
-  SetMotorPidCommand locked_pid{};
-  locked_pid.update_mask = 1U;
-  locked_pid.proportional_gain[0] = 10.0F;
-  locked_pid.velocity_filter_new_weight[0] = 1.0F;
-  const ServiceToken locked_pid_token{1U, 2U};
-  CHECK(locked.DispatchMotorPid(locked_pid_token, locked_pid));
+  SetMotorAdrcCommand locked_adrc{};
+  locked_adrc.update_mask = 1U;
+  locked_adrc.input_gain_rps_per_second_per_permille[0] = 0.03F;
+  locked_adrc.controller_bandwidth_rad_s[0] = 4.0F;
+  locked_adrc.observer_bandwidth_rad_s[0] = 12.0F;
+  locked_adrc.velocity_filter_new_weight[0] = 1.0F;
+  const ServiceToken locked_adrc_token{1U, 2U};
+  CHECK(locked.DispatchMotorAdrc(locked_adrc_token, locked_adrc));
   locked.RunMotorControlOnce();
-  mentor_pi_mcu::app::microros::MotorPidReply locked_pid_reply{};
-  CHECK(locked.PollMotorPid(locked_pid_token, &locked_pid_reply));
-  CHECK(locked_pid_reply.result.code == ResultCode::kUnsupported);
-  CHECK(locked_pid_reply.applied_mask == 0U);
+  mentor_pi_mcu::app::microros::MotorAdrcReply locked_adrc_reply{};
+  CHECK(locked.PollMotorAdrc(locked_adrc_token, &locked_adrc_reply));
+  CHECK(locked_adrc_reply.result.code == ResultCode::kUnsupported);
+  CHECK(locked_adrc_reply.applied_mask == 0U);
 
   locked.InvalidateSessionWork(1U);
   locked.SetSessionActive(true, 2U);
@@ -2143,10 +2145,10 @@ bool TestMotorCalibrationGate() {
   CHECK(locked_diagnostics.motor_command_rejections ==
         (std::array<std::uint32_t, 4>{5U, 4U, 3U, 3U}));
 
-  const MotorControlConfiguration default_pid =
-      DefaultPidMotorControlConfiguration();
+  const MotorControlConfiguration default_adrc =
+      DefaultAdrcMotorControlConfiguration();
   FakePlatform capped_platform;
-  ControllerRuntime capped(default_pid);
+  ControllerRuntime capped(default_adrc);
   CHECK(capped.Configure(capped_platform.Hooks(), AxisTransform{}));
   CHECK(capped.InitializeSafeBoot());
   CHECK(EstablishStartupReadiness(&capped, &capped_platform));
@@ -2178,56 +2180,58 @@ bool TestMotorCalibrationGate() {
         mentor_pi::mcu::kMotorOutputLimitPermille);
   CHECK(capped_platform.critical_depth == 0U);
 
-  FakePlatform pid_platform;
-  ControllerRuntime pid_runtime(FullRangeTestMotorConfiguration());
-  CHECK(pid_runtime.Configure(pid_platform.Hooks(), AxisTransform{}));
-  CHECK(pid_runtime.InitializeSafeBoot());
-  CHECK(EstablishStartupReadiness(&pid_runtime, &pid_platform));
-  pid_runtime.SetSessionActive(true, 1U);
+  FakePlatform adrc_platform;
+  ControllerRuntime adrc_runtime(FullRangeTestMotorConfiguration());
+  CHECK(adrc_runtime.Configure(adrc_platform.Hooks(), AxisTransform{}));
+  CHECK(adrc_runtime.InitializeSafeBoot());
+  CHECK(EstablishStartupReadiness(&adrc_runtime, &adrc_platform));
+  adrc_runtime.SetSessionActive(true, 1U);
 
-  SetMotorPidCommand pid{};
-  pid.update_mask = 5U;
-  pid.proportional_gain[0] = 1000.0F;
-  pid.proportional_gain[2] = 500.0F;
-  pid.velocity_filter_new_weight[0] = 1.0F;
-  pid.velocity_filter_new_weight[2] = 1.0F;
-  const ServiceToken canceled_pid_token{1U, 1U};
-  CHECK(pid_runtime.DispatchMotorPid(canceled_pid_token, pid));
-  CHECK(pid_runtime.CancelMotorPid(canceled_pid_token));
-  pid_runtime.RunMotorControlOnce();
-  mentor_pi_mcu::app::microros::MotorPidReply pid_reply{};
-  CHECK(!pid_runtime.PollMotorPid(canceled_pid_token, &pid_reply));
+  SetMotorAdrcCommand adrc{};
+  adrc.update_mask = 5U;
+  for (const std::size_t index : {0U, 2U}) {
+    adrc.input_gain_rps_per_second_per_permille[index] = 0.03F;
+    adrc.controller_bandwidth_rad_s[index] = 4.0F;
+    adrc.observer_bandwidth_rad_s[index] = 12.0F;
+    adrc.velocity_filter_new_weight[index] = 1.0F;
+  }
+  const ServiceToken canceled_adrc_token{1U, 1U};
+  CHECK(adrc_runtime.DispatchMotorAdrc(canceled_adrc_token, adrc));
+  CHECK(adrc_runtime.CancelMotorAdrc(canceled_adrc_token));
+  adrc_runtime.RunMotorControlOnce();
+  mentor_pi_mcu::app::microros::MotorAdrcReply adrc_reply{};
+  CHECK(!adrc_runtime.PollMotorAdrc(canceled_adrc_token, &adrc_reply));
 
-  const ServiceToken pid_token{1U, 2U};
-  CHECK(pid_runtime.DispatchMotorPid(pid_token, pid));
-  CHECK(!pid_runtime.DispatchMotorPid({1U, 3U}, pid));
-  pid_runtime.RunMotorControlOnce();
-  CHECK(!pid_runtime.CancelMotorPid(pid_token));
-  CHECK(pid_runtime.PollMotorPid(pid_token, &pid_reply));
-  CHECK(pid_reply.result.ok());
-  CHECK(pid_reply.applied_mask == 5U);
+  const ServiceToken adrc_token{1U, 2U};
+  CHECK(adrc_runtime.DispatchMotorAdrc(adrc_token, adrc));
+  CHECK(!adrc_runtime.DispatchMotorAdrc({1U, 3U}, adrc));
+  adrc_runtime.RunMotorControlOnce();
+  CHECK(!adrc_runtime.CancelMotorAdrc(adrc_token));
+  CHECK(adrc_runtime.PollMotorAdrc(adrc_token, &adrc_reply));
+  CHECK(adrc_reply.result.ok());
+  CHECK(adrc_reply.applied_mask == 5U);
 
-  SetMotorPidCommand invalid_pid = pid;
-  invalid_pid.update_mask = 0U;
-  const ServiceToken invalid_pid_token{1U, 3U};
-  CHECK(pid_runtime.DispatchMotorPid(invalid_pid_token, invalid_pid));
-  pid_runtime.RunMotorControlOnce();
-  CHECK(pid_runtime.PollMotorPid(invalid_pid_token, &pid_reply));
-  CHECK(pid_reply.result.code == ResultCode::kInvalidArgument);
-  CHECK(pid_reply.applied_mask == 0U);
+  SetMotorAdrcCommand invalid_adrc = adrc;
+  invalid_adrc.update_mask = 0U;
+  const ServiceToken invalid_adrc_token{1U, 3U};
+  CHECK(adrc_runtime.DispatchMotorAdrc(invalid_adrc_token, invalid_adrc));
+  adrc_runtime.RunMotorControlOnce();
+  CHECK(adrc_runtime.PollMotorAdrc(invalid_adrc_token, &adrc_reply));
+  CHECK(adrc_reply.result.code == ResultCode::kInvalidArgument);
+  CHECK(adrc_reply.applied_mask == 0U);
 
-  MotorCommand pid_motion{};
-  pid_motion.update_mask = 1U;
-  pid_motion.target_rps[0] = 0.1F;
-  CHECK(pid_runtime.PublishMotorCommand(pid_motion, 0U).result.ok());
-  pid_runtime.RunMotorControlOnce();
-  const ServiceToken busy_pid_token{1U, 4U};
-  CHECK(pid_runtime.DispatchMotorPid(busy_pid_token, pid));
-  pid_runtime.RunMotorControlOnce();
-  CHECK(pid_runtime.PollMotorPid(busy_pid_token, &pid_reply));
-  CHECK(pid_reply.result.code == ResultCode::kBusy);
-  CHECK(pid_reply.applied_mask == 0U);
-  CHECK(pid_platform.critical_depth == 0U);
+  MotorCommand adrc_motion{};
+  adrc_motion.update_mask = 1U;
+  adrc_motion.target_rps[0] = 0.1F;
+  CHECK(adrc_runtime.PublishMotorCommand(adrc_motion, 0U).result.ok());
+  adrc_runtime.RunMotorControlOnce();
+  const ServiceToken busy_adrc_token{1U, 4U};
+  CHECK(adrc_runtime.DispatchMotorAdrc(busy_adrc_token, adrc));
+  adrc_runtime.RunMotorControlOnce();
+  CHECK(adrc_runtime.PollMotorAdrc(busy_adrc_token, &adrc_reply));
+  CHECK(adrc_reply.result.code == ResultCode::kBusy);
+  CHECK(adrc_reply.applied_mask == 0U);
+  CHECK(adrc_platform.critical_depth == 0U);
   return true;
 }
 
@@ -2239,82 +2243,45 @@ bool TestMotorControlUsesElapsedPeriod() {
     runtime->RunMotorControlOnce();
   };
 
-  {
-    FakePlatform platform;
-    ControllerRuntime runtime(FullRangeTestMotorConfiguration());
-    CHECK(runtime.Configure(platform.Hooks(), AxisTransform{}));
-    CHECK(runtime.InitializeSafeBoot());
-    CHECK(EstablishStartupReadiness(&runtime, &platform));
-    runtime.SetSessionActive(true, 1U);
+  FakePlatform platform;
+  ControllerRuntime runtime(FullRangeTestMotorConfiguration());
+  CHECK(runtime.Configure(platform.Hooks(), AxisTransform{}));
+  CHECK(runtime.InitializeSafeBoot());
+  CHECK(EstablishStartupReadiness(&runtime, &platform));
+  runtime.SetSessionActive(true, 1U);
 
-    SetMotorPidCommand gains{};
-    gains.update_mask = 1U;
-    gains.integral_gain[0] = 1000.0F;
-    gains.velocity_filter_new_weight[0] = 1.0F;
-    const ServiceToken token{1U, 1U};
-    CHECK(runtime.DispatchMotorPid(token, gains));
-    run_release_at(&runtime, &platform, 1U);
-    MotorPidReply reply{};
-    CHECK(runtime.PollMotorPid(token, &reply));
-    CHECK(reply.result.ok());
+  SetMotorAdrcCommand calibration{};
+  calibration.update_mask = 1U;
+  calibration.input_gain_rps_per_second_per_permille[0] = 0.01F;
+  calibration.controller_bandwidth_rad_s[0] = 4.0F;
+  calibration.observer_bandwidth_rad_s[0] = 12.0F;
+  calibration.velocity_filter_new_weight[0] = 1.0F;
+  const ServiceToken token{1U, 1U};
+  CHECK(runtime.DispatchMotorAdrc(token, calibration));
+  run_release_at(&runtime, &platform, 1U);
+  MotorAdrcReply reply{};
+  CHECK(runtime.PollMotorAdrc(token, &reply));
+  CHECK(reply.result.ok());
 
-    MotorCommand command{};
-    command.update_mask = 1U;
-    command.target_rps[0] = 6.0F;
-    CHECK(runtime.PublishMotorCommand(command, 1U).result.ok());
-    for (std::uint32_t release = 1U; release <= 8U; ++release) {
-      run_release_at(&runtime, &platform,
-                     release == 8U ? 10000U : release * 1000U);
-    }
-    CHECK(platform.motor_duty[0] ==
-          mentor_pi::mcu::kMotorOutputDeadbandPermille);
-
-    for (std::uint32_t release = 1U; release <= 10U; ++release) {
-      run_release_at(&runtime, &platform, 50000U + release * 1000U);
-    }
-    // The second sample is 50 ms after the first: 1000 * 6 *
-    // (0.01 + 0.05) = 360 permille. A nominal 10 ms handoff would remain in
-    // the 250-permille deadband.
-    CHECK(platform.motor_duty[0] == 360);
+  MotorCommand command{};
+  command.update_mask = 1U;
+  command.target_rps[0] = 1.0F;
+  CHECK(runtime.PublishMotorCommand(command, 1U).result.ok());
+  for (std::uint32_t release = 1U; release <= 8U; ++release) {
+    run_release_at(&runtime, &platform,
+                   release == 8U ? 10000U : release * 1000U);
   }
+  CHECK(platform.motor_duty[0] == 400);
 
-  {
-    FakePlatform platform;
-    ControllerRuntime runtime(FullRangeTestMotorConfiguration());
-    CHECK(runtime.Configure(platform.Hooks(), AxisTransform{}));
-    CHECK(runtime.InitializeSafeBoot());
-    CHECK(EstablishStartupReadiness(&runtime, &platform));
-    runtime.SetSessionActive(true, 1U);
-
-    SetMotorPidCommand gains{};
-    gains.update_mask = 1U;
-    gains.derivative_gain[0] = 40.0F;
-    gains.velocity_filter_new_weight[0] = 1.0F;
-    const ServiceToken token{1U, 1U};
-    CHECK(runtime.DispatchMotorPid(token, gains));
-    run_release_at(&runtime, &platform, 1U);
-    MotorPidReply reply{};
-    CHECK(runtime.PollMotorPid(token, &reply));
-    CHECK(reply.result.ok());
-
-    MotorCommand command{};
-    command.update_mask = 1U;
-    command.target_rps[0] = 1.0F;
-    CHECK(runtime.PublishMotorCommand(command, 1U).result.ok());
-    for (std::uint32_t release = 1U; release <= 8U; ++release) {
-      run_release_at(&runtime, &platform,
-                     release == 8U ? 10000U : release * 1000U);
-    }
-    CHECK(platform.motor_duty[0] == 1000);
-
-    command.target_rps[0] = 0.5F;
-    CHECK(runtime.PublishMotorCommand(command, 10001U).result.ok());
-    for (std::uint32_t release = 1U; release <= 10U; ++release) {
-      run_release_at(&runtime, &platform, 50000U + release * 1000U);
-    }
-    // Kd * delta_error / T = 40 * -0.5 / 0.05 = -400 permille.
-    CHECK(platform.motor_duty[0] == -400);
+  // The motor task passes actual elapsed time into ADRC. Refresh the command
+  // after a long scheduler gap so the observer-timing guard, rather than the
+  // command lease, is what fails closed.
+  CHECK(runtime.PublishMotorCommand(command, 1000000U).result.ok());
+  for (std::uint32_t release = 0U; release <= 10U; ++release) {
+    run_release_at(&runtime, &platform, 1000000U + release * 1000U);
   }
+  CHECK(platform.motor_duty[0] == 0);
+  CHECK(!platform.motor_armed[0]);
 
   return true;
 }

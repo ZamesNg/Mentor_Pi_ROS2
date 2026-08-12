@@ -106,7 +106,7 @@ the two drive-PWM outputs first and its quadrature encoder second.
 | Motor M2 | Positive drive TIM1 CH2/PE11, negative drive TIM1 CH1/PE9; encoder TIM2 CH1/PA15 and CH2/PB3. |
 | Motor M3 | Positive drive TIM9 CH1/PE5, negative drive TIM9 CH2/PE6; encoder TIM4 CH1/PD12 and CH2/PD13. |
 | Motor M4 | Positive drive TIM11 CH1/PB9, negative drive TIM10 CH1/PB8; encoder TIM3 CH1/PB4 and CH2/PB5. |
-| Motor control release | TIM7 internal base timer, with no GPIO or DMA ownership. V2 configures a 1 kHz release; every tenth release runs the 100 Hz encoder/PID update. |
+| Motor control release | TIM7 internal base timer, with no GPIO or DMA ownership. V2 configures a 1 kHz release; every tenth release runs the 100 Hz encoder/ADRC update. |
 | PWM servos 1–4 | GPIO pulse outputs PA11, PA12, PC8, and PC9; TIM13 is the frame scheduler. |
 | Bus servos | PC12, UART5 TX in single-wire half-duplex mode, 115,200 baud 8N1. |
 | LEDs 1–3 | PD9, PD10, PD11. LEDs 1 and 2 are active-low; LED 3 is active-high. |
@@ -156,7 +156,7 @@ and a provisional per-model encoder factor. JGA27 alone currently uses factor
 `-1`, inferred from the legacy JGA27 profile's negative gains; this is legacy
 evidence, not a schematic fact or bench measurement. A guarded 2,000 ms M1 run
 has now confirmed its current command/encoder sign; M2--M4 remain provisional.
-The default PID firmware accepts bounded motor targets, but its physical
+The default ADRC firmware accepts bounded motor targets, but its physical
 polarity and controller performance remain unqualified. Checkout shall first
 rotate each raised wheel manually with bridge outputs disabled and record both
 raw counter direction and normalized `motors/state` direction. Powered tests
@@ -187,7 +187,7 @@ check. This is a measured PCB-frame correction, not an open ROS frame decision.
 
 | Function | Quantity and confirmed mapping | V2 disposition |
 | --- | --- | --- |
-| Encoder motors | Four motor-driver stages in the schematic. TIM1 CH1-4, TIM9 CH1-2, TIM10 CH1, and TIM11 CH1 generate drive PWM; TIM2, TIM3, TIM4, and TIM5 are encoder interfaces in the Cube file. | Retain all four. The default PID image exposes encoder state and bounded closed-loop control; passive checkout and guarded HIL precede any powered-motion or performance claim. |
+| Encoder motors | Four motor-driver stages in the schematic. TIM1 CH1-4, TIM9 CH1-2, TIM10 CH1, and TIM11 CH1 generate drive PWM; TIM2, TIM3, TIM4, and TIM5 are encoder interfaces in the Cube file. | Retain all four. The default ADRC image exposes encoder state and bounded closed-loop control; passive checkout and guarded HIL precede any powered-motion or performance claim. |
 | PWM servos | Four connectors. Firmware/Cube GPIOs are PA11, PA12, PC8, and PC9; TIM13 supplies the legacy frame timing. | Retain four channels. Generate pulses from a short timer ISR using task-prepared shadow values. |
 | Bus servos | Half-duplex bus-servo circuit is driven by the `UART6_TX`/`SERVO_SIGNAL` schematic net. Current firmware maps the signal to UART5 on PC12 and initializes UART5 at 115,200 8N1, no flow control. | Retain on UART5 with one owning worker. Support at most 16 servo IDs in one ROS motion request. |
 | Indicator LEDs | Three GPIO LEDs are present in the schematic and `LED_NUM` is three. | Retain all three; expose LED1/LED2 to ROS and reserve LED3 for firmware heartbeat status. |
@@ -247,7 +247,7 @@ Before actuator code is enabled, bring-up shall verify:
 3. PA9/PA10 carry a 1,000,000 baud 8N1 exchange with no RTS/CTS activity;
 4. logical motor, PWM-servo, LED, button, and RGB IDs match the physical
    connectors documented above;
-5. with the default PID image and all motor PWM outputs still disabled,
+5. with the default ADRC image and all motor PWM outputs still disabled,
    manually rotate each raised motor output in the declared positive direction
    and record raw and normalized encoder count direction; explicitly test the
    provisional JGA27 `-1` factor rather than assuming it is correct;
@@ -257,5 +257,5 @@ Before actuator code is enabled, bring-up shall verify:
 
 Record any discrepancy as a hardware-baseline issue. Do not compensate for an
 unresolved wiring discrepancy in ROS callbacks. A failed or ambiguous passive
-encoder check blocks powered motion and PID/polarity release
+encoder check blocks powered motion and ADRC/polarity release
 qualification.

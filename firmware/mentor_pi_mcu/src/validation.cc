@@ -163,7 +163,7 @@ Result ValidateConfigureBusServoCommand(
   return OkResult();
 }
 
-Result ValidateSetMotorPidCommand(const SetMotorPidCommand& command) {
+Result ValidateSetMotorAdrcCommand(const SetMotorAdrcCommand& command) {
   const Result mask_result = ValidateMask(command.update_mask, kAllMotorMask);
   if (!mask_result.ok()) {
     return mask_result;
@@ -173,18 +173,21 @@ Result ValidateSetMotorPidCommand(const SetMotorPidCommand& command) {
     if ((command.update_mask & bit) == 0U) {
       continue;
     }
-    const float proportional = command.proportional_gain[index];
-    const float integral = command.integral_gain[index];
-    const float derivative = command.derivative_gain[index];
+    const float input_gain =
+        command.input_gain_rps_per_second_per_permille[index];
+    const float controller_bandwidth =
+        command.controller_bandwidth_rad_s[index];
+    const float observer_bandwidth = command.observer_bandwidth_rad_s[index];
     const float filter = command.velocity_filter_new_weight[index];
-    if (!std::isfinite(proportional) || !std::isfinite(integral) ||
-        !std::isfinite(derivative) || !std::isfinite(filter)) {
+    if (!std::isfinite(input_gain) || !std::isfinite(controller_bandwidth) ||
+        !std::isfinite(observer_bandwidth) || !std::isfinite(filter)) {
       return {ResultCode::kInvalidArgument,
               static_cast<std::uint16_t>(index + 1U)};
     }
-    if (proportional < 0.0F || integral < 0.0F || derivative < 0.0F ||
-        proportional > kMotorPidMaximumGain ||
-        integral > kMotorPidMaximumGain || derivative > kMotorPidMaximumGain ||
+    if (input_gain <= 0.0F || input_gain > kMotorAdrcMaximumInputGain ||
+        controller_bandwidth <= 0.0F || observer_bandwidth <= 0.0F ||
+        controller_bandwidth > observer_bandwidth ||
+        observer_bandwidth > kMotorAdrcMaximumObserverBandwidthRadS ||
         filter < 0.0F || filter > 1.0F) {
       return {ResultCode::kOutOfRange, static_cast<std::uint16_t>(index + 1U)};
     }

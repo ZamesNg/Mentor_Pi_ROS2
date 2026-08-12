@@ -17,9 +17,9 @@ help:
 		'  make setup         Fetch pinned dependencies and Arm GNU 13.2.Rel1.' \
 		'  make extract-sdk   Verify and extract the checked Humble SDK.' \
 		'  make test          Run native C++ domain tests.' \
-		'  make build         Build the STM32 PID firmware with CMake/Ninja.' \
+		'  make build         Build the STM32 ADRC firmware with CMake/Ninja.' \
 		'  make verify        Verify provenance, hashes, and memory budgets.' \
-		'  make package       Produce firmware-pid-release/.' \
+		'  make package       Produce firmware-adrc-release/.' \
 		'  make boot-control  Build the Linux CH9102F RTS/DTR reset helper.' \
 		'  make flash PORT=/dev/mentor_pi_mcu FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED' \
 		'                    Automatic bootloader entry/reset is enabled by default.' \

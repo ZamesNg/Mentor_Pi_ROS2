@@ -79,7 +79,7 @@ cp "${elf}" "${snapshot_dir}/mentor_pi_mcu.elf"
 [[ "$("${SCRIPT_DIR}/sha256.sh" "${snapshot_dir}/mentor_pi_mcu.elf")" == \
    "${expected}" ]] || Fail "firmware changed during flash snapshot"
 
-echo "Programming verified PID firmware over ${PORT}; actuators must remain disconnected."
+echo "Programming verified ADRC firmware over ${PORT}; actuators must remain disconnected."
 if [[ "${AUTOMATIC_BOOT_CONTROL}" == 1 ]]; then
   echo "Entering the STM32 ROM bootloader through separate CH9102F RTS/DTR set/clear operations."
   "${boot_control}" --device "${PORT}" --mode bootloader || \

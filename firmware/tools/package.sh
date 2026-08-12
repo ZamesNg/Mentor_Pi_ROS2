@@ -15,17 +15,17 @@ fi
   echo "Package destination already exists: ${requested}" >&2
   exit 1
 }
-destination="${requested}/firmware-pid-release"
+destination="${requested}/firmware-adrc-release"
 mkdir -p "${destination}"
 for extension in elf hex bin map; do
   cp "${BUILD_ROOT}/mentor_pi_mcu.${extension}" \
-    "${destination}/mentor_pi_mcu-firmware-pid-release.${extension}"
+    "${destination}/mentor_pi_mcu-firmware-adrc-release.${extension}"
 done
 cp "${BUILD_ROOT}/rrclite-build-metadata.txt" \
   "${destination}/BUILD-METADATA.txt"
 printf '%s\n' \
   'target=STM32F407VET6' \
-  'motor_mode=PID' \
+  'motor_mode=ADRC' \
   'control_mode=CLOSED_LOOP' \
   'classification=NORMAL_CLOSED_LOOP_DEFAULT' \
   >"${destination}/BUILD-MODE.txt"

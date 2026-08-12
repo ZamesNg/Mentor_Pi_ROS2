@@ -195,7 +195,7 @@ def check_tutorials() -> list[str]:
         "host": (
             "VS Code Dev Container", "make -C firmware build",
             "make -C firmware flash", "make -C ros2_ws test",
-            "PID_FIRMWARE_ACTUATORS_PREPARED", "current-limited supply",
+            "current-limited supply",
         ),
         "onboard": (
             "Ubuntu 22.04", "make -C firmware build",

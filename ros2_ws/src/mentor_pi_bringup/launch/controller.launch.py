@@ -18,9 +18,6 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-_REQUIRED_RUNTIME_ACK = "PID_FIRMWARE_ACTUATORS_PREPARED"
-
-
 def _validate_development_artifact():
     project_root = os.environ.get("MENTOR_PI_PROJECT_ROOT", "")
     verifier = os.environ.get("MENTOR_PI_FIRMWARE_VERIFIER", "")
@@ -37,7 +34,7 @@ def _validate_development_artifact():
     try:
         subprocess.run([verifier], check=True, cwd=project_root)
     except (OSError, subprocess.CalledProcessError) as error:
-        raise RuntimeError("the authoritative PID firmware artifact is invalid") from error
+        raise RuntimeError("the authoritative ADRC firmware artifact is invalid") from error
 
 
 def _shutdown_on_exit(action, label):
@@ -52,11 +49,6 @@ def _shutdown_on_exit(action, label):
 def _launch_controller(context):
     config_file = LaunchConfiguration("config_file").perform(context)
 
-    if os.environ.get("RRCLITE_RUNTIME_ACK") != _REQUIRED_RUNTIME_ACK:
-        raise RuntimeError(
-            f"set RRCLITE_RUNTIME_ACK={_REQUIRED_RUNTIME_ACK} only after "
-            "completing the guarded fixture checks"
-        )
     if os.environ.get("MENTOR_PI_DEVELOPMENT_RUNTIME") == "1":
         _validate_development_artifact()
     supervisor = Node(

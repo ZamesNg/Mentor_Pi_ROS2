@@ -13,7 +13,7 @@ The runtime creates node `/mentor_pi/controller` with exactly:
   `buttons/events`, `battery/state`, `heartbeat`, and `diagnostics`;
 - seven subscriptions, registered with the executor in the contract order:
   motor, PWM servo, bus servo, LED, buzzer, RGB, and OLED command;
-- seven manually pumped services: motor model, motor PID, PWM offsets, bus
+- seven manually pumped services: motor model, motor ADRC, PWM offsets, bus
   get/configure/stop, and battery threshold.
 
 Every endpoint uses explicit volatile keep-last QoS. Motion topics are best

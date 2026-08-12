@@ -22,7 +22,7 @@ fail-closed application graph. The Agent never starts an application.
 
 ## Delivered safety behavior
 
-- one normal closed-loop PID firmware classification;
+- one normal closed-loop ADRC firmware classification;
 - atomic motor validation and independent 198 ms leases;
 - model-specific RPS limits, 6 RPS ceiling, and ±1000-permille clamp;
 - session-loss and transport-failure disarming;

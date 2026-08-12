@@ -61,6 +61,15 @@ bool ParseDouble(const std::string& text, double* output) {
   return true;
 }
 
+bool ParsePositiveDouble(const std::string& text, double* output) {
+  double value = 0.0;
+  if (!ParseDouble(text, &value) || value <= 0.0) {
+    return false;
+  }
+  *output = value;
+  return true;
+}
+
 bool ParseBoolean(const std::string& text, bool* output) {
   const std::string normalized = ToLower(text);
   if (normalized == "true" || normalized == "1") {
@@ -92,10 +101,17 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
 
   robot_name_ = HardwareParameter(info, "robot_name", "mentor_pi");
   std::uint32_t timeout_ms = 0U;
+  std::uint32_t imu_timeout_ms = 0U;
   std::uint16_t servo_channel = 0U;
+  double linear_controller_bandwidth = 0.0;
+  double linear_observer_bandwidth = 0.0;
+  double yaw_controller_bandwidth = 0.0;
+  double yaw_observer_bandwidth = 0.0;
   if (!IsValidRobotName(robot_name_) ||
       !ParseInteger(HardwareParameter(info, "feedback_timeout_ms", "100"), 1U,
                     10000U, &timeout_ms) ||
+      !ParseInteger(HardwareParameter(info, "imu_timeout_ms", "100"), 1U,
+                    10000U, &imu_timeout_ms) ||
       !ParseInteger(HardwareParameter(info, "steering_pwm_channel", "3"),
                     static_cast<std::uint16_t>(1U),
                     static_cast<std::uint16_t>(4U), &servo_channel) ||
@@ -120,10 +136,42 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
       !ParseInteger(HardwareParameter(info, "steering_duration_ms", "20"),
                     static_cast<std::uint16_t>(20U),
                     static_cast<std::uint16_t>(30000U),
-                    &steering_duration_ms_)) {
+                    &steering_duration_ms_) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "rear_wheel_radius_m", "0.0333"),
+          &rear_wheel_radius_m_) ||
+      !ParsePositiveDouble(HardwareParameter(info, "wheelbase_m", "0.145"),
+                           &wheelbase_m_) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "linear_adrc_input_gain_per_second", "5.0"),
+          &linear_adrc_input_gain_per_second_) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "linear_adrc_controller_bandwidth_rad_s",
+                            "1.0"),
+          &linear_controller_bandwidth) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "linear_adrc_observer_bandwidth_rad_s",
+                            "3.0"),
+          &linear_observer_bandwidth) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "yaw_adrc_input_gain_per_mps", "30.0"),
+          &yaw_adrc_input_gain_per_mps_) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "yaw_adrc_controller_bandwidth_rad_s", "1.0"),
+          &yaw_controller_bandwidth) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "yaw_adrc_observer_bandwidth_rad_s", "3.0"),
+          &yaw_observer_bandwidth) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "yaw_adrc_minimum_speed_mps", "0.1"),
+          &yaw_adrc_minimum_speed_mps_) ||
+      !linear_adrc_.Configure(linear_controller_bandwidth,
+                              linear_observer_bandwidth) ||
+      !yaw_adrc_.Configure(yaw_controller_bandwidth, yaw_observer_bandwidth)) {
     return hardware_interface::CallbackReturn::ERROR;
   }
   feedback_timeout_ = std::chrono::milliseconds(timeout_ms);
+  imu_timeout_ = std::chrono::milliseconds(imu_timeout_ms);
   steering_calibration_.servo_index =
       static_cast<std::size_t>(servo_channel - 1U);
   if (!hardware::IsValidSteeringCalibration(steering_calibration_)) {
@@ -206,6 +254,11 @@ hardware_interface::CallbackReturn AckermannHardware::on_configure(
           "/mentor_pi/motors/state", qos,
           std::bind(&AckermannHardware::MotorStateCallback, this,
                     std::placeholders::_1));
+  imu_state_subscription_ =
+      node_->create_subscription<mentor_pi_interfaces::msg::ImuState>(
+          "/mentor_pi/imu", qos,
+          std::bind(&AckermannHardware::ImuStateCallback, this,
+                    std::placeholders::_1));
   pwm_state_subscription_ =
       node_->create_subscription<mentor_pi_interfaces::msg::PwmServoState>(
           "/mentor_pi/pwm_servos/state", qos,
@@ -231,9 +284,12 @@ hardware_interface::CallbackReturn AckermannHardware::on_configure(
     velocity_rad_s_.fill(0.0);
     position_rad_.fill(0.0);
     steering_position_rad_ = 0.0;
+    yaw_rate_rad_s_ = 0.0;
     maximum_rps_ = 0.0;
     has_motor_state_ = false;
     has_pwm_state_ = false;
+    has_imu_state_ = false;
+    imu_valid_ = false;
   }
   {
     std::lock_guard<std::mutex> lock(authorization_mutex_);
@@ -257,6 +313,7 @@ hardware_interface::CallbackReturn AckermannHardware::on_cleanup(
   StopExecutor();
   motion_authorization_subscription_.reset();
   heartbeat_subscription_.reset();
+  imu_state_subscription_.reset();
   motor_state_subscription_.reset();
   pwm_state_subscription_.reset();
   motor_command_publisher_.reset();
@@ -268,6 +325,7 @@ hardware_interface::CallbackReturn AckermannHardware::on_cleanup(
     heartbeat_ready_ = false;
     has_heartbeat_ = false;
   }
+  ResetChassisAdrc();
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -280,7 +338,7 @@ hardware_interface::CallbackReturn AckermannHardware::on_activate(
   for (auto& entry : joints_) {
     entry.second.command = {};
   }
-  activated_at_ = SteadyClock::now();
+  ResetChassisAdrc();
   active_ = true;
   SendZeroCommands();
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -289,6 +347,7 @@ hardware_interface::CallbackReturn AckermannHardware::on_activate(
 hardware_interface::CallbackReturn AckermannHardware::on_deactivate(
     const rclcpp_lifecycle::State&) {
   active_ = false;
+  ResetChassisAdrc();
   SendZeroCommands();
   for (auto& entry : joints_) {
     entry.second.command = {};
@@ -362,26 +421,30 @@ hardware_interface::return_type AckermannHardware::read(
 }
 
 hardware_interface::return_type AckermannHardware::write(
-    const rclcpp::Time&, const rclcpp::Duration&) {
+    const rclcpp::Time&, const rclcpp::Duration& period) {
   if (!active_) {
     return hardware_interface::return_type::OK;
   }
   if (executor_failed_.load(std::memory_order_acquire)) {
+    ResetChassisAdrc();
     SendZeroCommands();
     return hardware_interface::return_type::ERROR;
   }
   if (!MotionIsAuthorized()) {
+    ResetChassisAdrc();
     SendZeroCommands();
     return hardware_interface::return_type::OK;
   }
   {
     std::lock_guard<std::mutex> lock(feedback_mutex_);
     if (!FeedbackIsFresh(SteadyClock::now())) {
+      ResetChassisAdrc();
       SendZeroCommands();
       return hardware_interface::return_type::ERROR;
     }
   }
-  if (!SendDriveAndSteeringCommands()) {
+  if (!SendDriveAndSteeringCommands(period.seconds())) {
+    ResetChassisAdrc();
     SendZeroCommands();
     return hardware_interface::return_type::ERROR;
   }
@@ -406,7 +469,7 @@ void AckermannHardware::MotorStateCallback(
     velocity[logical] = hardware::RpsToRadiansPerSecond(
         direction * static_cast<double>(message->measured_rps[motor]));
     position[logical] = direction * hardware::EncoderCountToRadians(
-                                       message->encoder_count[motor], *ticks);
+                                        message->encoder_count[motor], *ticks);
     if (!std::isfinite(velocity[logical]) ||
         !std::isfinite(position[logical])) {
       return;
@@ -418,6 +481,17 @@ void AckermannHardware::MotorStateCallback(
   maximum_rps_ = *maximum_rps;
   last_motor_state_ = SteadyClock::now();
   has_motor_state_ = true;
+}
+
+void AckermannHardware::ImuStateCallback(
+    const mentor_pi_interfaces::msg::ImuState::SharedPtr message) {
+  const double yaw_rate =
+      static_cast<double>(message->angular_velocity_rad_s[2]);
+  std::lock_guard<std::mutex> lock(feedback_mutex_);
+  last_imu_state_ = SteadyClock::now();
+  has_imu_state_ = true;
+  imu_valid_ = message->valid && std::isfinite(yaw_rate);
+  yaw_rate_rad_s_ = imu_valid_ ? yaw_rate : 0.0;
 }
 
 void AckermannHardware::PwmServoStateCallback(
@@ -492,12 +566,10 @@ void AckermannHardware::StopExecutor() {
 }
 
 bool AckermannHardware::FeedbackIsFresh(SteadyClock::time_point now) const {
-  const SteadyClock::time_point motor_reference =
-      has_motor_state_ ? last_motor_state_ : activated_at_;
-  const SteadyClock::time_point pwm_reference =
-      has_pwm_state_ ? last_pwm_state_ : activated_at_;
-  return now - motor_reference <= feedback_timeout_ &&
-         now - pwm_reference <= feedback_timeout_;
+  return has_motor_state_ && has_pwm_state_ && has_imu_state_ && imu_valid_ &&
+         now - last_motor_state_ <= feedback_timeout_ &&
+         now - last_pwm_state_ <= feedback_timeout_ &&
+         now - last_imu_state_ <= imu_timeout_;
 }
 
 bool AckermannHardware::MotionIsAuthorized() const {
@@ -545,7 +617,14 @@ void AckermannHardware::SendZeroCommands() {
   }
 }
 
-bool AckermannHardware::SendDriveAndSteeringCommands() {
+void AckermannHardware::ResetChassisAdrc() {
+  linear_adrc_.Reset();
+  yaw_adrc_.Reset();
+  applied_linear_correction_m_s_ = 0.0;
+  applied_steering_correction_rad_ = 0.0;
+}
+
+bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
   if (!motor_command_publisher_ || !pwm_command_publisher_) {
     return false;
   }
@@ -554,34 +633,113 @@ bool AckermannHardware::SendDriveAndSteeringCommands() {
   if (!std::isfinite(left) || !std::isfinite(right)) {
     return false;
   }
-  const auto pulse = hardware::SteeringAngleToPulse((left + right) * 0.5,
-                                                    steering_calibration_);
+  std::array<double, 2U> reference_rear_velocity{
+      joints_.at(wheel_names_[hardware::WheelIndex(hardware::Wheel::kRearLeft)])
+          .command.velocity,
+      joints_
+          .at(wheel_names_[hardware::WheelIndex(hardware::Wheel::kRearRight)])
+          .command.velocity};
+  if (!std::isfinite(reference_rear_velocity[0]) ||
+      !std::isfinite(reference_rear_velocity[1])) {
+    return false;
+  }
+  if (reference_rear_velocity[0] == 0.0 && reference_rear_velocity[1] == 0.0) {
+    ResetChassisAdrc();
+    SendZeroCommands();
+    return true;
+  }
+
+  double maximum_rps = 0.0;
+  std::array<double, hardware::kWheelCount> measured_wheel_velocity{};
+  double measured_yaw_rate = 0.0;
+  {
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    maximum_rps = maximum_rps_;
+    measured_wheel_velocity = velocity_rad_s_;
+    measured_yaw_rate = yaw_rate_rad_s_;
+  }
+  const double reference_speed_m_s =
+      rear_wheel_radius_m_ *
+      (reference_rear_velocity[0] + reference_rear_velocity[1]) * 0.5;
+  const double measured_speed_m_s =
+      rear_wheel_radius_m_ *
+      (measured_wheel_velocity[hardware::WheelIndex(
+           hardware::Wheel::kRearLeft)] +
+       measured_wheel_velocity[hardware::WheelIndex(
+           hardware::Wheel::kRearRight)]) *
+      0.5;
+  const auto linear_correction = linear_adrc_.Update(
+      reference_speed_m_s, measured_speed_m_s, applied_linear_correction_m_s_,
+      linear_adrc_input_gain_per_second_, period_seconds);
+  if (!linear_correction) {
+    return false;
+  }
+  std::array<double, 2U> target_rear_velocity{
+      reference_rear_velocity[0] + *linear_correction / rear_wheel_radius_m_,
+      reference_rear_velocity[1] + *linear_correction / rear_wheel_radius_m_};
+  const double maximum_wheel_velocity = maximum_rps * hardware::kTwoPi;
+  const double largest_wheel_velocity = std::max(
+      std::fabs(target_rear_velocity[0]), std::fabs(target_rear_velocity[1]));
+  if (!std::isfinite(maximum_wheel_velocity) || maximum_wheel_velocity <= 0.0 ||
+      !std::isfinite(largest_wheel_velocity)) {
+    return false;
+  }
+  if (largest_wheel_velocity > maximum_wheel_velocity) {
+    const double scale = maximum_wheel_velocity / largest_wheel_velocity;
+    target_rear_velocity[0] *= scale;
+    target_rear_velocity[1] *= scale;
+  }
+  applied_linear_correction_m_s_ =
+      rear_wheel_radius_m_ *
+          (target_rear_velocity[0] + target_rear_velocity[1]) * 0.5 -
+      reference_speed_m_s;
+
+  const double feedforward_steering =
+      std::clamp((left + right) * 0.5, steering_calibration_.minimum_angle_rad,
+                 steering_calibration_.maximum_angle_rad);
+  double steering_command = 0.0;
+  if (std::fabs(measured_speed_m_s) < yaw_adrc_minimum_speed_mps_) {
+    yaw_adrc_.Reset();
+    applied_steering_correction_rad_ = 0.0;
+  } else {
+    const double reference_yaw_rate =
+        reference_speed_m_s * std::tan(feedforward_steering) / wheelbase_m_;
+    const double yaw_input_gain =
+        yaw_adrc_input_gain_per_mps_ * measured_speed_m_s;
+    const auto steering_correction = yaw_adrc_.Update(
+        reference_yaw_rate, measured_yaw_rate, applied_steering_correction_rad_,
+        yaw_input_gain, period_seconds);
+    if (!steering_correction) {
+      return false;
+    }
+    steering_command = std::clamp(feedforward_steering + *steering_correction,
+                                  steering_calibration_.minimum_angle_rad,
+                                  steering_calibration_.maximum_angle_rad);
+    applied_steering_correction_rad_ = steering_command - feedforward_steering;
+  }
+  const auto pulse =
+      hardware::SteeringAngleToPulse(steering_command, steering_calibration_);
   if (!pulse) {
     return false;
   }
 
-  double maximum_rps = 0.0;
-  {
-    std::lock_guard<std::mutex> lock(feedback_mutex_);
-    maximum_rps = maximum_rps_;
-  }
   mentor_pi_interfaces::msg::MotorCommand motor_command;
   motor_command.update_mask = static_cast<std::uint8_t>(
       hardware::McuMotorMask(hardware::Wheel::kRearLeft) |
       hardware::McuMotorMask(hardware::Wheel::kRearRight));
   motor_command.target_rps.fill(0.0F);
+  std::size_t rear_index = 0U;
   for (hardware::Wheel wheel :
        {hardware::Wheel::kRearLeft, hardware::Wheel::kRearRight}) {
-    const std::size_t logical = hardware::WheelIndex(wheel);
     const double direction =
         static_cast<double>(hardware::ChassisDirectionSign(wheel));
     const auto rps = hardware::RadiansPerSecondToRps(
-        direction * joints_.at(wheel_names_[logical]).command.velocity,
-        maximum_rps);
+        direction * target_rear_velocity[rear_index], maximum_rps);
     if (!rps) {
       return false;
     }
     motor_command.target_rps[hardware::McuMotorIndex(wheel)] = *rps;
+    ++rear_index;
   }
 
   mentor_pi_interfaces::msg::PwmServoCommand pwm_command;

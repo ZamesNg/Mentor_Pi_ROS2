@@ -18,7 +18,7 @@ Fail() {
 
 if [[ "${1:-}" == --print-motor-profile && "$#" == 1 ]]; then
   printf '%s\n' \
-    'mode=PID' \
+    'mode=ADRC' \
     'control_mode=CLOSED_LOOP' \
     'maximum_accepted_rps=6.0' \
     'output_limit_permille=1000' \
@@ -82,7 +82,7 @@ printf '%s\n' \
   'host_os=ubuntu-22.04' \
   "host_architecture=${architecture}" \
   'toolchain=arm-gnu-toolchain-13.2.rel1' \
-  'motor_mode=PID' \
+  'motor_mode=ADRC' \
   'control_mode=CLOSED_LOOP' \
   'artifact_mode=NORMAL' \
   'classification=NORMAL_CLOSED_LOOP_DEFAULT' \

@@ -48,7 +48,7 @@ first session generation; clearing the inhibit neither changes that generation
 nor requires reconnect. This makes the bounded startup grace a continuous safe
 state rather than a motor stop sampled only every 20 ms.
 
-The normal and only supported firmware image is the PID release artifact,
+The normal and only supported firmware image is the ADRC release artifact,
 classified `NORMAL_CLOSED_LOOP_DEFAULT` with `control_mode=CLOSED_LOOP`. In
 `ACTIVE`, a fresh valid command may arm only its selected channels. The active
 model limit and the 6 RPS implementation ceiling are enforced before any state
@@ -84,10 +84,10 @@ After the software checks pass, the one-line helper requires the operator to
 confirm the observed physical direction. These checks reduce checkout risk but
 do not replace MCU safety or HIL qualification.
 
-Before any powered command, the PID image shall be used for a passive manual
+Before any powered command, the ADRC image shall be used for a passive manual
 encoder-direction check while all bridge outputs remain disabled. JGA27
 currently applies a provisional model polarity factor of `-1` derived from
-legacy negative-gain evidence. That factor and every PID profile remain
+legacy negative-gain evidence. That factor and every ADRC profile remain
 unqualified until motor HIL measures and records the physical result. Software
 verification of the release artifact is not powered-motion qualification.
 
@@ -106,7 +106,7 @@ armed state.
 
 - The lease duration is 200 ms.
 - A 1 kHz safety release in `MotorControlTask` evaluates the lease; encoder and
-  PID/output updates remain 100 Hz.
+  ADRC/output updates remain 100 Hz.
 - TIM7 releases the check every 1 ms. Qualification shall prove that the
   maximum interval between completed lease evaluations, including scheduling
   jitter, is no greater than 2 ms. The expiry threshold is 198 ms, allowing one
@@ -120,8 +120,8 @@ armed state.
 - A finite speed outside the active motor model's documented range or the 6 RPS
   implementation ceiling rejects the complete message atomically and refreshes
   no lease. It is never clamped.
-- When age reaches 198 ms, that motor's target and PWM become zero, its PID
-  integrator and accumulated output are cleared, and it becomes disarmed.
+- When age reaches 198 ms, that motor's target and PWM become zero, its ADRC
+  observer and applied-output state are cleared, and it becomes disarmed.
 - Session failure, transport failure, RX overrun, or safety-supervisor action
   invalidates all four leases immediately rather than waiting for individual
   expiry.
@@ -423,7 +423,7 @@ an in-flight service buffer, or allocating per incoming message.
 
 | Fault | Immediate response | Recovery |
 | --- | --- | --- |
-| One motor command expires | Zero/disarm that motor; clear its PID state. | Fresh valid command for that motor while session is active and only within the active build's authority. |
+| One motor command expires | Zero/disarm that motor; clear its ADRC state. | Fresh valid command for that motor while session is active and only within the active build's authority. |
 | All command traffic stops but Agent still answers | Per-motor leases expire independently. | Fresh valid commands subject to the model limit, implementation ceiling, and current-session gate; no session recreation required. |
 | Agent process or cable disappears | Motor lease remains primary; detected ping/transport failure disarms all and tears down. | Automatic Agent/session retry; fresh motor commands remain subject to the active build's authority. |
 | Invalid command | Reject atomically and count; refresh no affected lease. | Publisher corrects the message. |

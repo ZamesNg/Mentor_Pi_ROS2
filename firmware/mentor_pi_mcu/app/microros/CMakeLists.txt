@@ -3,7 +3,7 @@ project(mentor_pi_microros_runtime LANGUAGES CXX)
 
 set(MENTOR_PI_MCU_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(MENTOR_PI_MICROROS_INCLUDE_DIR
-    "${MENTOR_PI_MCU_ROOT}/build/microros/micro_ros_stm32cubemx_utils/microros_static_library_ide/libmicroros/include"
+    "${MENTOR_PI_MCU_ROOT}/build/microros-sdk/include"
     CACHE PATH "Path to generated Humble libmicroros headers")
 
 set(MENTOR_PI_WARNING_OPTIONS

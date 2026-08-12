@@ -92,7 +92,7 @@ gets a `BUSY` response. Non-bus work has a 50 ms local deadline. Bus work has a
 | Fully qualified service | Type | Purpose |
 |---|---|---|
 | `/mentor_pi/motors/set_model` | `mentor_pi_interfaces/srv/SetMotorModel` | Select one profile for all four motors |
-| `/mentor_pi/motors/set_pid` | `mentor_pi_interfaces/srv/SetMotorPid` | Apply volatile closed-loop gains while all motors are stopped |
+| `/mentor_pi/motors/set_adrc` | `mentor_pi_interfaces/srv/SetMotorAdrc` | Apply volatile closed-loop gains while all motors are stopped |
 | `/mentor_pi/pwm_servos/set_offsets` | `mentor_pi_interfaces/srv/SetPwmServoOffsets` | Set PWM-servo calibration offsets |
 | `/mentor_pi/bus_servos/get_state` | `mentor_pi_interfaces/srv/GetBusServoState` | Read selected registers from one servo |
 | `/mentor_pi/bus_servos/configure` | `mentor_pi_interfaces/srv/ConfigureBusServo` | Write selected registers on one servo |
@@ -237,7 +237,7 @@ uint8 watchdog_stop_mask
 ```
 
 - `target_rps` is the current post-watchdog control target.
-- `measured_rps` is the signed output-shaft estimate used by the PID loop.
+- `measured_rps` is the signed output-shaft estimate used by the ADRC loop.
 - `encoder_count` is the signed accumulated quadrature count since MCU boot;
   no ROS API resets it.
 - `watchdog_stop_mask` uses the same bit mapping as `MotorCommand`.
@@ -266,11 +266,11 @@ float32 max_rps
 ```
 
 One model applies to all four channels. Default after reset is JGA27. A request
-for the already active model is idempotent: it returns `OK` with no PID reset,
+for the already active model is idempotent: it returns `OK` with no ADRC reset,
 including while a target is nonzero. For an actual model change, if any current
 target is nonzero, return `BUSY` and change nothing. A successful actual change
-applies the encoder constant, RPS limit, and fixed controller gains to all four
-motors, resets their PID integrator/derivative state, and returns the effective
+applies the encoder constant, RPS limit, and fixed controller parameters to all
+four motors, resets their ADRC observer/output state, and returns the effective
 profile values. The returned `max_rps` is the model limit and does not override
 the 6 RPS implementation ceiling. The setting is runtime-only. Before enabling its session-bound motion
 authorization, the host supervisor shall require an `OK` response to echo the
@@ -279,19 +279,19 @@ shared contract. A mismatched model, tick count, non-finite speed, or different
 finite speed is treated as `IO_ERROR`; configuration is rejected for that
 generation and the motion gate remains closed.
 
-All four profiles use the same hardcoded, bounded positional-PID
-defaults: `Kp=250.0`, `Ki=0.1`, `Kd=0.5`, and velocity-filter new-sample
-weight `0.5`. They are not release-qualified. D3 HIL shall qualify or replace
-the gains, output
-polarity, encoder polarity, filter, and deadband for each profile and record the
-evidence before nonzero production motion is released. JGA27's provisional
-model polarity is `-1` solely because the legacy JGA27 profile used negative
-gains while the other retained profiles used positive gains. The defective
-legacy PID expression documented in the legacy audit is not a normative
-algorithm, and changing any qualified constant later invalidates the affected
-motor HIL evidence.
+All four profiles use the same hardcoded, bounded first-order LADRC defaults:
+input gain `b0=0.03 RPS/s/permille`, controller bandwidth `wc=4 rad/s`,
+observer bandwidth `wo=12 rad/s`, and velocity-filter new-sample weight `0.5`.
+They are not release-qualified. D3 HIL shall qualify or replace these values,
+output polarity, encoder polarity, filter, and the 250-permille minimum-drive
+floor for each profile and record the evidence before nonzero production motion
+is released. JGA27's provisional model polarity is `-1` solely because the
+legacy JGA27 PID profile used negative gains while the other retained profiles
+used positive gains. The defective legacy PID expression documented in the
+legacy audit is not a normative algorithm, and changing any qualified constant
+later invalidates the affected motor HIL evidence.
 
-### 4.4 `srv/SetMotorPid.srv`
+### 4.4 `srv/SetMotorAdrc.srv`
 
 ```text
 uint8 MOTOR_1=1
@@ -301,55 +301,59 @@ uint8 MOTOR_4=8
 uint8 ALL_MOTORS=15
 
 uint8 update_mask
-float32[4] proportional_gain
-float32[4] integral_gain
-float32[4] derivative_gain
+float32[4] input_gain_rps_per_second_per_permille
+float32[4] controller_bandwidth_rad_s
+float32[4] observer_bandwidth_rad_s
 float32[4] velocity_filter_new_weight
 ---
 mentor_pi_interfaces/Result result
 uint8 applied_mask
 ```
 
-`update_mask` shall be a nonzero subset of `ALL_MOTORS`. Every selected P, I,
-and D value shall be finite and in `[0, 1000]`; every selected filter new-sample
-weight shall be finite and in `[0, 1]`. A non-finite selected value returns
-`INVALID_ARGUMENT`, while a finite selected value outside its interval returns
-`OUT_OF_RANGE`.
+`update_mask` shall be a nonzero subset of `ALL_MOTORS`. Every selected input
+gain shall be finite, positive, and no greater than `1000`. Every selected
+controller and observer bandwidth shall be finite and positive; controller
+bandwidth shall not exceed observer bandwidth, and observer bandwidth shall not
+exceed `50 rad/s`. Every selected filter new-sample weight shall be finite and
+in `[0, 1]`. A non-finite selected value returns `INVALID_ARGUMENT`; a finite
+value outside these bounds returns `OUT_OF_RANGE`.
 
-The service is supported by the default closed-loop PID artifact. It returns
+The service is supported by the default closed-loop ADRC artifact. It returns
 `BUSY` unless every channel is disarmed, every target is zero, and every
 measured speed has magnitude below `0.01 RPS`. Validation, application, and
-PID-state reset are atomic across all selected channels. On success
+ADRC-state reset are atomic across all selected channels. On success
 `applied_mask == update_mask`; every failure returns an applied mask of zero.
 Overrides are volatile: they survive an Agent
 transport reconnection but are cleared by an MCU reset or an actual motor-model
 change.
+The deployment supervisor validates four exactly-four-element double YAML
+arrays named `input_gain_rps_per_second_per_permille`, `controller_bandwidth_rad_s`, `observer_bandwidth_rad_s`, and
+`velocity_filter_new_weight`, using these same ranges. After each session it
+sets the motor model, applies all four ADRC arrays with `ALL_MOTORS`, verifies
+both `OK` and `applied_mask == ALL_MOTORS`, then applies PWM offsets and the
+battery threshold before enabling motion.
 If the bounded service deadline expires before the motor owner commits the
 update, timeout cancellation wins the same owner critical section and prevents
 any later gain mutation for that request. If the owner commit wins first, the
 completed success response is returned instead of `TIMEOUT`.
 
-The closed-loop image uses the filtered measured RPS as `v_real` and evaluates
-the positional PID at 100 Hz. The first sample establishes a nominal 10 ms
-timing baseline; subsequent samples use the wrap-safe actual elapsed period
-`T`:
+The closed-loop image uses filtered measured RPS and evaluates first-order
+linear ADRC at 100 Hz. The first sample establishes a nominal 10 ms timing
+baseline; subsequent samples use the wrap-safe actual elapsed period `T`. With
+`e = z1 - filtered_measured_rps` and the previously applied post-floor output:
 
 ```text
-error = target_rps - filtered_measured_rps
-integral_error += error * T
-output = Kp * error
-       + Ki * integral_error
-       + Kd * (error - previous_error) / T
+z1 += T * (z2 + b0 * applied_output - 2 * wo * e)
+z2 += T * (-wo * wo * e)
+output = (wc * (target_rps - z1) - z2) / b0
 ```
 
-`Kp` is in permille/RPS, `Ki` in permille/(RPS second), and `Kd` in
-permille-second/RPS. A target step therefore produces derivative kick because
-D acts on error. Conditional integration rejects an integral update only when
-the trial output is saturated and the error would drive it farther into the
-same limit. The final output is clamped to `[-1000, 1000]` permille before the
-documented minimum effective duty is applied. Stop, lease expiry, disarming,
-session loss, a successful selected PID update, and an actual model change
-reset integral and derivative history.
+`b0` is in RPS/s/permille and `wc`/`wo` are in rad/s. A non-finite state or
+`wo*T > 0.5` disarms the affected channel and records a watchdog stop. The
+final output is clamped to `[-1000, 1000]` permille; any nonzero magnitude below
+250 permille is raised to that existing minimum-drive floor. Stop, lease expiry,
+disarming, session loss, a successful selected ADRC update, and an actual model
+change reset observer and applied-output state.
 
 ## 5. PWM servo interface
 
@@ -825,15 +829,16 @@ an uptime discontinuity as a new session. Uptime comparison uses modulo-`uint32`
 serial-number arithmetic, so the normal wrap near 49.7 days is forward
 progress, not a reset. It immediately keeps host motion disabled, waits for
 heartbeat `READY` or `DEGRADED`, and idempotently calls, in order,
-`motors/set_model`, `pwm_servos/set_offsets`, and
-`battery/set_low_threshold`. Each call has a 100 ms host timeout and at most
+`motors/set_model`, `motors/set_adrc`, `pwm_servos/set_offsets`, and
+`battery/set_low_threshold`. The ADRC request covers `ALL_MOTORS`, and its
+`OK` response must report `applied_mask == ALL_MOTORS`. Each call has a 100 ms host timeout and at most
 four attempts in that configuration generation, with 100, 200, then 400 ms
 backoff. Only `BUSY`, a returned `TIMEOUT`, or client timeout is retryable.
 Every future is tagged with both the host configuration generation and
 `agent_session_id`; late responses and responses from an old session are
 ignored. Permanent failure or retry exhaustion leaves motion disabled until
-operator action or a new session. Host motion may start only after all three
-return `OK`. The supervisor shall not replay bus-servo configuration or any
+operator action or a new session. Host motion may start only after all four
+calls are contract-consistent. The supervisor shall not replay bus-servo configuration or any
 actuator, LED, buzzer, RGB, or OLED command. Heartbeat `READY` means
 MCU/ROS/peripherals are ready; supervisor configuration readiness is host-local.
 

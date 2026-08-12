@@ -33,6 +33,7 @@ void ControllerRuntime::DeactivateMotorOwnerLocked() {
   const std::uint8_t previous_mask = motor_controller_.watchdog_stop_mask();
   motor_controller_.SetSessionActive(false);
   motor_owner_session_generation_ = 0U;
+  motor_control_sample_initialized_ = false;
   const std::uint8_t current_mask = motor_controller_.watchdog_stop_mask();
   motor_watchdog_mask_.store(current_mask, std::memory_order_release);
   IncrementMotorWatchdogTrips(previous_mask, current_mask);
@@ -72,7 +73,7 @@ void ControllerRuntime::RunMotorControlOnce() {
 
   ConsumeMotorCommand(now_us);
   ProcessMotorModelService();
-  ProcessMotorPidService();
+  ProcessMotorAdrcService();
 
   const std::uint8_t previous_watchdog_mask =
       motor_controller_.watchdog_stop_mask();
@@ -266,32 +267,32 @@ void ControllerRuntime::ProcessMotorModelService() {
   Complete(&motor_model_slot_, token, reply);
 }
 
-void ControllerRuntime::ProcessMotorPidService() {
+void ControllerRuntime::ProcessMotorAdrcService() {
   mentor_pi_mcu::app::microros::ServiceToken token{};
-  mentor_pi::mcu::SetMotorPidCommand request{};
-  if (!Take(&motor_pid_slot_, &token, &request)) {
+  mentor_pi::mcu::SetMotorAdrcCommand request{};
+  if (!Take(&motor_adrc_slot_, &token, &request)) {
     return;
   }
 
-  mentor_pi_mcu::app::microros::MotorPidReply reply{};
+  mentor_pi_mcu::app::microros::MotorAdrcReply reply{};
   {
-    // PID validation and mutation are fixed-size and execute under the same
+    // ADRC validation and mutation are fixed-size and execute under the same
     // owner-side critical section as timeout cancellation, model changes, and
     // motor commands. Completion is committed before releasing the section so
     // timeout cancellation and gain application have one deterministic winner.
     CriticalGuard guard(this);
-    if (motor_pid_slot_.state.load(std::memory_order_acquire) ==
+    if (motor_adrc_slot_.state.load(std::memory_order_acquire) ==
             SlotState::kCanceled ||
         !TokenIsCurrent(token)) {
-      motor_pid_slot_.state.store(SlotState::kCanceled,
-                                  std::memory_order_release);
+      motor_adrc_slot_.state.store(SlotState::kCanceled,
+                                   std::memory_order_release);
     } else {
-      const mentor_pi::mcu::MotorPidUpdate update =
-          motor_controller_.SetPid(request);
+      const mentor_pi::mcu::MotorAdrcUpdate update =
+          motor_controller_.SetAdrc(request);
       reply.result = update.result;
       reply.applied_mask = update.applied_mask;
     }
-    Complete(&motor_pid_slot_, token, reply);
+    Complete(&motor_adrc_slot_, token, reply);
   }
 }
 

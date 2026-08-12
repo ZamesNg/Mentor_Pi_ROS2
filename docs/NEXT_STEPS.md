@@ -1,13 +1,13 @@
 # RRCLite v2 status and next steps
 
-This is the implementation and evidence handoff as of 2026-08-11. Begin with
+This is the implementation and evidence handoff as of 2026-08-12. Begin with
 one complete tutorial track from the [root README](../README.md).
 
 ## Current source contract
 
 The repository is a native component monorepo:
 
-- `firmware/` builds one PID artifact independently with CMake/Ninja;
+- `firmware/` builds one ADRC artifact independently with CMake/Ninja;
 - `micro_ros_agent/` owns pinned sources, the CH9102F patch, native build,
   versioned `/opt/mentor_pi/agent/` installation, udev, and the non-root
   `mentor-pi-agent.service`;
@@ -24,9 +24,9 @@ The repository is a native component monorepo:
 firmware SDK currently records:
 
 ```text
-interfaces_sha256=b52c43925d1dc41b7c98ceeb965cc84d67a6c22d5a84e22b5d4f438330bafbf4
-archive_sha256=1aed7ed2dc7e98244762552aecacae6bde27d1c38f54f6231e9563618b21a9d9
-tree_sha256=bbd42d209c9c75fb2b75b2f9ead22c9629aaaa4c24c0f851e273044c9b08f7ac
+interfaces_sha256=196e0c2579635d28c979ac74732aa76c1f9b79acb82de3c455efc7e7afeec576
+archive_sha256=d42ca8996cae0c2bb2f668f9454efc69edd1d1c986c9dff6a912628a4b6d0a7a
+tree_sha256=9ce2a22f321bf6734671361b1141e89c287332eafeaf17a10516412c02f66e02
 toolchain_amd64_sha256=6cd1bbc1d9ae57312bcd169ae283153a9572bd6a8e4eeae2fedfbc33b115fdbb
 toolchain_arm64_sha256=8fd8b4a0a8d44ab2e195ccfbeef42223dfb3ede29d80f14dcf2183c34b8d199a
 ```
@@ -70,8 +70,8 @@ build migration and is not evidence for the current artifact. The following
 remain unqualified until new machine-generated HIL or instrument evidence is
 recorded:
 
-- powered motor direction, ticks/revolution, PID/filter/deadband, current,
-  temperature, and operating range;
+- powered motor direction, ticks/revolution, ADRC/filter/minimum-drive floor,
+  current, temperature, and operating range;
 - positive-rotation IMU orientation and extended timing;
 - battery, PWM, RGB, buzzer, LED, OLED, bus-servo, and button electrical
   behavior;

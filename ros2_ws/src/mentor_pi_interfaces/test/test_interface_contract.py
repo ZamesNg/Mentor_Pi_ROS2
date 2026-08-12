@@ -53,7 +53,7 @@ EXPECTED_SERVICES = {
     'GetBusServoState.srv',
     'SetBatteryThreshold.srv',
     'SetMotorModel.srv',
-    'SetMotorPid.srv',
+    'SetMotorAdrc.srv',
     'SetPwmServoOffsets.srv',
     'StopBusServos.srv',
 }
@@ -97,10 +97,10 @@ EXPECTED_FIXED_ARRAYS = {
     ('RgbCommand.msg', 'red'): 2,
     ('RgbCommand.msg', 'green'): 2,
     ('RgbCommand.msg', 'blue'): 2,
-    ('SetMotorPid.srv', 'proportional_gain'): 4,
-    ('SetMotorPid.srv', 'integral_gain'): 4,
-    ('SetMotorPid.srv', 'derivative_gain'): 4,
-    ('SetMotorPid.srv', 'velocity_filter_new_weight'): 4,
+    ('SetMotorAdrc.srv', 'input_gain_rps_per_second_per_permille'): 4,
+    ('SetMotorAdrc.srv', 'controller_bandwidth_rad_s'): 4,
+    ('SetMotorAdrc.srv', 'observer_bandwidth_rad_s'): 4,
+    ('SetMotorAdrc.srv', 'velocity_filter_new_weight'): 4,
     ('SetPwmServoOffsets.srv', 'offset_us'): 4,
     ('StopBusServos.srv', 'servo_id'): 16,
 }

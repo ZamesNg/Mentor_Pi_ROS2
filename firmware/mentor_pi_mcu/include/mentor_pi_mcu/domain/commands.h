@@ -20,7 +20,8 @@ constexpr std::size_t kOledHostLineCount = 2;
 constexpr std::size_t kOledLineCapacity = 23;
 
 constexpr std::uint8_t kAllMotorMask = 0x0fU;
-constexpr float kMotorPidMaximumGain = 1000.0F;
+constexpr float kMotorAdrcMaximumInputGain = 1000.0F;
+constexpr float kMotorAdrcMaximumObserverBandwidthRadS = 50.0F;
 constexpr std::uint8_t kAllPwmServoMask = 0x0fU;
 constexpr std::uint8_t kAllRgbPixelMask = 0x03U;
 // RGB pixel 2 is owned by firmware status indication. The public message keeps
@@ -60,11 +61,11 @@ struct BusServoCommand {
   std::uint16_t duration_ms{0};
 };
 
-struct SetMotorPidCommand {
+struct SetMotorAdrcCommand {
   std::uint8_t update_mask{0};
-  std::array<float, kMotorCount> proportional_gain{};
-  std::array<float, kMotorCount> integral_gain{};
-  std::array<float, kMotorCount> derivative_gain{};
+  std::array<float, kMotorCount> input_gain_rps_per_second_per_permille{};
+  std::array<float, kMotorCount> controller_bandwidth_rad_s{};
+  std::array<float, kMotorCount> observer_bandwidth_rad_s{};
   std::array<float, kMotorCount> velocity_filter_new_weight{};
 };
 

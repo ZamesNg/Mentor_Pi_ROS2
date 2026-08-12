@@ -33,7 +33,7 @@ CreateFixture() {
   cp "${FLASH_SOURCE}" "${tools}/flash.sh"
   cp "${SHA_SOURCE}" "${tools}/sha256.sh"
   chmod 0755 "${tools}/flash.sh" "${tools}/sha256.sh"
-  printf '%s\n' 'verified PID firmware fixture' \
+  printf '%s\n' 'verified ADRC firmware fixture' \
     >"${build}/mentor_pi_mcu.elf"
   digest="$("${tools}/sha256.sh" "${build}/mentor_pi_mcu.elf")"
   printf 'elf_sha256=%s\n' "${digest}" \
