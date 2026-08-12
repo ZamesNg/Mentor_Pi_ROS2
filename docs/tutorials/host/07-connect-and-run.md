@@ -16,13 +16,13 @@ With exactly one connected CH9102F, install by stable identity:
 
 ```zsh
 make -C micro_ros_agent find-device
-: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-sudo --preserve-env=ROS_DOMAIN_ID \
-  make -C micro_ros_agent install-service
+sudo make -C micro_ros_agent install-service ROS_DOMAIN_ID=0
 systemctl is-enabled mentor-pi-agent.service
 systemctl is-active mentor-pi-agent.service
 journalctl -u mentor-pi-agent.service -n 50 --no-pager
 ```
+
+Replace `0` if the deployment uses a different ROS domain.
 
 The installer discovers USB `1a86:55d4` and chooses its stable serial, falling
 back to `ID_PATH`. If multiple matching adapters are connected, select the

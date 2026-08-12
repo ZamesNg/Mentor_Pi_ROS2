@@ -10,9 +10,13 @@ grep -Eq '^find-device:' "${COMPONENT_ROOT}/Makefile"
 grep -Fq 'SERIAL_ACCESS_HELPER=' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
 ! grep -Fq 'ROS_DOMAIN_ID ?= 0' "${COMPONENT_ROOT}/Makefile"
-grep -Fq 'sudo --preserve-env=ROS_DOMAIN_ID make install-service' \
+grep -Fq 'sudo make install-service ROS_DOMAIN_ID=0' \
   "${COMPONENT_ROOT}/Makefile"
-grep -Fq 'ROS_DOMAIN_ID must be exported before service installation' \
+grep -Fq 'pass ROS_DOMAIN_ID=<0..232> to make install-service' \
+  "${COMPONENT_ROOT}/tools/install_service.sh"
+grep -Fq 'RELEASE_ID:-${build_tree_sha:0:16}' \
+  "${COMPONENT_ROOT}/tools/install_service.sh"
+! grep -Fq 'RELEASE_ID:-${executable_sha:0:16}' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
 ! grep -Fq 'ROS_DOMAIN_ID:-0' \
   "${COMPONENT_ROOT}/tools/install_service.sh"

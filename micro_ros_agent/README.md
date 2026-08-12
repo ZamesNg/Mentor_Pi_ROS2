@@ -11,8 +11,7 @@ make setup
 make build
 make test
 make find-device
-: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-sudo --preserve-env=ROS_DOMAIN_ID make install-service
+sudo make install-service ROS_DOMAIN_ID=0
 ```
 
 `find-device` identifies the connected CH9102F by USB vendor/product identity
@@ -23,10 +22,14 @@ different existing udev rule. If multiple matching adapters are connected,
 rerun installation with the intended `ID_SERIAL_SHORT=...` or `ID_PATH=...`
 selector.
 
-Service installation never selects a default ROS domain. Export the
-deployment's `ROS_DOMAIN_ID` before invoking the installer; the validated value
-is rendered directly into the installed systemd unit. The installer removes
-the former `/etc/mentor-pi/agent.env` file.
+Service installation never selects a default ROS domain. Pass the deployment's
+`ROS_DOMAIN_ID` explicitly to `make`; replace `0` above when necessary. The
+validated value is rendered directly into the installed systemd unit. The
+installer removes the former `/etc/mentor-pi/agent.env` file.
+
+The default versioned release ID represents the complete installed Agent tree,
+so a supporting-file change creates a new side-by-side release even when the
+Agent executable itself is unchanged.
 
 macOS and other Linux distributions use the repository VS Code Dev Container
 for build and test. Service installation is supported only on the native

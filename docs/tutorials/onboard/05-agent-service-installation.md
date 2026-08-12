@@ -9,21 +9,23 @@ make -C micro_ros_agent find-device
 Install the built Agent. It revalidates the live USB identity and reuses the
 same Agent-owned device-access policy configured in Tutorial 03, automatically
 choosing `ID_SERIAL_SHORT`, falling back to `ID_PATH`. The installer requires
-the deployment's `ROS_DOMAIN_ID` to already be exported and refuses to choose a
-default:
+the deployment's `ROS_DOMAIN_ID` as an explicit argument and refuses to choose
+a default:
 
 ```zsh
-: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-sudo --preserve-env=ROS_DOMAIN_ID \
-  make -C micro_ros_agent install-service
+sudo make -C micro_ros_agent install-service ROS_DOMAIN_ID=0
 ```
+
+Replace `0` if the deployment uses a different ROS domain.
 
 This same installation step is safe to rerun when applying an Agent service
 definition update: concurrent installer runs are rejected, and it reuses an
 existing release only after verifying the complete installed tree still matches
-the current build. A newly built release is staged and verified before it is
-published; every safe rerun refreshes the service files and restarts the
-service.
+the current build. The default release ID identifies that complete tree, so a
+supporting-file-only change creates a new side-by-side release rather than
+colliding with an older release. A newly built release is staged and verified
+before it is published; every safe rerun refreshes the service files and
+restarts the service.
 
 If multiple matching adapters are connected, select the intended board with
 `ID_SERIAL_SHORT=YOUR_SERIAL` or `ID_PATH=YOUR_STABLE_PATH`; do not pass a
@@ -45,7 +47,7 @@ journalctl -u mentor-pi-agent.service -n 100 --no-pager
 
 The device policy must include `char-ttyACM rw`; this preserves clock
 protection without blocking `/dev/mentor_pi_mcu` inside the service cgroup.
-The environment must contain the exported `ROS_DOMAIN_ID`,
+The environment must contain the configured `ROS_DOMAIN_ID`,
 `MENTOR_PI_RRCLITE_AUTORESET=1`, and
 `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`. The last setting prevents the dedicated
 Agent account from selecting owner-restricted Fast DDS shared memory for

@@ -188,7 +188,7 @@ Main() {
     Fail "run make build before installing the service"
   [[ -x "${SERIAL_ACCESS_HELPER}" ]] || Fail "serial-access helper is unavailable"
   [[ -n "${ROS_DOMAIN_ID}" ]] || \
-    Fail "ROS_DOMAIN_ID must be exported before service installation"
+    Fail "pass ROS_DOMAIN_ID=<0..232> to make install-service"
   [[ "${ROS_DOMAIN_ID}" =~ ^(0|[1-9][0-9]{0,2})$ ]] && \
     ((ROS_DOMAIN_ID <= 232)) || Fail "ROS_DOMAIN_ID must be in [0,232]"
   [[ -z "${ID_SERIAL_SHORT}" || -z "${ID_PATH}" ]] || \
@@ -210,12 +210,12 @@ Main() {
   [[ "${launcher_sha}" == "$(ReadMetadata launcher_sha256)" ]] || \
     Fail "Agent launcher changed after its build"
 
-  local release_id="${RELEASE_ID:-${executable_sha:0:16}}"
+  local build_tree_sha
+  build_tree_sha="$(TreeDigest "${BUILD_PREFIX}")"
+  local release_id="${RELEASE_ID:-${build_tree_sha:0:16}}"
   [[ "${release_id}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || \
     Fail "RELEASE_ID is invalid"
   local release_path="${RELEASE_ROOT}/${release_id}"
-  local build_tree_sha
-  build_tree_sha="$(TreeDigest "${BUILD_PREFIX}")"
 
   EnsureTrustedDirectory /run/mentor-pi
   local installer_lock=/run/mentor-pi/agent-install.lock

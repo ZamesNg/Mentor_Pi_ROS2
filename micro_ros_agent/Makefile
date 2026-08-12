@@ -18,8 +18,8 @@ help:
 		'  make setup          Fetch sources and install ROS dependencies.' \
 		'  make build          Build the patched, pinned Agent natively.' \
 		'  make test           Validate locks, patch, metadata, and executable.' \
-		'  sudo --preserve-env=ROS_DOMAIN_ID make install-service' \
-		'                       Install using the exported deployment domain.' \
+		'  sudo make install-service ROS_DOMAIN_ID=0' \
+		'                       Install using the explicit deployment domain.' \
 		'  make clean          Remove this component build directory.'
 
 doctor:

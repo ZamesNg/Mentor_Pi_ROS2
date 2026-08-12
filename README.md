@@ -70,11 +70,11 @@ Onboard, install the Agent as a versioned, non-root boot service:
 
 ```sh
 make -C micro_ros_agent find-device
-: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-sudo --preserve-env=ROS_DOMAIN_ID \
-  make -C micro_ros_agent install-service
+sudo make -C micro_ros_agent install-service ROS_DOMAIN_ID=0
 systemctl status mentor-pi-agent.service
 ```
+
+Replace `0` if the deployment uses a different ROS domain.
 
 Discovery scans udev for USB identity `1a86:55d4` and succeeds only when one
 CH9102F tty is unambiguous. With multiple connected adapters, select the
