@@ -18,8 +18,8 @@ struct StatusRgbColor {
   std::uint8_t blue{0U};
 };
 
-// Mirrors the former RGB-green heartbeat behavior on firmware-owned LED3.
-class HeartbeatLedController {
+// Toggles the RGB1 red channel after each successful micro-ROS heartbeat.
+class MicroRosHeartbeatController {
  public:
   bool Update(std::uint32_t successful_heartbeat_count);
 
@@ -28,7 +28,7 @@ class HeartbeatLedController {
   bool on_{false};
 };
 
-// Allocation-free state machine for the firmware-owned second RGB pixel.
+// Allocation-free state machine for the firmware-owned first RGB pixel.
 // Transport counters are deliberately sampled at 10 Hz rather than from an
 // interrupt or on every PeripheralTask release.
 class StatusRgbController {

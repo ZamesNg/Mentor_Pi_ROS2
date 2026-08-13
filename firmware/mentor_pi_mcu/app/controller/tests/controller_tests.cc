@@ -37,7 +37,7 @@ using mentor_pi::mcu::drivers::IoStatus;
 using mentor_pi_mcu::app::controller::BatterySample;
 using mentor_pi_mcu::app::controller::ControllerRuntime;
 using mentor_pi_mcu::app::controller::ControllerTask;
-using mentor_pi_mcu::app::controller::HeartbeatLedController;
+using mentor_pi_mcu::app::controller::MicroRosHeartbeatController;
 using mentor_pi_mcu::app::controller::PlatformHooks;
 using mentor_pi_mcu::app::controller::PlatformHooksAreComplete;
 using mentor_pi_mcu::app::controller::StatusRgbColor;
@@ -507,13 +507,15 @@ bool EstablishStartupReadiness(ControllerRuntime* runtime,
 }
 
 bool TestStatusRgbSemantics() {
-  HeartbeatLedController heartbeat;
+  MicroRosHeartbeatController heartbeat;
   CHECK(!heartbeat.Update(0U));
   CHECK(heartbeat.Update(1U));
   CHECK(!heartbeat.Update(2U));
   CHECK(heartbeat.Update(3U));
-  CHECK(mentor_pi::mcu::ValidateLedCommand({3U, 1U, 1U, 1U}).code ==
+  CHECK(mentor_pi::mcu::ValidateLedCommand({1U, 1U, 1U, 1U}).code ==
         ResultCode::kOutOfRange);
+  CHECK(mentor_pi::mcu::ValidateLedCommand({2U, 1U, 1U, 1U}).ok());
+  CHECK(mentor_pi::mcu::ValidateLedCommand({3U, 1U, 1U, 1U}).ok());
   CHECK(heartbeat.Update(3U));
 
   StatusRgbController status;
@@ -526,11 +528,11 @@ bool TestStatusRgbSemantics() {
 
   status.ObserveTransport(100U, {11U, 20U, true});
   color = status.Update(100U);
-  CHECK(color.red == StatusRgbController::kBrightness);
+  CHECK(color.red == 0U);
   CHECK(color.green == 0U);
-  CHECK(color.blue == 0U);
+  CHECK(color.blue == StatusRgbController::kBrightness);
   color = status.Update(149U);
-  CHECK(color.red != 0U && color.green == 0U && color.blue == 0U);
+  CHECK(color.red == 0U && color.green == 0U && color.blue != 0U);
   color = status.Update(150U);
   CHECK(color.red == 0U && color.green == 0U && color.blue == 0U);
 
@@ -544,9 +546,9 @@ bool TestStatusRgbSemantics() {
 
   status.ObserveTransport(300U, {12U, 22U, true});
   color = status.Update(300U);
-  CHECK(color.red == StatusRgbController::kBrightness);
+  CHECK(color.red == 0U);
   CHECK(color.green == StatusRgbController::kBrightness);
-  CHECK(color.blue == 0U);
+  CHECK(color.blue == StatusRgbController::kBrightness);
 
   status.ObserveTransport(400U, {13U, 23U, false});
   color = status.Update(400U);
@@ -559,7 +561,7 @@ bool TestStatusRgbSemantics() {
   wrapping.ObserveTransport(std::numeric_limits<std::uint32_t>::max() - 40U,
                             {1U, 0U, true});
   color = wrapping.Update(8U);
-  CHECK(color.red == StatusRgbController::kBrightness);
+  CHECK(color.blue == StatusRgbController::kBrightness);
   color = wrapping.Update(9U);
   CHECK(color.red == 0U && color.green == 0U && color.blue == 0U);
   return true;
@@ -577,7 +579,7 @@ bool TestStatusRgbControllerIntegration() {
   platform.SetTimeMs(0U);
   runtime.RunPeripheralOnce();
   CHECK(platform.rgb_transfers == 1U);
-  CHECK(!platform.leds[mentor_pi::mcu::kHeartbeatLedIndex]);
+  CHECK(!platform.leds[mentor_pi::mcu::kSystemHeartbeatLedIndex]);
   platform.SetTimeMs(1U);
   runtime.RunPeripheralOnce();
 
@@ -591,9 +593,9 @@ bool TestStatusRgbControllerIntegration() {
   runtime.RunPeripheralOnce();
   CHECK(platform.rgb_transfers == 2U);
   mentor_pi::mcu::RgbState expected{};
-  expected.red[mentor_pi::mcu::kStatusRgbPixelIndex] =
-      StatusRgbController::kBrightness;
   expected.green[mentor_pi::mcu::kStatusRgbPixelIndex] =
+      StatusRgbController::kBrightness;
+  expected.blue[mentor_pi::mcu::kStatusRgbPixelIndex] =
       StatusRgbController::kBrightness;
   CHECK(platform.rgb_frame ==
         mentor_pi::mcu::drivers::EncodeRgbFrame(expected));
@@ -603,14 +605,25 @@ bool TestStatusRgbControllerIntegration() {
   runtime.RecordSuccessfulRosHeartbeat();
   platform.SetTimeMs(102U);
   runtime.RunPeripheralOnce();
-  CHECK(platform.rgb_transfers == 2U);
-  CHECK(platform.leds[mentor_pi::mcu::kHeartbeatLedIndex]);
+  CHECK(platform.rgb_transfers == 3U);
+  expected.red[mentor_pi::mcu::kStatusRgbPixelIndex] =
+      StatusRgbController::kBrightness;
   CHECK(platform.rgb_frame ==
         mentor_pi::mcu::drivers::EncodeRgbFrame(expected));
   runtime.RecordSuccessfulRosHeartbeat();
   platform.SetTimeMs(103U);
   runtime.RunPeripheralOnce();
-  CHECK(!platform.leds[mentor_pi::mcu::kHeartbeatLedIndex]);
+  CHECK(platform.rgb_transfers == 4U);
+  expected.red[mentor_pi::mcu::kStatusRgbPixelIndex] = 0U;
+  CHECK(platform.rgb_frame ==
+        mentor_pi::mcu::drivers::EncodeRgbFrame(expected));
+  CHECK(!platform.leds[mentor_pi::mcu::kSystemHeartbeatLedIndex]);
+  platform.SetTimeMs(500U);
+  runtime.RunPeripheralOnce();
+  CHECK(platform.leds[mentor_pi::mcu::kSystemHeartbeatLedIndex]);
+  platform.SetTimeMs(1000U);
+  runtime.RunPeripheralOnce();
+  CHECK(!platform.leds[mentor_pi::mcu::kSystemHeartbeatLedIndex]);
   CHECK(platform.critical_depth == 0U);
   return true;
 }
@@ -788,11 +801,11 @@ bool TestMicroRosAdapterDelegates() {
   bus.duration_ms = 20U;
   CHECK(hooks.publish_bus_servo_command(hooks.context, bus).result.ok());
   LedCommand led{};
-  led.led_id = 1U;
+  led.led_id = mentor_pi::mcu::kFirstHostLedId;
   led.on_time_ms = 1U;
   led.repeat = 1U;
   CHECK(hooks.publish_led_command(hooks.context, led).result.ok());
-  led.led_id = 3U;
+  led.led_id = 1U;
   CHECK(hooks.publish_led_command(hooks.context, led).result.code ==
         ResultCode::kOutOfRange);
   BuzzerCommand buzzer{};
@@ -801,9 +814,9 @@ bool TestMicroRosAdapterDelegates() {
   buzzer.repeat = 1U;
   CHECK(hooks.publish_buzzer_command(hooks.context, buzzer).result.ok());
   RgbCommand rgb{};
-  rgb.update_mask = 1U;
+  rgb.update_mask = mentor_pi::mcu::kHostRgbPixelMask;
   CHECK(hooks.publish_rgb_command(hooks.context, rgb).result.ok());
-  rgb.update_mask = 2U;
+  rgb.update_mask = 1U;
   CHECK(hooks.publish_rgb_command(hooks.context, rgb).result.code ==
         ResultCode::kInvalidArgument);
   OledCommand oled{};
@@ -1453,14 +1466,14 @@ bool TestSessionTeardownInvalidatesOwnedWork() {
   // session and cannot start after that session ends.
   platform.rgb_hold_active = true;
   RgbCommand rgb{};
-  rgb.update_mask = 1U;
-  rgb.red[0] = 255U;
+  rgb.update_mask = mentor_pi::mcu::kHostRgbPixelMask;
+  rgb.red[mentor_pi::mcu::kHostRgbPixelIndex] = 255U;
   CHECK(runtime.PublishRgbCommand(rgb).result.ok());
   runtime.RunPeripheralOnce();
   CHECK(platform.rgb_active);
   const std::uint32_t initial_rgb_transfers = platform.rgb_transfers;
-  rgb.red[0] = 0U;
-  rgb.green[0] = 255U;
+  rgb.red[mentor_pi::mcu::kHostRgbPixelIndex] = 0U;
+  rgb.green[mentor_pi::mcu::kHostRgbPixelIndex] = 255U;
   CHECK(runtime.PublishRgbCommand(rgb).result.ok());
   runtime.RunPeripheralOnce();
   runtime.InvalidateSessionWork(3U);
@@ -1740,11 +1753,11 @@ bool TestCrossSessionMergedFieldOwnership() {
   CHECK(merged_runtime.InitializeSafeBoot());
   CHECK(EstablishStartupReadiness(&merged_runtime, &merged_platform));
   merged_runtime.SetSessionActive(true, 1U);
-  LedCommand old_led{1U, 100U, 0U, 0U};
+  LedCommand old_led{mentor_pi::mcu::kFirstHostLedId, 100U, 0U, 0U};
   CHECK(merged_runtime.PublishLedCommand(old_led).result.ok());
   RgbCommand old_rgb{};
-  old_rgb.update_mask = 0x01U;
-  old_rgb.red[0] = 255U;
+  old_rgb.update_mask = mentor_pi::mcu::kHostRgbPixelMask;
+  old_rgb.red[mentor_pi::mcu::kHostRgbPixelIndex] = 255U;
   CHECK(merged_runtime.PublishRgbCommand(old_rgb).result.ok());
   OledCommand old_oled{};
   old_oled.update_mask = 0x01U;
@@ -1762,11 +1775,11 @@ bool TestCrossSessionMergedFieldOwnership() {
 
   merged_runtime.SetSessionActive(false, 1U);
   merged_runtime.SetSessionActive(true, 2U);
-  LedCommand new_led{2U, 100U, 0U, 0U};
+  LedCommand new_led{mentor_pi::mcu::kLastHostLedId, 100U, 0U, 0U};
   CHECK(merged_runtime.PublishLedCommand(new_led).result.ok());
   RgbCommand new_rgb{};
-  new_rgb.update_mask = 0x01U;
-  new_rgb.blue[0] = 255U;
+  new_rgb.update_mask = mentor_pi::mcu::kHostRgbPixelMask;
+  new_rgb.blue[mentor_pi::mcu::kHostRgbPixelIndex] = 255U;
   CHECK(merged_runtime.PublishRgbCommand(new_rgb).result.ok());
   OledCommand new_oled{};
   new_oled.update_mask = 0x02U;
@@ -1780,9 +1793,10 @@ bool TestCrossSessionMergedFieldOwnership() {
   CHECK(merged_platform.bus_exchanges == 0U);
   CHECK(merged_platform.buzzer_hz == 0U);
   CHECK(!merged_platform.leds[0]);
-  CHECK(merged_platform.leds[1]);
+  CHECK(!merged_platform.leds[1]);
+  CHECK(merged_platform.leds[2]);
   mentor_pi::mcu::RgbState expected_rgb{};
-  expected_rgb.blue[0] = 255U;
+  expected_rgb.blue[mentor_pi::mcu::kHostRgbPixelIndex] = 255U;
   CHECK(merged_platform.rgb_frame ==
         mentor_pi::mcu::drivers::EncodeRgbFrame(expected_rgb));
   bool old_oled_line_visible = false;
@@ -1815,11 +1829,11 @@ bool TestCrossSessionAppliedFieldHold() {
   CHECK(EstablishStartupReadiness(&runtime, &platform));
   runtime.SetSessionActive(true, 1U);
 
-  LedCommand led_one{1U, 100U, 0U, 0U};
+  LedCommand led_one{mentor_pi::mcu::kFirstHostLedId, 100U, 0U, 0U};
   CHECK(runtime.PublishLedCommand(led_one).result.ok());
   RgbCommand rgb_one{};
-  rgb_one.update_mask = 0x01U;
-  rgb_one.red[0] = 255U;
+  rgb_one.update_mask = mentor_pi::mcu::kHostRgbPixelMask;
+  rgb_one.red[mentor_pi::mcu::kHostRgbPixelIndex] = 255U;
   CHECK(runtime.PublishRgbCommand(rgb_one).result.ok());
   OledCommand oled_one{};
   oled_one.update_mask = 0x01U;
@@ -1830,7 +1844,7 @@ bool TestCrossSessionAppliedFieldHold() {
   runtime.RunPeripheralOnce();
   platform.SetTimeMs(251U);
   runtime.RunPeripheralOnce();
-  CHECK(platform.leds[0]);
+  CHECK(platform.leds[mentor_pi::mcu::kFirstHostLedId - 1U]);
 
   std::array<std::uint8_t, mentor_pi::mcu::drivers::kSsd1306Width>
       first_oled_page{};
@@ -1840,7 +1854,7 @@ bool TestCrossSessionAppliedFieldHold() {
 
   runtime.SetSessionActive(false, 1U);
   runtime.SetSessionActive(true, 2U);
-  LedCommand led_two{2U, 100U, 0U, 0U};
+  LedCommand led_two{mentor_pi::mcu::kLastHostLedId, 100U, 0U, 0U};
   CHECK(runtime.PublishLedCommand(led_two).result.ok());
   OledCommand oled_two{};
   oled_two.update_mask = 0x02U;
@@ -1850,10 +1864,11 @@ bool TestCrossSessionAppliedFieldHold() {
   platform.SetTimeMs(500U);
   runtime.RunPeripheralOnce();
 
-  CHECK(platform.leds[0]);
-  CHECK(platform.leds[1]);
+  CHECK(platform.leds[mentor_pi::mcu::kSystemHeartbeatLedIndex]);
+  CHECK(platform.leds[mentor_pi::mcu::kFirstHostLedId - 1U]);
+  CHECK(platform.leds[mentor_pi::mcu::kLastHostLedId - 1U]);
   mentor_pi::mcu::RgbState expected_rgb{};
-  expected_rgb.red[0] = 255U;
+  expected_rgb.red[mentor_pi::mcu::kHostRgbPixelIndex] = 255U;
   CHECK(platform.rgb_frame ==
         mentor_pi::mcu::drivers::EncodeRgbFrame(expected_rgb));
   bool second_oled_line_visible = false;
@@ -1917,7 +1932,7 @@ bool TestGatewayRevocationRace() {
   transition_on_lock(3U, 4U);
   CHECK(runtime.PublishBusServoCommand(bus).result.code == ResultCode::kBusy);
 
-  LedCommand led{1U, 100U, 0U, 0U};
+  LedCommand led{mentor_pi::mcu::kFirstHostLedId, 100U, 0U, 0U};
   transition_on_lock(4U, 5U);
   CHECK(runtime.PublishLedCommand(led).result.code == ResultCode::kBusy);
 
@@ -1926,8 +1941,8 @@ bool TestGatewayRevocationRace() {
   CHECK(runtime.PublishBuzzerCommand(buzzer).result.code == ResultCode::kBusy);
 
   RgbCommand rgb{};
-  rgb.update_mask = 0x01U;
-  rgb.red[0] = 255U;
+  rgb.update_mask = mentor_pi::mcu::kHostRgbPixelMask;
+  rgb.red[mentor_pi::mcu::kHostRgbPixelIndex] = 255U;
   transition_on_lock(6U, 7U);
   CHECK(runtime.PublishRgbCommand(rgb).result.code == ResultCode::kBusy);
 

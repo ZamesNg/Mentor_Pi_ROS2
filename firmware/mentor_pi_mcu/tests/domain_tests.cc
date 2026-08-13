@@ -105,17 +105,19 @@ void TestValidationAndStateMerging() {
 
   RgbState rgb{};
   RgbCommand rgb_first{};
-  rgb_first.update_mask = 1U;
-  rgb_first.red[0] = 10U;
-  rgb_first.green[0] = 20U;
-  rgb_first.blue[0] = 30U;
+  rgb_first.update_mask = kHostRgbPixelMask;
+  rgb_first.red[kHostRgbPixelIndex] = 10U;
+  rgb_first.green[kHostRgbPixelIndex] = 20U;
+  rgb_first.blue[kHostRgbPixelIndex] = 30U;
   CHECK(MergeRgbCommand(rgb_first, &rgb).ok());
   RgbCommand rgb_second{};
-  rgb_second.update_mask = 2U;
-  rgb_second.red[1] = 40U;
+  rgb_second.update_mask = 1U;
+  rgb_second.red[0] = 40U;
   CHECK(MergeRgbCommand(rgb_second, &rgb).code == ResultCode::kInvalidArgument);
-  CHECK(rgb.red[0] == 10U && rgb.green[0] == 20U && rgb.blue[0] == 30U);
-  CHECK(rgb.red[1] == 0U);
+  CHECK(rgb.red[kHostRgbPixelIndex] == 10U &&
+        rgb.green[kHostRgbPixelIndex] == 20U &&
+        rgb.blue[kHostRgbPixelIndex] == 30U);
+  CHECK(rgb.red[kStatusRgbPixelIndex] == 0U);
 
   OledState oled{};
   OledCommand oled_command{};
@@ -369,9 +371,10 @@ void TestValidationBoundaries() {
   get.servo_id = 255U;
   CHECK(ValidateGetBusServoStateCommand(get).code == ResultCode::kOutOfRange);
 
-  CHECK(ValidateLedCommand({1U, 0U, 0U, 0U}).ok());
+  CHECK(ValidateLedCommand({1U, 0U, 0U, 0U}).code ==
+        ResultCode::kOutOfRange);
   CHECK(ValidateLedCommand({2U, 0U, 0U, 0U}).ok());
-  CHECK(ValidateLedCommand({3U, 0U, 0U, 0U}).code == ResultCode::kOutOfRange);
+  CHECK(ValidateLedCommand({3U, 0U, 0U, 0U}).ok());
   CHECK(ValidateLedCommand({0U, 0U, 0U, 0U}).code == ResultCode::kOutOfRange);
   CHECK(ValidateLedCommand({4U, 0U, 0U, 0U}).code == ResultCode::kOutOfRange);
   CHECK(ValidateBuzzerCommand({0U, 65535U, 65535U, 65535U}).ok());
@@ -526,13 +529,13 @@ void TestCommandMailboxes() {
   CHECK(pwm_snapshot.duration_ms[1] == 60U);
 
   LedCommandMailbox leds;
-  CHECK(leds.Publish({1U, 10U, 20U, 1U}).result.ok());
   CHECK(leds.Publish({2U, 30U, 40U, 2U}).result.ok());
+  CHECK(leds.Publish({3U, 50U, 60U, 3U}).result.ok());
   LedCommandSnapshot led_snapshot{};
   CHECK(leds.ConsumeLatest(&led_snapshot));
-  CHECK(led_snapshot.commands[0].on_time_ms == 10U);
   CHECK(led_snapshot.commands[1].on_time_ms == 30U);
-  CHECK(led_snapshot.commands[2].on_time_ms == 0U);
+  CHECK(led_snapshot.commands[2].on_time_ms == 50U);
+  CHECK(led_snapshot.commands[0].on_time_ms == 0U);
 
   BusMotionMailbox bus;
   BusServoCommand bus_first{};
@@ -565,17 +568,17 @@ void TestCommandMailboxes() {
   CHECK(!rgb_first.overwrote_unread);
   CHECK(rgb_first.generation == 1U);
   RgbCommand rgb_update{};
-  rgb_update.update_mask = 1U;
-  rgb_update.red[0] = 70U;
-  rgb_update.green[0] = 80U;
-  rgb_update.blue[0] = 90U;
+  rgb_update.update_mask = kHostRgbPixelMask;
+  rgb_update.red[kHostRgbPixelIndex] = 70U;
+  rgb_update.green[kHostRgbPixelIndex] = 80U;
+  rgb_update.blue[kHostRgbPixelIndex] = 90U;
   const CommandAdmission rgb_second = rgb.Publish(rgb_update);
   CHECK(rgb_second.result.ok());
   CHECK(rgb_second.overwrote_unread);
   CHECK(rgb_second.generation == 2U);
-  rgb_update.red[0] = 100U;
-  rgb_update.green[0] = 110U;
-  rgb_update.blue[0] = 120U;
+  rgb_update.red[kHostRgbPixelIndex] = 100U;
+  rgb_update.green[kHostRgbPixelIndex] = 110U;
+  rgb_update.blue[kHostRgbPixelIndex] = 120U;
   const CommandAdmission rgb_third = rgb.Publish(rgb_update);
   CHECK(rgb_third.result.ok());
   CHECK(rgb_third.overwrote_unread);
@@ -583,12 +586,12 @@ void TestCommandMailboxes() {
   CHECK(rgb.overwrite_count() == 2U);
   RgbCommandSnapshot rgb_snapshot{};
   CHECK(rgb.ConsumeLatest(&rgb_snapshot));
-  CHECK(rgb_snapshot.state.red[0] == 100U);
-  CHECK(rgb_snapshot.state.green[0] == 110U);
-  CHECK(rgb_snapshot.state.blue[0] == 120U);
-  CHECK(rgb_snapshot.state.red[1] == 0U);
-  CHECK(rgb_snapshot.state.green[1] == 0U);
-  CHECK(rgb_snapshot.state.blue[1] == 0U);
+  CHECK(rgb_snapshot.state.red[kHostRgbPixelIndex] == 100U);
+  CHECK(rgb_snapshot.state.green[kHostRgbPixelIndex] == 110U);
+  CHECK(rgb_snapshot.state.blue[kHostRgbPixelIndex] == 120U);
+  CHECK(rgb_snapshot.state.red[kStatusRgbPixelIndex] == 0U);
+  CHECK(rgb_snapshot.state.green[kStatusRgbPixelIndex] == 0U);
+  CHECK(rgb_snapshot.state.blue[kStatusRgbPixelIndex] == 0U);
   CHECK(!rgb.ConsumeLatest(&rgb_snapshot));
   RgbCommand invalid_rgb{};
   const CommandAdmission rejected_rgb = rgb.Publish(invalid_rgb);
@@ -656,25 +659,26 @@ void TestCommandMailboxes() {
   CHECK(pwm_snapshot.pulse_width_us[0] == 1500U);
   CHECK(pwm_snapshot.field_generation[1] == 4U);
 
-  CHECK(leds.Publish({1U, 10U, 20U, 1U}).result.ok());
+  CHECK(leds.Publish({2U, 10U, 20U, 1U}).result.ok());
   leds.ResetMergedFields();
-  CHECK(leds.Publish({2U, 30U, 40U, 2U}).result.ok());
+  CHECK(leds.Publish({3U, 30U, 40U, 2U}).result.ok());
   CHECK(leds.ConsumeLatest(&led_snapshot));
   CHECK(led_snapshot.field_generation[0] == 0U);
-  CHECK(led_snapshot.field_generation[1] == 4U);
+  CHECK(led_snapshot.field_generation[1] == 0U);
+  CHECK(led_snapshot.field_generation[2] == 4U);
 
   CHECK(rgb.Publish(rgb_update).result.ok());
   rgb.ResetMergedFields();
   RgbCommand rgb_new_session{};
   rgb_new_session.update_mask = kHostRgbPixelMask;
-  rgb_new_session.blue[0] = 200U;
+  rgb_new_session.blue[kHostRgbPixelIndex] = 200U;
   CHECK(rgb.Publish(rgb_new_session).result.ok());
   CHECK(rgb.ConsumeLatest(&rgb_snapshot));
-  CHECK(rgb_snapshot.field_generation[0] == 5U);
-  CHECK(rgb_snapshot.state.red[0] == 0U);
-  CHECK(rgb_snapshot.state.blue[0] == 200U);
-  CHECK(rgb_snapshot.field_generation[1] == 0U);
-  CHECK(rgb_snapshot.state.blue[1] == 0U);
+  CHECK(rgb_snapshot.field_generation[kHostRgbPixelIndex] == 5U);
+  CHECK(rgb_snapshot.state.red[kHostRgbPixelIndex] == 0U);
+  CHECK(rgb_snapshot.state.blue[kHostRgbPixelIndex] == 200U);
+  CHECK(rgb_snapshot.field_generation[kStatusRgbPixelIndex] == 0U);
+  CHECK(rgb_snapshot.state.blue[kStatusRgbPixelIndex] == 0U);
 
   CHECK(oled.Publish(oled_update).result.ok());
   oled.ResetMergedFields();
@@ -1423,12 +1427,12 @@ void TestBatteryMonitor() {
 
 void TestPatterns() {
   LedController leds;
-  LedCommand led{1U, 100U, 50U, 2U};
+  LedCommand led{kFirstHostLedId, 100U, 50U, 2U};
   CHECK(leds.AcceptCommand(led, 0U).ok());
-  CHECK(leds.Update(0U)[0]);
-  CHECK(!leds.Update(100U)[0]);
-  CHECK(leds.Update(150U)[0]);
-  CHECK(!leds.Update(300U)[0]);
+  CHECK(leds.Update(0U)[kFirstHostLedId - 1U]);
+  CHECK(!leds.Update(100U)[kFirstHostLedId - 1U]);
+  CHECK(leds.Update(150U)[kFirstHostLedId - 1U]);
+  CHECK(!leds.Update(300U)[kFirstHostLedId - 1U]);
 
   BuzzerController buzzer;
   const BuzzerCommand host{440U, 100U, 100U, 0U};

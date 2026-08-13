@@ -88,26 +88,26 @@ instrumented HIL gates.
 
 ## Firmware-owned status indicators
 
-Discrete LED3 is reserved for firmware and toggles after each successful
-`/mentor_pi/heartbeat` publication, preserving the former RGB-green heartbeat
-behavior. ROS LED commands accept only IDs 1 and 2; ID 3 is rejected without
-changing the indicator.
+Discrete LED1 is reserved for firmware and blinks at 1 Hz as a system
+heartbeat, independent of ROS connectivity. ROS LED commands accept only IDs
+2 and 3; ID 1 is rejected without changing the indicator.
 
-The second onboard RGB pixel (RGB2) is reserved for MCU status. The existing
-two-element ROS message is retained for wire compatibility, but only mask `1`
-(RGB1) is accepted. Masks `2` and `3` are rejected atomically; a rejected
+The first onboard RGB pixel (RGB1) is reserved for MCU status. The existing
+two-element ROS message is retained for wire compatibility, but only mask `2`
+(RGB2) is accepted. Masks `1` and `3` are rejected atomically; a rejected
 command changes neither pixel.
 
-RGB2 uses a low component value of 32 and is updated by `PeripheralTask` through
+RGB1 uses a low component value of 32 and is updated by `PeripheralTask` through
 the existing bounded SPI1 DMA driver:
 
 | Component | Meaning |
 | --- | --- |
-| Red | Pulses for 50 ms when the 10 Hz transport sample observes that the cumulative UART RX byte counter advanced. |
+| Red | Toggles after each successfully published `/mentor_pi/heartbeat` sample. |
 | Green | Pulses for 50 ms when the 10 Hz transport sample observes that the cumulative UART TX byte counter advanced. |
-| Blue | Always off. |
+| Blue | Pulses for 50 ms when the 10 Hz transport sample observes that the cumulative UART RX byte counter advanced. |
 
-Simultaneous RX and TX combine as red plus green and appear yellow. A closed
-transport immediately clears red and green. The sampler performs no allocation,
+RX and TX indications can combine with the current red heartbeat state. A closed
+transport immediately clears green and blue; red retains its last heartbeat
+state. The sampler performs no allocation,
 does no work in the UART ISR, and starts an RGB DMA transfer only when the
 desired visible color changes.

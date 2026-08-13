@@ -331,9 +331,9 @@ session reset has strict discard-before-publish ordering without using the
 mailbox's consumer operation from `MicroRosTask`.
 
 Motor, PWM, and LED workers ignore fields whose per-field generation is zero.
-The RGB worker consumes the host-owned RGB1 generation and merges it with the
-firmware-owned RGB2 RX/TX status color; the discrete-output worker overrides
-LED3 with the successful-heartbeat indication. The OLED worker consumes per-field
+The RGB worker consumes the host-owned RGB2 generation and merges it with the
+firmware-owned RGB1 heartbeat/RX/TX status color; the discrete-output worker
+overrides LED1 with the time-based system heartbeat. The OLED worker consumes per-field
 generations and merges selected new-session fields onto the last successfully
 rendered state. Therefore an already applied host output holds across
 reconnect, while an old unread or merely pending field is never relabelled as
@@ -349,7 +349,7 @@ merge.
 | `led_command_mailbox` | 1 complete LED state plus per-field validity | Merge selected LEDs within one session, then atomically publish the shadow. |
 | `buzzer_command_mailbox` | 1 pattern | Atomic overwrite. |
 | `battery_alarm_shadow` | 1 alarm request/generation | `SensorTask` replaces it after debounce/repeat decisions; `PeripheralTask` consumes it and remains the sole buzzer-hardware owner. |
-| `rgb_command_mailbox` | 1 fixed two-pixel wire-shaped state; only RGB1 has a valid host generation | Replace host RGB1 within one session; `PeripheralTask` composes firmware status into RGB2 immediately before bounded SPI DMA. |
+| `rgb_command_mailbox` | 1 fixed two-pixel wire-shaped state; only RGB2 has a valid host generation | Replace host RGB2 within one session; `PeripheralTask` composes firmware status into RGB1 immediately before bounded SPI DMA. |
 | `oled_command_mailbox` | 1 two-line state plus per-field validity | Merge selected lines within one session; the owner preserves already rendered unselected lines. |
 | `button_event_queue` | 16 events | Remove the oldest, insert the newest, increment `button_event_drop_count`. |
 | Non-bus service slots | 1 per service | Respond `BUSY` to an additional request. |
@@ -357,7 +357,7 @@ merge.
 
 For LED and OLED commands, “complete state” means the complete post-merge
 shadow: selected elements take their new values and every unselected LED or
-line remains unchanged. RGB commands replace only RGB1; RGB2 is never copied
+line remains unchanged. RGB commands replace only RGB2; RGB1 is never copied
 from a ROS command. A buzzer command has no subset mask and replaces its whole
 pattern. A command rejected by validation, lost before its callback, or
 refused because of overload changes no discrete hardware output.
@@ -416,9 +416,9 @@ PWM-servo GPIO remains low until
 `PeripheralTask` starts the validated TIM13 frame generator; it then produces
 the documented 1500 microsecond reset default without consulting a ROS
 mailbox. `PeripheralTask` also establishes the reset defaults of LEDs off,
-buzzer off, both RGB pixels initially off, and empty host OLED lines. RGB2 then
-becomes the RX/TX status pixel and LED3 becomes the successful-heartbeat
-indicator according to the
+buzzer off, both RGB pixels initially off, and empty host OLED lines. LED1 then
+blinks as the 1 Hz system heartbeat, while RGB1 reports successful micro-ROS
+heartbeats and RX/TX activity according to the
 [verified board profile](verified-hardware-profile.md). `BusServoTask` sends no
 frame merely because it started.
 

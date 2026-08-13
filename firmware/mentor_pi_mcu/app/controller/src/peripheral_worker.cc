@@ -18,6 +18,7 @@ using mentor_pi_mcu::app::microros::ErrorSource;
 
 constexpr std::uint32_t kPeripheralMaximumPeriodUs = 150000U;
 constexpr std::uint32_t kRgbDeadlineUs = 10000U;
+constexpr std::uint32_t kSystemHeartbeatHalfPeriodMs = 500U;
 // A complete 512-byte framebuffer takes about 50 ms on the retained 100 kHz
 // bus. The target still caps every individual HAL transfer at 10 ms; this is
 // the end-to-end deadline for the bounded multi-chunk flush.
@@ -325,9 +326,8 @@ void ControllerRuntime::ProcessDiscreteOutputs(std::uint32_t now_ms) {
     buzzer_controller_.TriggerBatteryAlarm(alarm.timestamp_ms);
   }
   auto led_output = led_controller_.Update(now_ms);
-  led_output[mentor_pi::mcu::kHeartbeatLedIndex] =
-      heartbeat_led_controller_.Update(
-          successful_ros_heartbeats_.load(std::memory_order_relaxed));
+  led_output[mentor_pi::mcu::kSystemHeartbeatLedIndex] =
+      ((now_ms / kSystemHeartbeatHalfPeriodMs) & 1U) != 0U;
   for (std::size_t led = 0; led < led_output.size(); ++led) {
     gpio_driver_.SetLed(led, led_output[led]);
   }
@@ -401,7 +401,12 @@ void ControllerRuntime::ProcessRgb(std::uint32_t now_ms, std::uint32_t now_us) {
     status_rgb_controller_.ObserveTransport(
         now_ms, hooks_.read_transport_activity(hooks_.context));
   }
-  const StatusRgbColor status_color = status_rgb_controller_.Update(now_ms);
+  StatusRgbColor status_color = status_rgb_controller_.Update(now_ms);
+  status_color.red =
+      micro_ros_heartbeat_controller_.Update(
+          successful_ros_heartbeats_.load(std::memory_order_relaxed))
+          ? StatusRgbController::kBrightness
+          : 0U;
 
   Result started{ResultCode::kBusy, 0U};
   {

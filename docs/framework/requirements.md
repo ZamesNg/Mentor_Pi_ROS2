@@ -40,9 +40,9 @@ renumbered when this document is edited; retired IDs remain reserved.
 | HW-001 | The firmware **shall** control four encoder DC motor channels, M1 through M4. | Test |
 | HW-002 | The firmware **shall** control four PWM servo outputs, numbered 1 through 4. | Test |
 | HW-003 | The firmware **shall** control and query as many as 16 addressable half-duplex bus servos. | Test |
-| HW-004 | The firmware **shall** expose onboard discrete LEDs 1 and 2 to validated ROS pattern commands and reserve LED3 for the successful-ROS-heartbeat indicator. | Test |
+| HW-004 | The firmware **shall** reserve onboard discrete LED1 for a 1 Hz system heartbeat independent of ROS and expose LED2 and LED3 to validated ROS pattern commands. | Test |
 | HW-005 | The firmware **shall** control the single onboard PWM buzzer. | Test |
-| HW-006 | The firmware **shall** expose onboard RGB pixel 1 to validated ROS commands and reserve RGB pixel 2 for allocation-free RX-red/TX-green transport activity; its blue component shall remain off. | Test |
+| HW-006 | The firmware **shall** reserve RGB1 for allocation-free status: red toggles after each successful micro-ROS heartbeat publication, green pulses on TX progress, and blue pulses on RX progress. RGB2 shall accept validated ROS commands. | Test |
 | HW-007 | The firmware **shall** update the two host-controlled text lines of the onboard 128 x 32 OLED; the battery line remains controller-owned. | Test |
 | HW-008 | The firmware **shall** publish raw QMI8658 accelerometer and gyroscope measurements in SI units. | Test |
 | HW-009 | The firmware **shall** publish events from the two onboard buttons, numbered 1 and 2. | Test |
@@ -94,8 +94,8 @@ legacy source file shall be resolved in favor of that verified baseline.
 | CTRL-007 | A bus-servo move **shall** accept one through 16 unique IDs, one position per ID, and one shared duration. | Test |
 | CTRL-008 | Bus-servo state query and configuration **shall** expose ID, position, offset, voltage, temperature, position limits, voltage limits, temperature limit, and torque state. | Test |
 | CTRL-009 | When the shared bus-service slot is free, stop requests **shall** have dispatch priority over query/configuration, and any accepted bus service shall have priority over pending move traffic. An accepted service is non-preemptible; a stop received while another bus service owns the slot shall receive `BUSY` and may be retried. Accepting a stop shall interrupt an active move between frames and invalidate both its unsent remainder and every pending move generation accepted before that stop; only a post-stop move command may restart motion traffic. | Test |
-| CTRL-010 | LED1/LED2 and buzzer pattern commands **shall** support steady off, steady on, finite repetition, and indefinite repetition. LED3 commands shall be rejected without changing its heartbeat state. | Test |
-| CTRL-011 | RGB commands **shall** update RGB pixel 1 using 8-bit red, green, and blue components. Masks selecting firmware-owned RGB pixel 2, including the legacy all-pixels mask, shall be rejected atomically. | Test |
+| CTRL-010 | LED2/LED3 and buzzer pattern commands **shall** support steady off, steady on, finite repetition, and indefinite repetition. LED1 commands shall be rejected without changing its system heartbeat. | Test |
+| CTRL-011 | RGB commands **shall** update RGB pixel 2 using 8-bit red, green, and blue components. Masks selecting firmware-owned RGB pixel 1, including the all-pixels mask, shall be rejected atomically. | Test |
 | CTRL-012 | OLED commands **shall** independently replace or clear either host-controlled line and shall reject unsupported characters or oversized strings. | Test |
 | CTRL-013 | Button event values **shall** preserve pressed, long-press, long-press-repeat, short/long release, click, double-click, and triple-click distinctions. | Test |
 | CTRL-014 | The battery threshold **shall** be runtime configurable from 5000 through 20000 millivolts and shall default to 6300 millivolts after reset. | Test |

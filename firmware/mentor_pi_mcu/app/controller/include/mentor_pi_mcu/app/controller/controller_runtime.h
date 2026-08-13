@@ -383,7 +383,7 @@ class ControllerRuntime {
   mentor_pi::mcu::LedController led_controller_{};
   mentor_pi::mcu::BuzzerController buzzer_controller_{};
   StatusRgbController status_rgb_controller_{};
-  HeartbeatLedController heartbeat_led_controller_{};
+  MicroRosHeartbeatController micro_ros_heartbeat_controller_{};
 
   mentor_pi::mcu::MotorCommandMailbox motor_mailbox_{};
   mentor_pi::mcu::PwmCommandMailbox pwm_mailbox_{};

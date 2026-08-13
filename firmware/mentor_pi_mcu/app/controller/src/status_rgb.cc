@@ -9,7 +9,8 @@
 
 namespace mentor_pi_mcu::app::controller {
 
-bool HeartbeatLedController::Update(std::uint32_t successful_heartbeat_count) {
+bool MicroRosHeartbeatController::Update(
+    std::uint32_t successful_heartbeat_count) {
   const std::uint32_t heartbeat_delta =
       successful_heartbeat_count - previous_heartbeat_count_;
   if ((heartbeat_delta & 1U) != 0U) {
@@ -57,8 +58,8 @@ StatusRgbColor StatusRgbController::Update(std::uint32_t now_ms) {
   }
 
   constexpr std::uint8_t kOff = 0U;
-  return {rx_pulse_active_ ? kBrightness : kOff,
-          tx_pulse_active_ ? kBrightness : kOff, kOff};
+  return {kOff, tx_pulse_active_ ? kBrightness : kOff,
+          rx_pulse_active_ ? kBrightness : kOff};
 }
 
 }  // namespace mentor_pi_mcu::app::controller

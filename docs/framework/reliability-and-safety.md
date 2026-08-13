@@ -95,9 +95,9 @@ Other reset defaults are deterministic: PWM-servo GPIO is low until the frame
 generator is ready and then each channel outputs 1500 microseconds with zero
 offset; all three LEDs and the buzzer are off; both RGB pixels are initially
 driven off; both host OLED lines are empty; and no bus-servo frame is sent.
-LED3 subsequently reports successful ROS heartbeat publication and RGB2
-reports RX/TX activity. Neither indicator is restored from or controlled by a
-ROS session.
+LED1 subsequently provides the time-based system heartbeat and RGB1 reports
+successful micro-ROS heartbeat publication plus RX/TX activity. Neither
+indicator is restored from or controlled by a ROS session.
 
 ## Per-motor command lease
 
@@ -190,7 +190,7 @@ The overload policy is part of the public behavior:
 
 | Resource | Policy | Safety effect |
 | --- | --- | --- |
-| Motor, PWM, LED, RGB1, and OLED shadows | Selected fields from each taken, validated sample merge into one fixed shadow only within the current ROS session; the newest accepted selected value replaces any unread same-session value. On the first callback admitted for a new session, firmware drains the unread old snapshot and clears its per-field-valid generations before publishing. The RGB owner combines host RGB1 with firmware RGB2 status; the OLED owner merges new-session fields onto its last rendered state. Best-effort loss before callback remains possible. | Accepted same-session disjoint updates cannot erase one another, backlog cannot delay the motor lease, already applied host peripheral state holds across reconnect, RGB2 cannot be overridden by ROS, and unread or pending old-session fields cannot be relabelled as new work; hosts repeat every motor channel whose lease they intend to maintain. |
+| Motor, PWM, LED, RGB2, and OLED shadows | Selected fields from each taken, validated sample merge into one fixed shadow only within the current ROS session; the newest accepted selected value replaces any unread same-session value. On the first callback admitted for a new session, firmware drains the unread old snapshot and clears its per-field-valid generations before publishing. The RGB owner combines host RGB2 with firmware RGB1 status; the OLED owner merges new-session fields onto its last rendered state. Best-effort loss before callback remains possible. | Accepted same-session disjoint updates cannot erase one another, backlog cannot delay the motor lease, already applied host peripheral state holds across reconnect, RGB1 cannot be overridden by ROS, and unread or pending old-session fields cannot be relabelled as new work; hosts repeat every motor channel whose lease they intend to maintain. |
 | Bus-motion mailbox | The newest complete valid request overwrites the old request. | The serial bus converges to current intent without a motion FIFO. |
 | Buzzer mailbox | The latest complete validated pattern replaces an unread pattern; rejected input changes no output. | Buzzer traffic remains bounded without subset ambiguity. |
 | Button queue | Capacity 16; drop oldest and count when full. | Recent physical events remain observable; loss is explicit. |
@@ -304,11 +304,11 @@ motors require a new accepted command.
 All seven topic gateways capture the observed active generation before their
 fast check and recheck `ACTIVE` plus that exact generation inside the controller
 critical section. A callback spanning revoke/reconnect returns `BUSY` and
-publishes nothing. Motor, PWM, LED, RGB1, and OLED shadows have explicit
+publishes nothing. Motor, PWM, LED, RGB2, and OLED shadows have explicit
 session ownership: their first admitted callback in a fresh session drains old
 unread data and clears field-valid generations. Worker-owned already applied
-PWM/LED1/LED2/RGB1/OLED state remains held; only fields explicitly accepted in
-the new session may change it. LED3 and RGB2 status are session-independent. Whole-command
+PWM/LED2/LED3/RGB2/OLED state remains held; only fields explicitly accepted in
+the new session may change it. LED1 and RGB1 status are session-independent. Whole-command
 bus and buzzer work retains its generation tag and is rejected when that tag is
 stale.
 

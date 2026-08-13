@@ -260,7 +260,8 @@ void CheckPeripherals(const std::uint8_t* data, std::size_t size) {
   FuzzInput input(data, size);
   const LedCommand led{input.ReadU8(), input.ReadU16(), input.ReadU16(),
                        input.ReadU16()};
-  const Result expected_led = led.led_id >= 1U && led.led_id <= kHostLedCount
+  const Result expected_led =
+      led.led_id >= kFirstHostLedId && led.led_id <= kLastHostLedId
                                   ? OkResult()
                                   : Result{ResultCode::kOutOfRange, led.led_id};
   Require(Equal(ValidateLedCommand(led), expected_led));

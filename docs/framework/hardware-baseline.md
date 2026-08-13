@@ -111,14 +111,14 @@ the two drive-PWM outputs first and its quadrature encoder second.
 | Bus servos | PC12, UART5 TX in single-wire half-duplex mode, 115,200 baud 8N1. |
 | LEDs 1–3 | PD9, PD10, PD11. LEDs 1 and 2 are active-low; LED 3 is active-high. |
 | Buzzer | PA6 GPIO waveform output; TIM12 is the pattern/frequency scheduler. PA8 `BUZZER_OLD` is not an active v2 output. |
-| RGB pixels 1–2 | SPI1 MOSI/PA7 with DMA2 Stream 3, Channel 3; SPI1 SCK is PA5. RGB1 is host-controlled and RGB2 is firmware status. |
+| RGB pixels 1–2 | SPI1 MOSI/PA7 with DMA2 Stream 3, Channel 3; SPI1 SCK is PA5. RGB1 is firmware status and RGB2 is host-controlled. |
 | Buttons 1–2 | PE1 (`KEY1`) and PE0 (`KEY2`), both active-low. |
 | QMI8658 IMU | Software-I2C SCL/PB10 and SDA/PB11; rising-edge interrupt PB12. |
 | Battery monitor | PB0/ADC1 channel 8 plus ADC1 VREFINT; ADC DMA2 Stream 0, Channel 0. |
 | OLED | I2C1 SCL/PB6 and SDA/PB7. |
 | Host transport | USART1 TX/PA9 and RX/PA10; RX DMA2 Stream 2 and TX DMA2 Stream 7, both Channel 4. |
 
-The measured chassis placement, encoder wiring signs, IMU transform, and RGB2
+The measured chassis placement, encoder wiring signs, IMU transform, and RGB1
 semantics are compiled according to the
 [verified board profile](verified-hardware-profile.md).
 
@@ -190,9 +190,9 @@ check. This is a measured PCB-frame correction, not an open ROS frame decision.
 | Encoder motors | Four motor-driver stages in the schematic. TIM1 CH1-4, TIM9 CH1-2, TIM10 CH1, and TIM11 CH1 generate drive PWM; TIM2, TIM3, TIM4, and TIM5 are encoder interfaces in the Cube file. | Retain all four. The default ADRC image exposes encoder state and bounded closed-loop control; passive checkout and guarded HIL precede any powered-motion or performance claim. |
 | PWM servos | Four connectors. Firmware/Cube GPIOs are PA11, PA12, PC8, and PC9; TIM13 supplies the legacy frame timing. | Retain four channels. Generate pulses from a short timer ISR using task-prepared shadow values. |
 | Bus servos | Half-duplex bus-servo circuit is driven by the `UART6_TX`/`SERVO_SIGNAL` schematic net. Current firmware maps the signal to UART5 on PC12 and initializes UART5 at 115,200 8N1, no flow control. | Retain on UART5 with one owning worker. Support at most 16 servo IDs in one ROS motion request. |
-| Indicator LEDs | Three GPIO LEDs are present in the schematic and `LED_NUM` is three. | Retain all three; expose LED1/LED2 to ROS and reserve LED3 for firmware heartbeat status. |
+| Indicator LEDs | Three GPIO LEDs are present in the schematic and `LED_NUM` is three. | Retain all three; reserve LED1 for the firmware system heartbeat and expose LED2/LED3 to ROS. |
 | Buzzer | One transistor-driven buzzer is present; legacy timing uses TIM12. | Retain one, with bounded frequency and pattern state. |
-| RGB LEDs | Two cascaded RGB devices are present and `Pixel_S1_NUM` is two; legacy output uses SPI1 TX DMA. | Retain exactly two pixels: RGB1 for ROS commands and RGB2 for firmware status. |
+| RGB LEDs | Two cascaded RGB devices are present and `Pixel_S1_NUM` is two; legacy output uses SPI1 TX DMA. | Retain exactly two pixels: RGB1 for firmware status and RGB2 for ROS commands. |
 | Buttons | Two button inputs are present and the firmware creates two button objects. | Retain both with debounced events. |
 | IMU | The schematic identifies QMI8658 and its interrupt. The active driver uses the board software-I2C port and enables both sensors at 250 Hz with the accelerometer at ±4 g, gyroscope at ±128 degrees/s, and their internal low-pass filters disabled. Six-face hardware characterization measured board X = sensor Y, board Y = -sensor X, and board Z = sensor Z. | Retain that measurement configuration and publish the newest bounded sample at 50 Hz using the measured signed permutation. Positive-axis rotation and extended timing HIL remain release gates. |
 | Battery monitor | ADC1 samples VREFINT then PB0/channel 8 every 50 ms; the schematic contains the battery divider and regulator feedback path. The legacy estimate uses a 0.05 IIR update weight. | Retain calibrated voltage reporting, that filter response, and a configurable low threshold. |

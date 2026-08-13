@@ -850,7 +850,7 @@ class QualificationCampaignNode final : public rclcpp::Node {
 
   void PublishLed() {
     LedCommand command;
-    command.led_id = 1U;
+    command.led_id = 2U;
     command.on_time_ms = 20U;
     command.off_time_ms = 20U;
     command.repeat = 1U;
@@ -870,7 +870,7 @@ class QualificationCampaignNode final : public rclcpp::Node {
 
   void PublishRgb() {
     RgbCommand command;
-    command.update_mask = RgbCommand::PIXEL_1;
+    command.update_mask = RgbCommand::PIXEL_2;
     command.red.fill(0U);
     command.green.fill(0U);
     command.blue.fill(0U);
@@ -1059,7 +1059,7 @@ class QualificationCampaignNode final : public rclcpp::Node {
     }
 
     LedCommand led;
-    led.led_id = 1U;
+    led.led_id = 2U;
     led.on_time_ms = 0U;
     led_publisher_->publish(led);
     BuzzerCommand buzzer;
@@ -1067,7 +1067,7 @@ class QualificationCampaignNode final : public rclcpp::Node {
     buzzer.on_time_ms = 0U;
     buzzer_publisher_->publish(buzzer);
     RgbCommand rgb;
-    rgb.update_mask = RgbCommand::PIXEL_1;
+    rgb.update_mask = RgbCommand::PIXEL_2;
     rgb.red.fill(0U);
     rgb.green.fill(0U);
     rgb.blue.fill(0U);

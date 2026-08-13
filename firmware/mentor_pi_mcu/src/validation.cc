@@ -213,7 +213,7 @@ Result ValidateGetBusServoStateCommand(const GetBusServoStateCommand& command) {
 }
 
 Result ValidateLedCommand(const LedCommand& command) {
-  if (command.led_id < 1U || command.led_id > kHostLedCount) {
+  if (command.led_id < kFirstHostLedId || command.led_id > kLastHostLedId) {
     return {ResultCode::kOutOfRange, command.led_id};
   }
   return OkResult();

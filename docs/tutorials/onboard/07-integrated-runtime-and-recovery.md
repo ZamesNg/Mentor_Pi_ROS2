@@ -7,14 +7,23 @@ Verify the external Agent first:
 systemctl is-active mentor-pi-agent.service
 ```
 
-With the Agent active and the MCU connected, confirm that firmware-owned LED3
-toggles. LED3 changes only after a successful ROS heartbeat publication. If
-the ROS graph contains the firmware topics but LED3 remains static, stop here:
-entity discovery succeeded but the firmware telemetry path is not live. If
-LED3 toggles but every firmware topic is silent, repeat Tutorial 05 service
-installation and verify its required UDPv4 Fast DDS environment. Retain the
-current Agent journal; do not start the applications or enable actuator power
-until heartbeat data is visible.
+Confirm that firmware-owned LED1 blinks with a 500 ms off/500 ms on system
+heartbeat. This indication is independent of ROS. If LED1 remains static, stop:
+the firmware peripheral path is not making progress. LED2 and LED3 are the only
+LEDs controlled by `/mentor_pi/leds/command`.
+
+With the Agent active and the MCU connected, observe firmware-owned RGB1:
+
+- red toggles after each successful micro-ROS heartbeat publication;
+- green pulses when transmitted UART bytes advance;
+- blue pulses when received UART bytes advance.
+
+If the ROS graph contains the firmware topics but RGB1 red remains static, stop
+here: entity discovery succeeded but the firmware telemetry path is not live.
+If LED1 blinks but the graph is absent, repeat Tutorial 05 service installation
+and verify its required UDPv4 Fast DDS environment. Retain the current Agent
+journal; do not start the applications or enable actuator power until heartbeat
+data is visible.
 
 Start applications manually:
 

@@ -51,7 +51,7 @@ CleanupPeripheralOutputs() {
     /mentor_pi/buzzer/command mentor_pi_interfaces/msg/BuzzerCommand \
     '{frequency_hz: 0, on_time_ms: 0, off_time_ms: 0, repeat: 0}' \
     >/dev/null 2>&1
-  for led_id in 1 2; do
+  for led_id in 2 3; do
     timeout 3 ros2 topic pub --once --qos-reliability reliable --qos-depth 1 \
       /mentor_pi/leds/command mentor_pi_interfaces/msg/LedCommand \
       "{led_id: ${led_id}, on_time_ms: 0, off_time_ms: 0, repeat: 0}" \
@@ -59,7 +59,7 @@ CleanupPeripheralOutputs() {
   done
   timeout 3 ros2 topic pub --once --qos-reliability reliable --qos-depth 1 \
     /mentor_pi/rgb/command mentor_pi_interfaces/msg/RgbCommand \
-    '{update_mask: 1, red: [0, 0], green: [0, 0], blue: [0, 0]}' \
+    '{update_mask: 2, red: [0, 0], green: [0, 0], blue: [0, 0]}' \
     >/dev/null 2>&1
 }
 
@@ -286,7 +286,7 @@ InsideRuntime() {
       trap CleanupPeripheralOutputs EXIT
       trap 'exit 130' INT
       trap 'exit 143' TERM
-      for led_id in 1 2; do
+      for led_id in 2 3; do
         timeout 10 ros2 topic pub --once --qos-reliability reliable \
           --qos-depth 1 \
           /mentor_pi/leds/command mentor_pi_interfaces/msg/LedCommand \
@@ -299,7 +299,7 @@ InsideRuntime() {
       timeout 10 ros2 topic pub --once --qos-reliability reliable \
         --qos-depth 1 \
         /mentor_pi/rgb/command mentor_pi_interfaces/msg/RgbCommand \
-        '{update_mask: 1, red: [0, 0], green: [0, 0], blue: [32, 0]}'
+        '{update_mask: 2, red: [0, 0], green: [0, 0], blue: [0, 32]}'
       if [[ "${oled_present}" == "1" ]]; then
         timeout 10 ros2 topic pub --once --qos-reliability reliable \
           --qos-depth 1 \

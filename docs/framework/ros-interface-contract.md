@@ -58,7 +58,7 @@ an overload/stress contract; it does not promise application of every sample.
 | `/mentor_pi/bus_servos/command` | `mentor_pi_interfaces/msg/BusServoCommand` | BE, depth 1 | ≤10 Hz/on change | 20 Hz | One replace-latest batch slot |
 | `/mentor_pi/leds/command` | `mentor_pi_interfaces/msg/LedCommand` | REL, depth 1 | ≤5 Hz/on change | 10 Hz | Latest validated pattern per LED |
 | `/mentor_pi/buzzer/command` | `mentor_pi_interfaces/msg/BuzzerCommand` | REL, depth 1 | ≤5 Hz/on change | 10 Hz | Latest validated pattern |
-| `/mentor_pi/rgb/command` | `mentor_pi_interfaces/msg/RgbCommand` | REL, depth 1 | ≤30 Hz/on change | 50 Hz | Replace host-owned RGB1; RGB2 is MCU status |
+| `/mentor_pi/rgb/command` | `mentor_pi_interfaces/msg/RgbCommand` | REL, depth 1 | ≤30 Hz/on change | 50 Hz | Replace host-owned RGB2; RGB1 is MCU status |
 | `/mentor_pi/oled/command` | `mentor_pi_interfaces/msg/OledCommand` | REL, depth 1 | ≤1 Hz/on change | 2 Hz | Merge selected lines into latest state |
 
 Best-effort depth-one motion QoS may discard an older sample before the MCU
@@ -611,8 +611,8 @@ uint16 off_time_ms
 uint16 repeat
 ```
 
-`led_id` is 1 or 2. LED3 is firmware-owned and an ID of 3 is rejected with
-`OUT_OF_RANGE` without changing its successful-heartbeat indication. Timing
+`led_id` is 2 or 3. LED1 is firmware-owned and an ID of 1 is rejected with
+`OUT_OF_RANGE` without changing its 1 Hz system heartbeat. Timing
 fields span 0 through 65535 ms. Semantics are:
 
 - `on_time_ms == 0`: steady off; other timing fields are ignored.
@@ -647,12 +647,12 @@ uint8[2] green
 uint8[2] blue
 ```
 
-Bit 0 selects host-owned physical RGB pixel 1. Components are direct 0 through
+Bit 1 selects host-owned physical RGB pixel 2. Components are direct 0 through
 255 intensities; no gamma correction, fading, or color-space conversion is
-part of the public contract. The `PIXEL_2` and `ALL_PIXELS` constants remain in
-the message for wire/source compatibility, but RGB pixel 2 is firmware-owned.
-An `update_mask` of 2 or 3 is rejected atomically and changes neither pixel.
-RGB2's RX/TX meanings and bounded update policy are normative in the
+part of the public contract. The `PIXEL_1` and `ALL_PIXELS` constants remain in
+the message for wire/source compatibility, but RGB pixel 1 is firmware-owned.
+An `update_mask` of 1 or 3 is rejected atomically and changes neither pixel.
+RGB1's heartbeat/RX/TX meanings and bounded update policy are normative in the
 [verified board profile](verified-hardware-profile.md#firmware-owned-status-indicators).
 
 ### 7.4 `msg/OledCommand.msg`
