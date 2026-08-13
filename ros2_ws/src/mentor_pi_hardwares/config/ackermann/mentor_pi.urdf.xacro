@@ -8,12 +8,12 @@
   <xacro:arg name="steering_pwm_min_us" default="500"/>
   <xacro:arg name="steering_pwm_center_us" default="1500"/>
   <xacro:arg name="steering_pwm_max_us" default="2500"/>
-  <xacro:arg name="steering_angle_min_rad" default="-1.5"/>
-  <xacro:arg name="steering_angle_max_rad" default="1.5"/>
+  <xacro:arg name="steering_angle_min_rad" default="-0.6"/>
+  <xacro:arg name="steering_angle_max_rad" default="0.6"/>
   <xacro:arg name="steering_inverted" default="true"/>
   <xacro:arg name="steering_duration_ms" default="20"/>
-  <xacro:arg name="rear_wheel_radius_m" default="0.0333"/>
-  <xacro:arg name="wheelbase_m" default="0.145"/>
+  <xacro:arg name="rear_wheel_radius_m" default="0.0325"/>
+  <xacro:arg name="wheelbase_m" default="0.135"/>
   <xacro:arg name="linear_adrc_input_gain_per_second" default="5.0"/>
   <xacro:arg name="linear_adrc_controller_bandwidth_rad_s" default="1.0"/>
   <xacro:arg name="linear_adrc_observer_bandwidth_rad_s" default="3.0"/>

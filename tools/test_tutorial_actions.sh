@@ -30,6 +30,23 @@ rg -Fq 'Dev Container' "${PROJECT_ROOT}/docs/tutorials/onboard/01-prerequisites-
     "${PROJECT_ROOT}/docs/tutorials/onboard/01-prerequisites-and-safety.md" || \
   Fail "onboard track does not reject Dev Container runtime"
 
+readonly ONBOARD_ADRC_TUTORIAL="${PROJECT_ROOT}/docs/tutorials/onboard/08-evidence-and-qualification.md"
+for marker in \
+    'ros2_ws/src/mentor_pi_tracking/config/adrc.yaml' \
+    'tracking_controller:=mecanum tracking_algorithm:=adrc' \
+    '/mentor_pi/trajectory_tracker/reference_trajectory' \
+    '/mentor_pi/trajectory_tracker/cancel' \
+    'post-bound'; do
+  grep -Fq "${marker}" "${ONBOARD_ADRC_TUTORIAL}" || \
+    Fail "onboard ADRC tutorial omits trajectory-tracker marker ${marker}"
+done
+! rg -Fq '/mentor_pi/mecanum_mpc_tracker' \
+  "${PROJECT_ROOT}/README.md" "${PROJECT_ROOT}/docs" || \
+  Fail "retired Mecanum MPC tracker endpoint remains documented"
+! rg -Fq '/mentor_pi/ackermann_mpc_tracker' \
+  "${PROJECT_ROOT}/README.md" "${PROJECT_ROOT}/docs" || \
+  Fail "retired Ackermann MPC tracker endpoint remains documented"
+
 grep -Fq 'DEFAULT_EVIDENCE_ROOT="/var/log/mentor-pi/actions"' \
   "${SCRIPT_DIR}/run_runtime_action.sh" || \
   Fail "native production evidence root is missing"

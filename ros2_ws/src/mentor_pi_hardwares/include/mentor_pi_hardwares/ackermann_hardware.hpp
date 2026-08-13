@@ -119,8 +119,8 @@ class AckermannHardware : public hardware_interface::SystemInterface {
   hardware::FirstOrderLadrc yaw_adrc_{};
   double applied_linear_correction_m_s_{0.0};
   double applied_steering_correction_rad_{0.0};
-  double rear_wheel_radius_m_{0.0333};
-  double wheelbase_m_{0.145};
+  double rear_wheel_radius_m_{0.0325};
+  double wheelbase_m_{0.135};
   double linear_adrc_input_gain_per_second_{5.0};
   double yaw_adrc_input_gain_per_mps_{30.0};
   double yaw_adrc_minimum_speed_mps_{0.1};

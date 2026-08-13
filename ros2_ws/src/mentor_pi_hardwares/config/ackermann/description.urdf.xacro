@@ -2,7 +2,14 @@
 <robot name="mentor_pi_ackermann" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:macro name="ackermann_car" params="">
+    <link name="rear_axle_footprint"/>
     <link name="base_footprint"/>
+
+    <joint name="rear_axle_footprint_joint" type="fixed">
+      <parent link="rear_axle_footprint"/>
+      <child link="base_footprint"/>
+      <origin xyz="0.0675 0 0" rpy="0 0 0"/>
+    </joint>
 
     <link name="base_link">
       <inertial>
@@ -83,4 +90,3 @@
   </xacro:macro>
 
 </robot>
-

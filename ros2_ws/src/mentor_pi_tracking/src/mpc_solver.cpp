@@ -19,10 +19,11 @@ namespace {
 class TrackingCost final : public altro::problem::CostFunction {
  public:
   TrackingCost(Eigen::Vector3d state_reference,
-               Eigen::VectorXd control_reference, bool terminal)
+               Eigen::VectorXd control_reference, bool terminal, bool track_yaw)
       : state_reference_(std::move(state_reference)),
         control_reference_(std::move(control_reference)),
-        terminal_(terminal) {}
+        terminal_(terminal),
+        track_yaw_(track_yaw) {}
 
   int StateDimension() const override { return 3; }
   int ControlDimension() const override { return control_reference_.size(); }
@@ -32,8 +33,8 @@ class TrackingCost final : public altro::problem::CostFunction {
                   const altro::VectorXdRef& control) override {
     Eigen::Vector3d error = state - state_reference_;
     error(2) = WrapAngle(error(2));
-    const double state_cost =
-        8.0 * error.head<2>().squaredNorm() + 3.0 * error(2) * error(2);
+    const double state_cost = 8.0 * error.head<2>().squaredNorm() +
+                              (track_yaw_ ? 3.0 * error(2) * error(2) : 0.0);
     if (terminal_) {
       return 5.0 * state_cost;
     }
@@ -48,7 +49,8 @@ class TrackingCost final : public altro::problem::CostFunction {
     error(2) = WrapAngle(error(2));
     const double multiplier = terminal_ ? 5.0 : 1.0;
     state_gradient << multiplier * 16.0 * error(0),
-        multiplier * 16.0 * error(1), multiplier * 6.0 * error(2);
+        multiplier * 16.0 * error(1),
+        track_yaw_ ? multiplier * 6.0 * error(2) : 0.0;
     if (terminal_) {
       control_gradient.setZero();
     } else {
@@ -63,7 +65,7 @@ class TrackingCost final : public altro::problem::CostFunction {
     const double multiplier = terminal_ ? 5.0 : 1.0;
     state_hessian.setZero();
     state_hessian.diagonal() << multiplier * 16.0, multiplier * 16.0,
-        multiplier * 6.0;
+        track_yaw_ ? multiplier * 6.0 : 0.0;
     cross_hessian.setZero();
     control_hessian.setZero();
     if (!terminal_) {
@@ -75,6 +77,7 @@ class TrackingCost final : public altro::problem::CostFunction {
   Eigen::Vector3d state_reference_;
   Eigen::VectorXd control_reference_;
   bool terminal_;
+  bool track_yaw_;
 };
 
 class MecanumDynamics final : public altro::problem::ContinuousDynamics {
@@ -116,7 +119,9 @@ class MecanumDynamics final : public altro::problem::ContinuousDynamics {
 
 class AckermannDynamics final : public altro::problem::ContinuousDynamics {
  public:
-  explicit AckermannDynamics(double wheelbase) : wheelbase_(wheelbase) {}
+  AckermannDynamics(double wheelbase, double geometry_center_offset)
+      : wheelbase_(wheelbase),
+        geometry_center_offset_(geometry_center_offset) {}
   int StateDimension() const override { return 3; }
   int ControlDimension() const override { return 2; }
   bool HasHessian() const override { return true; }
@@ -124,9 +129,14 @@ class AckermannDynamics final : public altro::problem::ContinuousDynamics {
   void Evaluate(const altro::VectorXdRef& state,
                 const altro::VectorXdRef& control, float,
                 Eigen::Ref<altro::VectorXd> derivative) override {
-    derivative << control(0) * std::cos(state(2)),
-        control(0) * std::sin(state(2)),
-        control(0) * std::tan(control(1)) / wheelbase_;
+    const double yaw_rate = control(0) * std::tan(control(1)) / wheelbase_;
+    // The control point is the rear axle.  x/y are the chassis geometry
+    // centre, one offset forward of it, so centre velocity includes rotation.
+    derivative << control(0) * std::cos(state(2)) -
+                      geometry_center_offset_ * yaw_rate * std::sin(state(2)),
+        control(0) * std::sin(state(2)) +
+            geometry_center_offset_ * yaw_rate * std::cos(state(2)),
+        yaw_rate;
   }
 
   void Jacobian(const altro::VectorXdRef& state,
@@ -137,11 +147,20 @@ class AckermannDynamics final : public altro::problem::ContinuousDynamics {
     const double tangent = std::tan(control(1));
     const double secant_squared = 1.0 / std::pow(std::cos(control(1)), 2);
     jacobian.setZero();
-    jacobian(0, 2) = -control(0) * sine;
-    jacobian(1, 2) = control(0) * cosine;
-    jacobian(0, 3) = cosine;
-    jacobian(1, 3) = sine;
+    jacobian(0, 2) = -control(0) * sine - geometry_center_offset_ * control(0) *
+                                              tangent * cosine / wheelbase_;
+    jacobian(1, 2) = control(0) * cosine - geometry_center_offset_ *
+                                               control(0) * tangent * sine /
+                                               wheelbase_;
+    jacobian(0, 3) =
+        cosine - geometry_center_offset_ * tangent * sine / wheelbase_;
+    jacobian(1, 3) =
+        sine + geometry_center_offset_ * tangent * cosine / wheelbase_;
     jacobian(2, 3) = tangent / wheelbase_;
+    jacobian(0, 4) = -geometry_center_offset_ * control(0) * secant_squared *
+                     sine / wheelbase_;
+    jacobian(1, 4) = geometry_center_offset_ * control(0) * secant_squared *
+                     cosine / wheelbase_;
     jacobian(2, 4) = control(0) * secant_squared / wheelbase_;
   }
 
@@ -153,6 +172,7 @@ class AckermannDynamics final : public altro::problem::ContinuousDynamics {
 
  private:
   double wheelbase_;
+  double geometry_center_offset_;
 };
 
 class ControlBounds final
@@ -184,9 +204,13 @@ class ControlBounds final
 };
 
 Eigen::VectorXd ReferenceControl(VehicleType vehicle, double wheelbase,
+                                 double geometry_center_offset,
+                                 double seed_heading,
                                  const ReferenceState& reference) {
-  const double cosine = std::cos(reference.yaw);
-  const double sine = std::sin(reference.yaw);
+  const double heading =
+      vehicle == VehicleType::kMecanum ? reference.yaw : seed_heading;
+  const double cosine = std::cos(heading);
+  const double sine = std::sin(heading);
   const double forward =
       cosine * reference.vx_world + sine * reference.vy_world;
   if (vehicle == VehicleType::kMecanum) {
@@ -197,28 +221,48 @@ Eigen::VectorXd ReferenceControl(VehicleType vehicle, double wheelbase,
     return control;
   }
   Eigen::Vector2d control;
-  const double steering =
-      std::abs(forward) < 1.0e-6
-          ? 0.0
-          : std::atan(reference.yaw_rate * wheelbase / forward);
+  const double centre_lateral =
+      -sine * reference.vx_world + cosine * reference.vy_world;
+  const double yaw_rate = centre_lateral / geometry_center_offset;
+  const double steering = std::abs(forward) < 1.0e-6
+                              ? 0.0
+                              : std::atan(yaw_rate * wheelbase / forward);
   control << forward, steering;
   return control;
 }
 
-bool IsFinite(const ReferenceState& reference) {
-  return std::isfinite(reference.x) && std::isfinite(reference.y) &&
-         std::isfinite(reference.yaw) && std::isfinite(reference.vx_world) &&
-         std::isfinite(reference.vy_world) && std::isfinite(reference.yaw_rate);
+bool IsFinite(const ReferenceState& reference, VehicleType vehicle) {
+  const bool position =
+      std::isfinite(reference.x) && std::isfinite(reference.y) &&
+      std::isfinite(reference.vx_world) && std::isfinite(reference.vy_world);
+  return position &&
+         (vehicle == VehicleType::kAckermann ||
+          (std::isfinite(reference.yaw) && std::isfinite(reference.yaw_rate)));
 }
 
 bool IsFinite(const MpcConfiguration& configuration) {
   return std::isfinite(configuration.prediction_step) &&
          std::isfinite(configuration.wheelbase) &&
+         std::isfinite(configuration.wheel_track) &&
+         std::isfinite(configuration.geometry_center_offset) &&
          std::isfinite(configuration.mecanum_radius_sum) &&
          std::isfinite(configuration.max_linear_speed) &&
          std::isfinite(configuration.max_lateral_speed) &&
          std::isfinite(configuration.max_yaw_rate) &&
          std::isfinite(configuration.max_steering_angle);
+}
+
+bool IsValid(const MpcConfiguration& configuration) {
+  return IsFinite(configuration) && configuration.horizon == 10 &&
+         configuration.prediction_step == 0.1 &&
+         configuration.wheelbase > 0.0 && configuration.wheel_track > 0.0 &&
+         configuration.mecanum_radius_sum > 0.0 &&
+         configuration.max_linear_speed > 0.0 &&
+         configuration.max_lateral_speed > 0.0 &&
+         configuration.max_yaw_rate > 0.0 &&
+         configuration.max_steering_angle > 0.0 &&
+         (configuration.vehicle == VehicleType::kMecanum ||
+          configuration.geometry_center_offset > 0.0);
 }
 
 }  // namespace
@@ -227,8 +271,7 @@ MpcSolver::MpcSolver(MpcConfiguration configuration)
     : configuration_(std::move(configuration)) {}
 
 MpcCommand MpcSolver::Solve(const MpcRequest& request) const {
-  if (request.trajectory == nullptr || configuration_.horizon <= 0 ||
-      configuration_.prediction_step <= 0.0 || !IsFinite(configuration_) ||
+  if (request.trajectory == nullptr || !IsValid(configuration_) ||
       !std::isfinite(request.elapsed_seconds) ||
       !std::all_of(request.state.begin(), request.state.end(),
                    [](double value) { return std::isfinite(value); })) {
@@ -250,7 +293,8 @@ MpcCommand MpcSolver::Solve(const MpcRequest& request) const {
   } else {
     dynamics =
         std::make_shared<altro::problem::DiscretizedModel<AckermannDynamics>>(
-            AckermannDynamics{configuration_.wheelbase});
+            AckermannDynamics{configuration_.wheelbase,
+                              configuration_.geometry_center_offset});
     limits << configuration_.max_linear_speed,
         configuration_.max_steering_angle;
   }
@@ -260,23 +304,40 @@ MpcCommand MpcSolver::Solve(const MpcRequest& request) const {
           3, controls, configuration_.horizon);
   solution->SetUniformStep(configuration_.prediction_step);
 
+  double ackermann_seed_heading = request.state[2];
   for (int step = 0; step <= configuration_.horizon; ++step) {
     const ReferenceState reference = request.trajectory->Evaluate(
         request.elapsed_seconds + configuration_.prediction_step * step);
-    if (!IsFinite(reference)) {
+    if (!IsFinite(reference, configuration_.vehicle)) {
       return MpcCommand{false, 0.0, 0.0, 0.0,
                         "trajectory evaluation is non-finite"};
     }
-    Eigen::Vector3d reference_state(reference.x, reference.y, reference.yaw);
-    Eigen::VectorXd reference_control = ReferenceControl(
-        configuration_.vehicle, configuration_.wheelbase, reference);
+    // Ackermann tracks centre x/y only.  Do not read its common trajectory
+    // yaw/yaw-rate fields: heading is recursively seeded from measured state
+    // and the x/y derivative seed below.
+    Eigen::Vector3d reference_state(reference.x, reference.y,
+                                    ackermann_seed_heading);
+    if (configuration_.vehicle == VehicleType::kMecanum) {
+      reference_state(2) = reference.yaw;
+    }
+    Eigen::VectorXd reference_control =
+        ReferenceControl(configuration_.vehicle, configuration_.wheelbase,
+                         configuration_.geometry_center_offset,
+                         ackermann_seed_heading, reference);
     problem.SetCostFunction(
-        std::make_shared<TrackingCost>(reference_state, reference_control,
-                                       step == configuration_.horizon),
+        std::make_shared<TrackingCost>(
+            reference_state, reference_control, step == configuration_.horizon,
+            configuration_.vehicle == VehicleType::kMecanum),
         step);
     solution->State(step) = reference_state;
     solution->Control(step) =
         reference_control.cwiseMax(-limits).cwiseMin(limits);
+    if (configuration_.vehicle == VehicleType::kAckermann) {
+      const double speed = solution->Control(step)(0);
+      const double steering = solution->Control(step)(1);
+      ackermann_seed_heading += configuration_.prediction_step * speed *
+                                std::tan(steering) / configuration_.wheelbase;
+    }
     if (step < configuration_.horizon) {
       problem.SetDynamics(dynamics, step);
       problem.SetConstraint(bounds, step);
@@ -316,95 +377,6 @@ MpcCommand MpcSolver::Solve(const MpcRequest& request) const {
       MpcCommand{true, control(0), 0.0,
                  control(0) * std::tan(control(1)) / configuration_.wheelbase,
                  "ALTO solved"});
-}
-
-MpcCommand FeedbackCommand(const MpcConfiguration& configuration,
-                           const MpcRequest& request) {
-  if (request.trajectory == nullptr || !IsFinite(configuration) ||
-      !std::isfinite(request.elapsed_seconds) ||
-      !std::all_of(request.state.begin(), request.state.end(),
-                   [](double value) { return std::isfinite(value); })) {
-    return {};
-  }
-  const ReferenceState reference =
-      request.trajectory->Evaluate(request.elapsed_seconds);
-  if (!IsFinite(reference)) {
-    return {};
-  }
-  const double dx = reference.x - request.state[0];
-  const double dy = reference.y - request.state[1];
-  const double cosine = std::cos(request.state[2]);
-  const double sine = std::sin(request.state[2]);
-  const double forward_error = cosine * dx + sine * dy;
-  const double lateral_error = -sine * dx + cosine * dy;
-  Eigen::VectorXd feedforward = ReferenceControl(
-      configuration.vehicle, configuration.wheelbase, reference);
-  if (configuration.vehicle == VehicleType::kMecanum) {
-    return EnforceCommandBounds(
-        configuration,
-        MpcCommand{
-            true,
-            std::clamp(feedforward(0) + forward_error,
-                       -configuration.max_linear_speed,
-                       configuration.max_linear_speed),
-            std::clamp(feedforward(1) + lateral_error,
-                       -configuration.max_lateral_speed,
-                       configuration.max_lateral_speed),
-            std::clamp(
-                feedforward(2) + WrapAngle(reference.yaw - request.state[2]),
-                -configuration.max_yaw_rate, configuration.max_yaw_rate),
-            "bounded feedback fallback"});
-  }
-  const double speed = std::clamp(feedforward(0) + forward_error,
-                                  -configuration.max_linear_speed,
-                                  configuration.max_linear_speed);
-  const double steering = std::clamp(
-      feedforward(1) + 0.8 * lateral_error +
-          WrapAngle(reference.yaw - request.state[2]),
-      -configuration.max_steering_angle, configuration.max_steering_angle);
-  return EnforceCommandBounds(
-      configuration,
-      MpcCommand{true, speed, 0.0,
-                 speed * std::tan(steering) / configuration.wheelbase,
-                 "bounded feedback fallback"});
-}
-
-MpcCommand EnforceCommandBounds(const MpcConfiguration& configuration,
-                                MpcCommand command) {
-  if (!command.solved || !std::isfinite(command.linear_x) ||
-      !std::isfinite(command.linear_y) || !std::isfinite(command.angular_z) ||
-      configuration.max_linear_speed <= 0.0 || configuration.wheelbase <= 0.0) {
-    return {};
-  }
-  if (configuration.vehicle == VehicleType::kMecanum) {
-    if (configuration.mecanum_radius_sum <= 0.0) {
-      return {};
-    }
-    const double yaw_component =
-        configuration.mecanum_radius_sum * command.angular_z;
-    const double largest_wheel_speed = std::max(
-        {std::abs(command.linear_x - command.linear_y - yaw_component),
-         std::abs(command.linear_x + command.linear_y + yaw_component),
-         std::abs(command.linear_x + command.linear_y - yaw_component),
-         std::abs(command.linear_x - command.linear_y + yaw_component)});
-    if (largest_wheel_speed > configuration.max_linear_speed) {
-      const double scale = configuration.max_linear_speed / largest_wheel_speed;
-      command.linear_x *= scale;
-      command.linear_y *= scale;
-      command.angular_z *= scale;
-    }
-    return command;
-  }
-  command.linear_x =
-      std::clamp(command.linear_x, -configuration.max_linear_speed,
-                 configuration.max_linear_speed);
-  command.linear_y = 0.0;
-  const double maximum_yaw_rate = std::abs(command.linear_x) *
-                                  std::tan(configuration.max_steering_angle) /
-                                  configuration.wheelbase;
-  command.angular_z =
-      std::clamp(command.angular_z, -maximum_yaw_rate, maximum_yaw_rate);
-  return command;
 }
 
 }  // namespace mentor_pi::tracking

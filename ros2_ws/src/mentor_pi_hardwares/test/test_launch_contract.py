@@ -98,10 +98,28 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert ackermann_parameters["steering_pwm_center_us"] == "1500"
     assert ackermann_parameters["steering_inverted"].lower() == "true"
     assert ackermann_parameters["imu_timeout_ms"] == "100"
-    assert ackermann_parameters["rear_wheel_radius_m"] == "0.0333"
-    assert ackermann_parameters["wheelbase_m"] == "0.145"
+    assert ackermann_parameters["rear_wheel_radius_m"] == "0.0325"
+    assert ackermann_parameters["wheelbase_m"] == "0.135"
     assert ackermann_parameters["yaw_adrc_input_gain_per_mps"] == "30.0"
     assert ackermann_parameters["yaw_adrc_minimum_speed_mps"] == "0.1"
+    rear_axle_joint = ackermann.find("./joint[@name='rear_axle_footprint_joint']")
+    assert rear_axle_joint is not None
+    assert rear_axle_joint.find("parent").attrib["link"] == "rear_axle_footprint"
+    assert rear_axle_joint.find("child").attrib["link"] == "base_footprint"
+    assert rear_axle_joint.find("origin").attrib["xyz"] == "0.0675 0 0"
+
+    with open(
+        share / "config" / "ackermann" / "controllers.yaml", encoding="utf-8"
+    ) as stream:
+        ackermann_controller = yaml.safe_load(stream)[
+            "/**/ackermann_steering_controller"
+        ]["ros__parameters"]
+    assert ackermann_controller["base_frame_id"] == "rear_axle_footprint"
+    assert ackermann_controller["front_wheel_track"] == 0.140
+    assert ackermann_controller["rear_wheel_track"] == 0.140
+    assert ackermann_controller["wheelbase"] == 0.135
+    assert ackermann_controller["front_wheels_radius"] == 0.0325
+    assert ackermann_controller["rear_wheels_radius"] == 0.0325
 
 
 def test_default_and_custom_profiles_are_yaml_authoritative(tmp_path):
@@ -212,7 +230,11 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
             for entity in description.entities
             if isinstance(entity, DeclareLaunchArgument)
         }
-        assert {"vehicle_config", "tracking_controller"} <= arguments
+        assert {
+            "vehicle_config",
+            "tracking_controller",
+            "tracking_algorithm",
+        } <= arguments
         assert "start_bringup" not in arguments
         assert "robot_name" not in arguments
         assert "vehicle_type" not in arguments
@@ -231,3 +253,73 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
         'name="controller_manager"',
     ):
         assert forbidden not in launch_sources
+
+
+def test_tracking_parameters_select_generic_tracker_plugin_and_geometry():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    module = vehicle_launch_module(share)
+
+    assert module.tracking_parameters("mecanum", "mpc") == {
+        "vehicle_type": "mecanum",
+        "tracking_algorithm": "mpc",
+        "controller_plugin": "mentor_pi_tracking/MecanumMpc",
+        "wheel_radius": 0.0325,
+        "wheelbase": 0.145,
+        "wheel_track": 0.140,
+        "rear_axle_to_geometry_center": 0.0,
+        "mecanum_radius_sum": 0.14,
+        "max_steering_angle": 0.5,
+    }
+    assert module.tracking_parameters("ackermann", "adrc") == {
+        "vehicle_type": "ackermann",
+        "tracking_algorithm": "adrc",
+        "controller_plugin": "mentor_pi_tracking/AckermannAdrc",
+        "wheel_radius": 0.0325,
+        "wheelbase": 0.135,
+        "wheel_track": 0.140,
+        "rear_axle_to_geometry_center": 0.0675,
+        "mecanum_radius_sum": 0.14,
+        "max_steering_angle": 0.6,
+    }
+
+
+@pytest.mark.parametrize(
+    "vehicle_type,tracking_algorithm,error",
+    [
+        ("tracked", "mpc", "unsupported vehicle_type"),
+        ("ackermann", "pid", "tracking_algorithm must be mpc or adrc"),
+    ],
+)
+def test_tracking_parameters_fail_closed_for_unknown_values(
+    vehicle_type, tracking_algorithm, error
+):
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    module = vehicle_launch_module(share)
+    with pytest.raises(ValueError, match=error):
+        module.tracking_parameters(vehicle_type, tracking_algorithm)
+
+
+def test_tracking_parameters_validate_the_selected_hardware_geometry():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    module = vehicle_launch_module(share)
+    profile = module.load_vehicle_profile(
+        str(share / "config" / "ackermann" / "hardware.yaml")
+    )
+    parameters = module.tracking_parameters(
+        "ackermann", "adrc", profile["hardware"]
+    )
+    assert parameters["wheel_radius"] == 0.0325
+    assert parameters["wheelbase"] == 0.135
+    assert parameters["max_steering_angle"] == 0.6
+
+    changed = dict(profile["hardware"])
+    changed["steering_angle_max_rad"] = 0.4
+    with pytest.raises(ValueError, match="steering_angle_max_rad must be 0.6"):
+        module.tracking_parameters("ackermann", "adrc", changed)
+
+
+def test_tracking_contract_remains_on_the_fixed_mentor_pi_namespace():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    source = (share / "launch" / "vehicle_launch.py").read_text(encoding="utf-8")
+    assert 'tracking_controller != "none" and robot_name != "mentor_pi"' in source
+    assert "trajectory tracking uses the fixed /mentor_pi API" in source

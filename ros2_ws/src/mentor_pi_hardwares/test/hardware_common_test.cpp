@@ -64,10 +64,10 @@ TEST(HardwareCommonTest, ConvertsConfiguredSteeringCalibration) {
   SteeringCalibration calibration;
   EXPECT_TRUE(IsValidSteeringCalibration(calibration));
   EXPECT_EQ(*SteeringAngleToPulse(0.0, calibration), 1500U);
-  EXPECT_EQ(*SteeringAngleToPulse(1.5, calibration), 500U);
-  EXPECT_EQ(*SteeringAngleToPulse(-1.5, calibration), 2500U);
-  EXPECT_DOUBLE_EQ(*SteeringPulseToAngle(500U, calibration), 1.5);
-  EXPECT_DOUBLE_EQ(*SteeringPulseToAngle(2500U, calibration), -1.5);
+  EXPECT_EQ(*SteeringAngleToPulse(0.6, calibration), 500U);
+  EXPECT_EQ(*SteeringAngleToPulse(-0.6, calibration), 2500U);
+  EXPECT_DOUBLE_EQ(*SteeringPulseToAngle(500U, calibration), 0.6);
+  EXPECT_DOUBLE_EQ(*SteeringPulseToAngle(2500U, calibration), -0.6);
   EXPECT_FALSE(
       SteeringAngleToPulse(std::numeric_limits<double>::infinity(), calibration)
           .has_value());

@@ -4,8 +4,7 @@
 
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
-  auto node = mentor_pi::tracking::MakeTrackerNode(
-      mentor_pi::tracking::VehicleType::kAckermann, rclcpp::NodeOptions{});
+  auto node = mentor_pi::tracking::MakeTrackerNode(rclcpp::NodeOptions{});
   rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions{},
                                                     2);
   executor.add_node(node);

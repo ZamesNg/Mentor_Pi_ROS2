@@ -9,14 +9,16 @@ absence of legacy workspace, production Docker, OCI, QEMU, and container
 handoff paths. It also verifies that `.devcontainer/` is development-only.
 
 `VER-TRACK-UNIT-001` covers polynomial evaluation and numerical derivatives,
-message bounds and validation, unwrapped yaw and shortest angle error, both
-vehicle models, geometry/profile constraints, replacement scheduling,
-cancellation, ROS-to-steady clock conversion, stale odometry, solver fallback,
-and every zero-output condition. `VER-TRACK-INT-001` supplies synthetic
-odometry and mocked controller inputs for both stable topic contracts.
-`VER-TRACK-RDK-001` is a native RDK X5 benchmark requiring sustained 30 Hz
-operation and recorded 25 ms solve-deadline behavior. The unit and integration
-tests do not satisfy the RDK benchmark or any powered HIL gate.
+message bounds and validation, plugin discovery, Mecanum unwrapped yaw,
+Ackermann center-position dynamics, both MPC and ADRC algorithms, post-bound
+ESO input, geometry/profile constraints, replacement scheduling, cancellation,
+ROS-to-steady clock conversion, stale odometry, MPC fallback, and every
+zero-output condition. `VER-TRACK-INT-001` supplies synthetic odometry and
+mocked controller inputs to the single stable tracker contract for both
+vehicles and algorithms. `VER-TRACK-RDK-001` is a native RDK X5 benchmark
+requiring sustained 30 Hz operation and recorded 25 ms deadline behavior. The
+unit and integration tests do not satisfy the RDK benchmark or any powered HIL
+gate.
 
 ## Purpose and release rule
 
@@ -83,9 +85,9 @@ excerpt.
 | `VER-BUILD-HOST-001` | On native Ubuntu 22.04/Humble amd64 and arm64, rosdep/vcs/colcon list, build, and test exactly the five packages under `ros2_ws/src` with zero first-party warnings. The same component commands smoke in the VS Code Dev Container as development evidence. macOS and other Linux native execution rejects build/test with a Dev Container instruction. Project-owned production nodes and the data path contain no Python node, `rclpy` use, or serial translation bridge; Python ROS launch remains permitted orchestration. |
 | `VER-IMG-UNIFIED-001` | Retired by ADR-0003; historical results have no acceptance value for the native component topology. |
 | `VER-COMPONENT-LAYOUT-001` | Inspection and path-policy tests prove one Git history, no submodules, independent `firmware`, `micro_ros_agent`, and `ros2_ws` Make/build trees, canonical interfaces plus hash-bound checked firmware SDK, exactly five colcon packages, exactly two ordered host/onboard tutorial tracks, and `.devcontainer/` as the sole Docker definition. The old workspace, production Docker/runtime, devcontainer alternatives, OCI, QEMU, container entrypoints/handoffs, `make start`, and Agent ownership in ROS launch are absent. |
-| `VER-TRACK-UNIT-001` | Unit tests cover polynomial evaluation and numerical derivatives, bounded message validation, unwrapped yaw and shortest angle error, both vehicle models, geometry/profile limits including every mecanum wheel bound, scheduling and cancellation, ROS-to-steady conversion, stale state, bounded feedback, solver failure/deadline handling, and all zero-output conditions. |
-| `VER-TRACK-INT-001` | Integration tests supply synthetic odometry, motor profile, authorization, and scheduled trajectories to each tracker; verify its stable trajectory, controller-reference, cancel, and diagnostic contracts; observe bounded nonzero output; and prove stale odometry and cancellation return output to zero. |
-| `VER-TRACK-RDK-001` | A native RDK X5 benchmark records project-image identity, memory, sustained 30 Hz operation, solve duration and every 25 ms miss/failure for both models. It must pass before hardware tracking is enabled and does not replace guarded HIL evidence. |
+| `VER-TRACK-UNIT-001` | Unit tests cover polynomial evaluation and numerical derivatives, bounded message validation, all four plugin exports, Mecanum unwrapped-yaw tracking, Ackermann geometry-center conversion/dynamics with no yaw objective, trajectory LADRC initialization/evolution/reset and post-bound ESO input, geometry/profile limits including every Mecanum wheel and Ackermann steering bound, scheduling and cancellation, ROS-to-steady conversion, stale state, MPC bounded fallback, failure/deadline handling, and all zero-output conditions. |
+| `VER-TRACK-INT-001` | Integration tests supply synthetic odometry, motor profile, authorization, and scheduled trajectories to the single `/mentor_pi/trajectory_tracker` contract for both vehicles and algorithms; verify trajectory, controller-reference, cancel, frame, and diagnostic contracts; observe bounded forward and reverse output; and prove stale odometry and cancellation return output to zero. |
+| `VER-TRACK-RDK-001` | A native RDK X5 benchmark records project-image identity, memory, sustained 30 Hz operation, selected plugin, computation duration, and every 25 ms miss/failure for both vehicles and algorithms. It must pass before hardware tracking is enabled and does not replace guarded HIL evidence. |
 | `VER-BUILD-FW-001` | `make -C firmware build` drives CMake/Ninja on native Ubuntu 22.04 amd64/arm64 and in the Dev Container. Two clean builds produce identical loadable sections. The STM32F407VET6 build uses the checked Arm GNU 13.2.Rel1 toolchain, pinned STM32/Humble sources, and hash-bound checked SDK. Missing, unexpected, corrupt, or stale interface/source/archive/tree/toolchain inputs fail. ELF/BIN/HEX/map metadata, first-party warning policy, memory report, and reproducibility remain mandatory. |
 | `VER-BUILD-MOTOR-GATE-001` | For SAFE-006, firmware `build`, `verify`, `package`, and `flash` select the single `NORMAL_CLOSED_LOOP_DEFAULT` artifact with `control_mode=CLOSED_LOOP`. Tests reject alternate classification/mode, stale metadata, changed source/dependency/artifact hashes, programmer failure, and missing read-back success. Packaging contains exactly one ELF/Hex/Bin/Map set plus build metadata/mode. Software evidence does not qualify ADRC performance or powered motion. |
 | `VER-SCOPE-001` | Source, link map, task inventory, and ROS graph contain no legacy `AA 55` protocol, legacy names/types, Gamepad/Joy, SBUS, Bluetooth, USB-host, native-MCU USB transport, LVGL/LCD, or chassis-kinematics runtime. The I2C OLED remains included and is not classified as LCD. |

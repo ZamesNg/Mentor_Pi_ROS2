@@ -1,0 +1,13 @@
+/**:
+  ros__parameters:
+    vehicle_type: mecanum
+    tracking_algorithm: mpc
+    controller_plugin: mentor_pi_tracking/MecanumMpc
+    horizon: 10
+    prediction_step: 0.1
+    wheelbase: 0.135
+    wheel_track: 0.140
+    rear_axle_to_geometry_center: 0.0675
+    wheel_radius: 0.0325
+    mecanum_radius_sum: 0.14
+    max_steering_angle: 0.6

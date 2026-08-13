@@ -21,7 +21,7 @@ class ExamplePublisher final : public rclcpp::Node {
     }
     publisher_ = create_publisher<
         mentor_pi_tracking_interfaces::msg::PolynomialTrajectory>(
-        "/mentor_pi/" + vehicle + "_mpc_tracker/reference_trajectory",
+        "/mentor_pi/trajectory_tracker/reference_trajectory",
         rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile());
     timer_ = create_wall_timer(std::chrono::seconds(1), [this] {
       mentor_pi_tracking_interfaces::msg::PolynomialTrajectory trajectory;

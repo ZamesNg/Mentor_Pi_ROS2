@@ -8,8 +8,7 @@
 
 namespace mentor_pi::tracking {
 
-rclcpp::Node::SharedPtr MakeTrackerNode(VehicleType vehicle,
-                                        const rclcpp::NodeOptions& options);
+rclcpp::Node::SharedPtr MakeTrackerNode(const rclcpp::NodeOptions& options);
 
 }  // namespace mentor_pi::tracking
 

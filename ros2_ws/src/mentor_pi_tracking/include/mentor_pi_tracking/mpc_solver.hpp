@@ -16,7 +16,11 @@ struct MpcConfiguration {
   VehicleType vehicle{VehicleType::kMecanum};
   int horizon{10};
   double prediction_step{0.1};
-  double wheelbase{0.145};
+  // Ackermann state and trajectory positions are the chassis geometry centre,
+  // not the rear-axle control point.
+  double wheelbase{0.135};
+  double wheel_track{0.140};
+  double geometry_center_offset{0.0675};
   double mecanum_radius_sum{0.14};
   double max_linear_speed{0.5};
   double max_lateral_speed{0.5};

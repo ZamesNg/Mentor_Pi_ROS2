@@ -127,9 +127,9 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
                     static_cast<std::uint16_t>(500U),
                     static_cast<std::uint16_t>(2500U),
                     &steering_calibration_.maximum_pulse_us) ||
-      !ParseDouble(HardwareParameter(info, "steering_angle_min_rad", "-1.5"),
+      !ParseDouble(HardwareParameter(info, "steering_angle_min_rad", "-0.6"),
                    &steering_calibration_.minimum_angle_rad) ||
-      !ParseDouble(HardwareParameter(info, "steering_angle_max_rad", "1.5"),
+      !ParseDouble(HardwareParameter(info, "steering_angle_max_rad", "0.6"),
                    &steering_calibration_.maximum_angle_rad) ||
       !ParseBoolean(HardwareParameter(info, "steering_inverted", "true"),
                     &steering_calibration_.inverted) ||
@@ -138,9 +138,9 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
                     static_cast<std::uint16_t>(30000U),
                     &steering_duration_ms_) ||
       !ParsePositiveDouble(
-          HardwareParameter(info, "rear_wheel_radius_m", "0.0333"),
+          HardwareParameter(info, "rear_wheel_radius_m", "0.0325"),
           &rear_wheel_radius_m_) ||
-      !ParsePositiveDouble(HardwareParameter(info, "wheelbase_m", "0.145"),
+      !ParsePositiveDouble(HardwareParameter(info, "wheelbase_m", "0.135"),
                            &wheelbase_m_) ||
       !ParsePositiveDouble(
           HardwareParameter(info, "linear_adrc_input_gain_per_second", "5.0"),

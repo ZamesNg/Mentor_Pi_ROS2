@@ -39,6 +39,13 @@ Mode-specific profiles under `config/mecanum` and `config/ackermann` own:
 - Ackermann PWM channel, min/center/max pulse, inversion, angle limits, and
   command duration.
 
+The measured Ackermann runtime geometry is a `0.135 m` wheelbase, `0.140 m`
+wheel track, `0.0325 m` wheel radius, and `+/-0.6 rad` steering limit. Its
+odometry reference is the rear-axle midpoint `rear_axle_footprint`; a fixed
+`0.0675 m` transform places the existing `base_footprint` at the geometry
+center. The retained visual/collision wheel coordinates and visual radius are
+illustrative and are not the controller's kinematic authority.
+
 Custom multi-robot deployments copy a profile, change its `robot_name`, and
 start it with a distinct `ROS_DOMAIN_ID`. Distinct domains are required because
 the firmware-facing API intentionally remains fixed at `/mentor_pi/*`.

@@ -81,7 +81,7 @@ hardware_interface::HardwareInfo AckermannInfo() {
       {"robot_name", "mentor_pi_test"},   {"feedback_timeout_ms", "100"},
       {"steering_pwm_channel", "3"},      {"steering_pwm_min_us", "500"},
       {"steering_pwm_center_us", "1500"}, {"steering_pwm_max_us", "2500"},
-      {"steering_angle_min_rad", "-1.5"}, {"steering_angle_max_rad", "1.5"},
+      {"steering_angle_min_rad", "-0.6"}, {"steering_angle_max_rad", "0.6"},
       {"steering_inverted", "true"},      {"steering_duration_ms", "20"}};
   info.joints = {SteeringJoint("wheel_left_front_joint"),
                  SteeringJoint("wheel_right_front_joint"),
@@ -458,7 +458,17 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
                motor_received->target_rps[3] < -4.0F &&
                pwm_received->pulse_width_us[2] != 1500U;
       },
-      []() {}));
+      [&heartbeat_publisher, &authorization_publisher, &motor_state_publisher,
+       &pwm_state_publisher, &imu_publisher, &heartbeat, &authorization,
+       &motor_feedback, &pwm_feedback, &imu, &hardware]() {
+        heartbeat_publisher->publish(heartbeat);
+        authorization_publisher->publish(authorization);
+        motor_state_publisher->publish(motor_feedback);
+        pwm_state_publisher->publish(pwm_feedback);
+        imu_publisher->publish(imu);
+        static_cast<void>(
+            hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)));
+      }));
   EXPECT_EQ(motor_received->update_mask, 0x0aU);
   EXPECT_GT(motor_received->target_rps[1], 2.0F);
   EXPECT_LT(motor_received->target_rps[3], -4.0F);

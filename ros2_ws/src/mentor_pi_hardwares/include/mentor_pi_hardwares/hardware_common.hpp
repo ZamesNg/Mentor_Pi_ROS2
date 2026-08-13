@@ -76,8 +76,8 @@ struct SteeringCalibration {
   std::uint16_t minimum_pulse_us{500U};
   std::uint16_t center_pulse_us{1500U};
   std::uint16_t maximum_pulse_us{2500U};
-  double minimum_angle_rad{-1.5};
-  double maximum_angle_rad{1.5};
+  double minimum_angle_rad{-0.6};
+  double maximum_angle_rad{0.6};
   bool inverted{true};
 };
 

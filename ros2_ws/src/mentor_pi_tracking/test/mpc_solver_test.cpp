@@ -24,6 +24,22 @@ PolynomialTrajectory StraightTrajectory() {
   return *trajectory;
 }
 
+PolynomialTrajectory StraightTrajectoryWithYaw(double yaw, double yaw_rate) {
+  auto message = mentor_pi_tracking_interfaces::msg::PolynomialTrajectory{};
+  message.header.frame_id = "odom";
+  message.trajectory_id = "straight-yaw-" + std::to_string(yaw);
+  mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
+  segment.duration.sec = 5;
+  segment.x_coefficients[1] = 0.1;
+  segment.yaw_coefficients[0] = yaw;
+  segment.yaw_coefficients[1] = yaw_rate;
+  message.segments.push_back(segment);
+  std::string error;
+  const auto trajectory = PolynomialTrajectory::FromMessage(message, &error);
+  EXPECT_TRUE(trajectory.has_value()) << error;
+  return *trajectory;
+}
+
 TEST(MpcSolverTest, MecanumFeedbackIsFiniteAndBounded) {
   const PolynomialTrajectory trajectory = StraightTrajectory();
   MpcConfiguration configuration;
@@ -48,12 +64,54 @@ TEST(MpcSolverTest, AckermannFeedbackUsesTwistContract) {
   configuration.vehicle = VehicleType::kAckermann;
   configuration.max_linear_speed = 0.3;
   configuration.max_steering_angle = 0.4;
-  configuration.wheelbase = 0.145;
+  configuration.wheelbase = 0.135;
   const MpcRequest request{{0.0, 0.1, 0.0}, &trajectory, 0.0};
   const MpcCommand command = FeedbackCommand(configuration, request);
   EXPECT_TRUE(command.solved);
   EXPECT_DOUBLE_EQ(command.linear_y, 0.0);
   EXPECT_TRUE(std::isfinite(command.angular_z));
+}
+
+TEST(MpcSolverTest, AckermannFeedbackIgnoresCommonYawPolynomial) {
+  const PolynomialTrajectory first = StraightTrajectoryWithYaw(0.0, 0.0);
+  const PolynomialTrajectory second = StraightTrajectoryWithYaw(2.0, -4.0);
+  MpcConfiguration configuration;
+  configuration.vehicle = VehicleType::kAckermann;
+  configuration.max_linear_speed = 0.3;
+  configuration.max_steering_angle = 0.4;
+  configuration.wheelbase = 0.135;
+  configuration.geometry_center_offset = 0.0675;
+  const MpcCommand first_command =
+      FeedbackCommand(configuration, {{0.0, 0.1, 0.2}, &first, 0.0});
+  const MpcCommand second_command =
+      FeedbackCommand(configuration, {{0.0, 0.1, 0.2}, &second, 0.0});
+  ASSERT_TRUE(first_command.solved);
+  ASSERT_TRUE(second_command.solved);
+  EXPECT_DOUBLE_EQ(first_command.linear_x, second_command.linear_x);
+  EXPECT_DOUBLE_EQ(first_command.linear_y, second_command.linear_y);
+  EXPECT_DOUBLE_EQ(first_command.angular_z, second_command.angular_z);
+}
+
+TEST(MpcSolverTest, AckermannAltoSolveIgnoresCommonYawPolynomial) {
+  const PolynomialTrajectory first = StraightTrajectoryWithYaw(0.0, 0.0);
+  const PolynomialTrajectory second = StraightTrajectoryWithYaw(-2.5, 6.0);
+  MpcConfiguration configuration;
+  configuration.vehicle = VehicleType::kAckermann;
+  configuration.max_linear_speed = 0.3;
+  configuration.max_lateral_speed = 0.3;
+  configuration.max_yaw_rate = 1.0;
+  configuration.max_steering_angle = 0.4;
+  configuration.wheelbase = 0.135;
+  configuration.geometry_center_offset = 0.0675;
+  const MpcCommand first_command =
+      MpcSolver(configuration).Solve({{0.0, 0.0, 0.0}, &first, 0.0});
+  const MpcCommand second_command =
+      MpcSolver(configuration).Solve({{0.0, 0.0, 0.0}, &second, 0.0});
+  ASSERT_TRUE(first_command.solved) << first_command.detail;
+  ASSERT_TRUE(second_command.solved) << second_command.detail;
+  EXPECT_NEAR(first_command.linear_x, second_command.linear_x, 1.0e-12);
+  EXPECT_NEAR(first_command.linear_y, second_command.linear_y, 1.0e-12);
+  EXPECT_NEAR(first_command.angular_z, second_command.angular_z, 1.0e-12);
 }
 
 TEST(MpcSolverTest, CombinedMecanumCommandRespectsEveryWheelLimit) {
@@ -83,9 +141,16 @@ TEST(MpcSolverTest, AckermannBoundPreservesSteeringGeometry) {
   configuration.wheelbase = 0.15;
   const MpcCommand command =
       EnforceCommandBounds(configuration, {true, 1.0, 0.5, 10.0, "combined"});
-  EXPECT_DOUBLE_EQ(command.linear_x, 0.3);
+  EXPECT_LE(std::abs(command.linear_x), 0.3);
   EXPECT_DOUBLE_EQ(command.linear_y, 0.0);
-  EXPECT_LE(std::abs(command.angular_z), 0.3 * std::tan(0.4) / 0.15 + 1.0e-12);
+  EXPECT_LE(std::abs(command.angular_z),
+            std::abs(command.linear_x) * std::tan(0.4) / 0.15 + 1.0e-12);
+  EXPECT_LE(std::abs(command.linear_x -
+                     0.5 * configuration.wheel_track * command.angular_z),
+            0.3 + 1.0e-12);
+  EXPECT_LE(std::abs(command.linear_x +
+                     0.5 * configuration.wheel_track * command.angular_z),
+            0.3 + 1.0e-12);
 }
 
 TEST(MpcSolverTest, SolvesStationaryMecanumProblemWithAlto) {

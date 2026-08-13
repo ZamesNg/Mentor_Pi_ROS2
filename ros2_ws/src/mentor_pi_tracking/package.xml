@@ -3,7 +3,7 @@
 <package format="3">
   <name>mentor_pi_tracking</name>
   <version>0.1.0</version>
-  <description>Onboard ALTO MPC trajectory tracking for Mentor Pi vehicles.</description>
+  <description>Onboard plugin-based MPC and LADRC trajectory tracking for Mentor Pi vehicles.</description>
   <maintainer email="maintainers@mentor-pi.dev">Mentor Pi maintainers</maintainer>
   <license>GPL-2.0-or-later</license>
 
@@ -15,6 +15,7 @@
   <depend>mentor_pi_tracking_interfaces</depend>
   <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
+  <depend>pluginlib</depend>
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
 
