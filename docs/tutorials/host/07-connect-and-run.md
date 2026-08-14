@@ -16,13 +16,13 @@ With exactly one connected CH9102F, install by stable identity:
 
 ```zsh
 make -C micro_ros_agent find-device
-sudo make -C micro_ros_agent install-service ROS_DOMAIN_ID=0
+sudo make -C micro_ros_agent install-service \
+  ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=0 \
+  ROS_DISCOVERY_SERVER=192.168.2.191:11811
 systemctl is-enabled mentor-pi-agent.service
 systemctl is-active mentor-pi-agent.service
 journalctl -u mentor-pi-agent.service -n 50 --no-pager
 ```
-
-Replace `0` if the deployment uses a different ROS domain.
 
 The installer discovers USB `1a86:55d4` and chooses its stable serial, falling
 back to `ID_PATH`. If multiple matching adapters are connected, select the
@@ -36,11 +36,12 @@ guarded, and the supply is current-limited, start the applications manually:
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
 : "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-ros2 launch mentor_pi_hardwares mecanum.launch.py
+: "${ROS_LOCALHOST_ONLY:?export the Agent ROS_LOCALHOST_ONLY value first}"
+ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
 The Agent service must not start this launch. Stop the application with
 Ctrl-C. Disconnecting or restarting the Agent must invalidate the old session,
 disarm motion, and require the supervisor to configure the new session.
 
-For the Ackermann model, substitute `ackermann.launch.py`.
+The generated profile selects mecanum or Ackermann from `MENTOR_PI_TYPE`.

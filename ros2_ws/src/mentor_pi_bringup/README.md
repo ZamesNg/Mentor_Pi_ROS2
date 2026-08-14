@@ -51,7 +51,7 @@ Only after completing the passive safety gates, launch an application manually:
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 : "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-ros2 launch mentor_pi_hardwares mecanum.launch.py
+ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
 `controller.launch.py` starts only the configuration supervisor. Its exit shuts

@@ -38,12 +38,12 @@ hardware, safety, and qualification.
 - Colcon in `ros2_ws/` discovers only its five packages. Preserve package names
   and package-internal C++ `src/` directories. External pins belong in
   `dependencies.repos` and project patches belong in `ros2_ws/patches/`.
-- Keep the root Makefile limited to integration, passive hardware,
+- Keep the root Makefile limited to onboarding, integration, passive hardware,
   characterization, evidence, and qualification actions.
 
 ## Compatibility and safety
 
-- Preserve `mentor_pi_interfaces`, `/mentor_pi/controller`, public topics,
+- Preserve `mentor_pi_interfaces`, public topics,
   services, QoS, units, limits, leases, and authorization behavior unless the
   user explicitly authorizes an interface change.
 - Preserve startup inhibition, the single-supervisor publisher check,

@@ -137,7 +137,8 @@ In the first terminal:
 ```zsh
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
-export ROS_DOMAIN_ID=0
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=0
 systemctl is-active mentor-pi-agent.service
 ros2 launch mentor_pi_bringup controller.launch.py
 ```
@@ -284,14 +285,15 @@ nano ros2_ws/src/mentor_pi_hardwares/config/mecanum/hardware.yaml
 make -C ros2_ws build
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
-export ROS_DOMAIN_ID=0
-ros2 launch mentor_pi_hardwares mecanum.launch.py
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=0
+ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
-For Ackermann, edit `config/ackermann/hardware.yaml` and launch
-`ackermann.launch.py`. Replace `0` with the domain installed in Tutorial 05.
-Before publishing a reference, verify that the selected hardware plugin is the
-only motor-command publisher:
+For Ackermann, select the generated Ackermann profile through
+`MENTOR_PI_TYPE`. Replace the domain and localhost-only values with those
+installed in Tutorial 05. Before publishing a reference, verify that the
+selected hardware plugin is the only motor-command publisher:
 
 ```zsh
 ros2 topic info /mentor_pi/motors/command --verbose
@@ -398,16 +400,16 @@ colcon build --symlink-install --packages-up-to \
 cd ..
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
-export ROS_DOMAIN_ID=0
-ros2 launch mentor_pi_hardwares mecanum.launch.py \
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=0
+ros2 launch mentor_pi_hardwares vehicle.launch.py \
   tracking_controller:=mecanum tracking_algorithm:=adrc
 ```
 
-For Ackermann, use `ackermann.launch.py` and
-`tracking_controller:=ackermann`. Replace `0` with the domain installed in
-Tutorial 05. Before staging motion, require one tracker input, one selected
-controller-reference publisher, and exactly one hardware motor-command
-publisher:
+For Ackermann, use `tracking_controller:=ackermann`. Replace the domain and localhost-only values
+with those installed in Tutorial 05. Before staging motion, require one tracker
+input, one selected controller-reference publisher, and exactly one hardware
+motor-command publisher:
 
 ```zsh
 ros2 topic info /mentor_pi/trajectory_tracker/reference_trajectory --verbose

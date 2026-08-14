@@ -9,8 +9,9 @@ User=mentor-pi
 Group=mentor-pi
 SupplementaryGroups=mentor-pi-serial
 Environment=ROS_DOMAIN_ID=@ROS_DOMAIN_ID@
+Environment=ROS_LOCALHOST_ONLY=@ROS_LOCALHOST_ONLY@
+Environment=ROS_DISCOVERY_SERVER=@ROS_DISCOVERY_SERVER@
 Environment=MENTOR_PI_RRCLITE_AUTORESET=1
-Environment=FASTDDS_BUILTIN_TRANSPORTS=UDPv4
 ExecStartPre=/usr/bin/test -c /dev/mentor_pi_mcu
 ExecStart=/opt/mentor_pi/agent/current/bin/mentor-pi-agent serial --dev /dev/mentor_pi_mcu --baudrate 1000000 -v4
 Restart=always

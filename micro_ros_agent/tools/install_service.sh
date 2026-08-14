@@ -8,11 +8,14 @@ readonly BUILD_PREFIX="${COMPONENT_ROOT}/build/native/install"
 readonly METADATA="${BUILD_PREFIX}/AGENT-BUILD-METADATA.txt"
 readonly EXECUTABLE="${BUILD_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
 readonly LAUNCHER="${BUILD_PREFIX}/bin/mentor-pi-agent"
+readonly PACKAGED_FASTDDS_PROFILE="${BUILD_PREFIX}/share/micro_ros_agent/config/fastdds.xml"
 readonly SERIAL_ACCESS_HELPER="${COMPONENT_ROOT}/tools/configure_serial_access.sh"
 readonly SERVICE_TEMPLATE="${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 readonly RELEASE_ROOT="/opt/mentor_pi/agent/releases"
 DEVICE="${DEVICE:-}"
 readonly ROS_DOMAIN_ID="${ROS_DOMAIN_ID-}"
+readonly ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-0}"
+readonly ROS_DISCOVERY_SERVER="${ROS_DISCOVERY_SERVER-}"
 ID_SERIAL_SHORT="${ID_SERIAL_SHORT:-}"
 ID_PATH="${ID_PATH:-}"
 temporary_release=""
@@ -101,19 +104,30 @@ EnsureTrustedDirectory() {
 }
 
 RenderServiceUnit() {
-  local destination="$1" domain_id="$2"
+  local destination="$1" domain_id="$2" localhost_only="$3" discovery_server="$4"
   [[ -f "${SERVICE_TEMPLATE}" && ! -L "${SERVICE_TEMPLATE}" ]] || \
     Fail "Agent service template is missing or symbolic"
   [[ "$(grep -o '@ROS_DOMAIN_ID@' "${SERVICE_TEMPLATE}" | wc -l)" -eq 1 ]] || \
     Fail "Agent service template must contain one ROS domain marker"
-  sed "s/@ROS_DOMAIN_ID@/${domain_id}/" "${SERVICE_TEMPLATE}" >"${destination}"
-  ! grep -Fq '@ROS_DOMAIN_ID@' "${destination}" || \
-    Fail "Agent service domain rendering failed"
+  [[ "$(grep -o '@ROS_LOCALHOST_ONLY@' "${SERVICE_TEMPLATE}" | wc -l)" \
+     -eq 1 ]] || \
+    Fail "Agent service template must contain one localhost-only marker"
+  [[ "$(grep -o '@ROS_DISCOVERY_SERVER@' "${SERVICE_TEMPLATE}" | wc -l)" \
+     -eq 1 ]] || \
+    Fail "Agent service template must contain one discovery-server marker"
+  sed -e "s/@ROS_DOMAIN_ID@/${domain_id}/" \
+    -e "s/@ROS_LOCALHOST_ONLY@/${localhost_only}/" \
+    -e "s#@ROS_DISCOVERY_SERVER@#${discovery_server}#" \
+    "${SERVICE_TEMPLATE}" >"${destination}"
+  if grep -Eq '@ROS_(DOMAIN_ID|LOCALHOST_ONLY|DISCOVERY_SERVER)@' "${destination}"; then
+    Fail "Agent service environment rendering failed"
+  fi
 }
 
 RemoveLegacyAgentEnvironment() {
   local config_directory=/etc/mentor-pi
   local environment_file="${config_directory}/agent.env"
+  local fastdds_profile="${config_directory}/agent-fastdds.xml"
   if [[ ! -e "${config_directory}" && ! -L "${config_directory}" ]]; then
     return
   fi
@@ -125,6 +139,11 @@ RemoveLegacyAgentEnvironment() {
     [[ ! -d "${environment_file}" ]] || \
       Fail "legacy Agent environment path is a directory"
     rm -f -- "${environment_file}"
+  fi
+  if [[ -e "${fastdds_profile}" || -L "${fastdds_profile}" ]]; then
+    [[ ! -d "${fastdds_profile}" ]] || \
+      Fail "legacy Fast DDS profile path is a directory"
+    rm -f -- "${fastdds_profile}"
   fi
   rmdir --ignore-fail-on-non-empty -- "${config_directory}"
 }
@@ -140,6 +159,7 @@ VerifyExistingRelease() {
   local installed_metadata="${release_path}/AGENT-BUILD-METADATA.txt"
   local installed_executable="${release_path}/lib/micro_ros_agent/micro_ros_agent"
   local installed_launcher="${release_path}/bin/mentor-pi-agent"
+  local installed_fastdds_profile="${release_path}/share/micro_ros_agent/config/fastdds.xml"
 
   [[ -d "${release_path}" && ! -L "${release_path}" ]] || \
     Fail "existing Agent release is not a real directory: ${release_path}"
@@ -151,7 +171,9 @@ VerifyExistingRelease() {
   [[ -f "${installed_metadata}" && ! -L "${installed_metadata}" && \
      -f "${installed_executable}" && ! -L "${installed_executable}" && \
      -x "${installed_executable}" && -f "${installed_launcher}" && \
-     ! -L "${installed_launcher}" && -x "${installed_launcher}" ]] || \
+     ! -L "${installed_launcher}" && -x "${installed_launcher}" && \
+     -f "${installed_fastdds_profile}" && \
+     ! -L "${installed_fastdds_profile}" ]] || \
     Fail "existing Agent release is malformed: ${release_path}"
   cmp -s "${installed_metadata}" "${expected_metadata}" || \
     Fail "existing Agent release metadata does not match this build"
@@ -184,13 +206,22 @@ Main() {
   "${SCRIPT_DIR}/check_environment.sh" >/dev/null
   [[ -f "${EXECUTABLE}" && ! -L "${EXECUTABLE}" && -x "${EXECUTABLE}" && \
      -f "${LAUNCHER}" && ! -L "${LAUNCHER}" && -x "${LAUNCHER}" && \
-     -f "${METADATA}" && ! -L "${METADATA}" ]] || \
+     -f "${METADATA}" && ! -L "${METADATA}" && \
+     -f "${PACKAGED_FASTDDS_PROFILE}" && \
+     ! -L "${PACKAGED_FASTDDS_PROFILE}" ]] || \
     Fail "run make build before installing the service"
   [[ -x "${SERIAL_ACCESS_HELPER}" ]] || Fail "serial-access helper is unavailable"
   [[ -n "${ROS_DOMAIN_ID}" ]] || \
     Fail "pass ROS_DOMAIN_ID=<0..232> to make install-service"
   [[ "${ROS_DOMAIN_ID}" =~ ^(0|[1-9][0-9]{0,2})$ ]] && \
     ((ROS_DOMAIN_ID <= 232)) || Fail "ROS_DOMAIN_ID must be in [0,232]"
+  [[ "${ROS_LOCALHOST_ONLY}" =~ ^[01]$ ]] || \
+    Fail "ROS_LOCALHOST_ONLY must be 0 or 1"
+  [[ "${ROS_DISCOVERY_SERVER}" =~ ^[A-Za-z0-9._-]+:[1-9][0-9]{0,4}$ ]] || \
+    Fail "ROS_DISCOVERY_SERVER must be HOST:PORT"
+  local discovery_port="${ROS_DISCOVERY_SERVER##*:}"
+  ((discovery_port <= 65535)) || \
+    Fail "ROS_DISCOVERY_SERVER port must be in [1,65535]"
   [[ -z "${ID_SERIAL_SHORT}" || -z "${ID_PATH}" ]] || \
     Fail "set at most one of ID_SERIAL_SHORT or ID_PATH"
   local -a serial_access_arguments=(--user mentor-pi)
@@ -274,7 +305,8 @@ Main() {
   local temporary_service
   temporary_service="$(mktemp \
     /etc/systemd/system/.mentor-pi-agent.service.XXXXXX)"
-  RenderServiceUnit "${temporary_service}" "${ROS_DOMAIN_ID}"
+  RenderServiceUnit "${temporary_service}" "${ROS_DOMAIN_ID}" \
+    "${ROS_LOCALHOST_ONLY}" "${ROS_DISCOVERY_SERVER}"
   chown root:root "${temporary_service}"
   chmod 0644 "${temporary_service}"
   mv -Tf "${temporary_service}" "${service_path}"

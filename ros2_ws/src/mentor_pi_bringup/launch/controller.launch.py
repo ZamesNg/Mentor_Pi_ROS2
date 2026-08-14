@@ -54,6 +54,7 @@ def _launch_controller(context):
     supervisor = Node(
         package="mentor_pi_bringup",
         executable="configuration_supervisor",
+        namespace=LaunchConfiguration("robot_name").perform(context),
         output="screen",
         parameters=[config_file],
     )
@@ -66,6 +67,11 @@ def _launch_controller(context):
 def generate_launch_description():
     return LaunchDescription(
         [
+            DeclareLaunchArgument(
+                "robot_name",
+                default_value="mentor_pi",
+                description="Relative ROS namespace for this vehicle",
+            ),
             DeclareLaunchArgument(
                 "config_file",
                 default_value=PathJoinSubstitution(

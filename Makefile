@@ -2,7 +2,9 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 ROS_DOMAIN_ID ?= 0
-PORT ?= /dev/mentor_pi_mcu
+DEFAULT_PORT := /dev/mentor_pi_mcu
+PORT ?=
+FLASH_ACK ?=
 SERIAL_SETUP_ACK ?=
 PASSIVE_CHECK_ACK ?=
 PERIPHERAL_SMOKE_ACK ?=
@@ -20,7 +22,7 @@ RECOVERY_MODE ?=
 RUNTIME_CONTEXT ?= development
 PACKAGED_FIRMWARE_SHA256 ?=
 
-.PHONY: help doctor check-compatibility find-device install-evidence-tools serial-setup passive-check \
+.PHONY: help onboard-setup onboard-configure doctor check-compatibility find-device install-evidence-tools serial-setup passive-check \
 	peripheral-smoke characterize-board qualification-preflight \
 	campaign-load campaign-soak campaign-recovery
 
@@ -34,6 +36,8 @@ help:
 		'  make -C ros2_ws help' \
 		'' \
 		'Integration commands:' \
+		'  make onboard-setup      Complete first-time onboard installation.' \
+		'  make onboard-configure  Rebuild/flash after a type or namespace change.' \
 		'  make doctor' \
 		'  make check-compatibility' \
 		'  make find-device' \
@@ -44,6 +48,14 @@ help:
 		'  make campaign-load | campaign-soak | campaign-recovery' \
 		'' \
 		'Root integration actions require native Ubuntu 22.04.'
+
+onboard-setup:
+	@MENTOR_PI_TYPE="$(MENTOR_PI_TYPE)" MENTOR_PI_NAME="$(MENTOR_PI_NAME)" \
+		PORT="$(PORT)" FLASH_ACK="$(FLASH_ACK)" ./tools/onboard_setup.sh setup
+
+onboard-configure:
+	@MENTOR_PI_TYPE="$(MENTOR_PI_TYPE)" MENTOR_PI_NAME="$(MENTOR_PI_NAME)" \
+		PORT="$(PORT)" FLASH_ACK="$(FLASH_ACK)" ./tools/onboard_setup.sh configure
 
 doctor:
 	@./tools/doctor.sh
@@ -58,7 +70,8 @@ install-evidence-tools:
 	@./tools/install_evidence_tools.sh
 
 serial-setup:
-	@PORT="$(PORT)" SERIAL_SETUP_ACK="$(SERIAL_SETUP_ACK)" \
+	@PORT="$(if $(PORT),$(PORT),$(DEFAULT_PORT))" \
+		SERIAL_SETUP_ACK="$(SERIAL_SETUP_ACK)" \
 		./tools/tutorial_action.sh serial-setup
 
 passive-check:

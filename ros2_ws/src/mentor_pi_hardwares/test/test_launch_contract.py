@@ -19,7 +19,7 @@ def load_launch(path):
 
 
 def vehicle_launch_module(share):
-    return load_launch(share / "launch" / "vehicle_launch.py")
+    return load_launch(share / "launch" / "vehicle.launch.py")
 
 
 def test_vehicle_launch_rejects_the_dev_container(monkeypatch):
@@ -217,12 +217,10 @@ def test_missing_relative_and_malformed_profiles_fail_closed(tmp_path):
 def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
     share = Path(get_package_share_directory("mentor_pi_hardwares"))
     launch_directory = share / "launch"
-    for name in (
-        "vehicle.launch.py",
-        "mecanum.launch.py",
-        "ackermann.launch.py",
-        "exp_vehicle_launch.py",
-    ):
+    assert sorted(path.name for path in launch_directory.glob("*.py")) == [
+        "vehicle.launch.py"
+    ]
+    for name in ("vehicle.launch.py",):
         module = load_launch(launch_directory / name)
         description = module.generate_launch_description()
         arguments = {
@@ -318,8 +316,8 @@ def test_tracking_parameters_validate_the_selected_hardware_geometry():
         module.tracking_parameters("ackermann", "adrc", changed)
 
 
-def test_tracking_contract_remains_on_the_fixed_mentor_pi_namespace():
+def test_tracking_contract_accepts_the_generated_vehicle_namespace():
     share = Path(get_package_share_directory("mentor_pi_hardwares"))
-    source = (share / "launch" / "vehicle_launch.py").read_text(encoding="utf-8")
-    assert 'tracking_controller != "none" and robot_name != "mentor_pi"' in source
-    assert "trajectory tracking uses the fixed /mentor_pi API" in source
+    source = (share / "launch" / "vehicle.launch.py").read_text(encoding="utf-8")
+    assert "trajectory tracking uses the fixed /mentor_pi API" not in source
+    assert "namespace=robot_name" in source

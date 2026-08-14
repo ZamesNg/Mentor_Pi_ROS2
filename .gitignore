@@ -38,6 +38,7 @@ ros2_ws/third_party/*
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
+ros2_ws/src/mentor_pi_hardwares/config/generated/
 
 # Compiler and analysis artifacts.
 compile_commands.json

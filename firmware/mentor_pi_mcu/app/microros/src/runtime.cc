@@ -19,6 +19,10 @@ extern "C" {
 
 #include "mentor_pi_mcu/app/microros/transport_adapter.h"
 
+#ifndef MENTOR_PI_ROS_NAMESPACE
+#define MENTOR_PI_ROS_NAMESPACE "/mentor_pi"
+#endif
+
 namespace mentor_pi_mcu::app::microros {
 namespace {
 
@@ -498,7 +502,8 @@ std::int32_t MicroRosRuntime::ExecuteCreateStep(const EntityCreateStep& step) {
           MiddlewareBoundary::kEntityCreate, step.deadline_ms,
           [this, &options]() {
             return static_cast<std::int32_t>(rclc_node_init_with_options(
-                &node_, "controller", "/mentor_pi", &support_, &options));
+                &node_, "controller", MENTOR_PI_ROS_NAMESPACE, &support_,
+                &options));
           }));
       node_constructed_ = result == RCL_RET_OK;
       return static_cast<std::int32_t>(result);

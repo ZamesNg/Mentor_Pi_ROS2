@@ -7,6 +7,7 @@ readonly INSTALL_PREFIX="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly ROS_SETUP=/opt/ros/humble/setup.bash
 readonly LOCAL_SETUP="${INSTALL_PREFIX}/local_setup.bash"
 readonly AGENT_EXECUTABLE="${INSTALL_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
+readonly FASTDDS_PROFILE="${INSTALL_PREFIX}/share/micro_ros_agent/config/fastdds.xml"
 
 [[ -r "${ROS_SETUP}" ]] || {
   echo "Mentor Pi Agent launcher: missing ${ROS_SETUP}" >&2
@@ -14,6 +15,14 @@ readonly AGENT_EXECUTABLE="${INSTALL_PREFIX}/lib/micro_ros_agent/micro_ros_agent
 }
 [[ -r "${LOCAL_SETUP}" && -x "${AGENT_EXECUTABLE}" ]] || {
   echo "Mentor Pi Agent launcher: incomplete install prefix ${INSTALL_PREFIX}" >&2
+  exit 1
+}
+[[ -r "${FASTDDS_PROFILE}" ]] || {
+  echo "Mentor Pi Agent launcher: missing packaged Fast DDS profile" >&2
+  exit 1
+}
+grep -Fq '<dds xmlns=' "${FASTDDS_PROFILE}" || {
+  echo "Mentor Pi Agent launcher: invalid packaged Fast DDS profile" >&2
   exit 1
 }
 
@@ -25,4 +34,5 @@ source "${ROS_SETUP}"
 source "${LOCAL_SETUP}"
 set -u
 
+export FASTRTPS_DEFAULT_PROFILES_FILE="${FASTDDS_PROFILE}"
 exec "${AGENT_EXECUTABLE}" "$@"

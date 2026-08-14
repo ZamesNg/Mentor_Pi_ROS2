@@ -370,6 +370,12 @@ set(RRCLITE_EXECUTABLE_SOURCES
   "${RRCLITE_STARTUP_SOURCE}"
 )
 add_executable(mentor_pi_mcu ${RRCLITE_EXECUTABLE_SOURCES})
+set(MENTOR_PI_ROS_NAMESPACE "" CACHE STRING
+  "Absolute ROS namespace compiled into the MCU micro-ROS node")
+if(NOT MENTOR_PI_ROS_NAMESPACE MATCHES
+   "^/[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*)*$")
+  message(FATAL_ERROR "MENTOR_PI_ROS_NAMESPACE must be an absolute ROS namespace")
+endif()
 set_target_properties(mentor_pi_mcu PROPERTIES
   OUTPUT_NAME mentor_pi_mcu
   SUFFIX .elf
@@ -389,6 +395,7 @@ target_compile_definitions(mentor_pi_mcu PRIVATE
   USE_HAL_DRIVER
   MENTOR_PI_RRCLITE_V1
   CLOCK_MONOTONIC=0
+  MENTOR_PI_ROS_NAMESPACE="${MENTOR_PI_ROS_NAMESPACE}"
 )
 target_include_directories(mentor_pi_mcu PRIVATE
   "${RRCLITE_MICROROS_ROOT}/include"

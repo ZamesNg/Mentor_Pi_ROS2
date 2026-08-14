@@ -42,8 +42,7 @@ constexpr auto kMpcFallbackLimit = std::chrono::milliseconds(100);
 constexpr auto kMinimumStartLead = std::chrono::milliseconds(250);
 constexpr auto kMaximumStartLead = std::chrono::seconds(60);
 constexpr double kTwoPi = 6.28318530717958647692;
-constexpr char kAuthorizationTopic[] =
-    "/mentor_pi/configuration/motion_authorization";
+constexpr char kAuthorizationTopic[] = "configuration/motion_authorization";
 
 struct ScheduledTrajectory {
   std::shared_ptr<const PolynomialTrajectory> trajectory;
@@ -152,10 +151,10 @@ class TrackerNode final : public rclcpp::Node {
                       ? "mecanum_drive_controller"
                       : "ackermann_steering_controller";
     command_publisher_ = create_publisher<geometry_msgs::msg::TwistStamped>(
-        "/mentor_pi/" + controller_ + "/reference", rclcpp::QoS(1).reliable());
+        controller_ + "/reference", rclcpp::QoS(1).reliable());
     diagnostics_publisher_ =
         create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
-            "/diagnostics", rclcpp::QoS(10).reliable());
+            "diagnostics", rclcpp::QoS(10).reliable());
 
     safety_group_ =
         create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -163,20 +162,20 @@ class TrackerNode final : public rclcpp::Node {
     safety_options.callback_group = safety_group_;
     trajectory_subscription_ = create_subscription<
         mentor_pi_tracking_interfaces::msg::PolynomialTrajectory>(
-        "/mentor_pi/trajectory_tracker/reference_trajectory",
+        "trajectory_tracker/reference_trajectory",
         rclcpp::QoS(1).reliable().durability_volatile(),
         [this](const mentor_pi_tracking_interfaces::msg::PolynomialTrajectory::
                    SharedPtr message) { AcceptTrajectory(*message); },
         safety_options);
     odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
-        "/mentor_pi/" + controller_ + "/odometry", rclcpp::SensorDataQoS(),
+        controller_ + "/odometry", rclcpp::SensorDataQoS(),
         [this](const nav_msgs::msg::Odometry::SharedPtr message) {
           AcceptOdometry(*message);
         },
         safety_options);
     motor_subscription_ =
         create_subscription<mentor_pi_interfaces::msg::MotorState>(
-            "/mentor_pi/motors/state", rclcpp::SensorDataQoS(),
+            "motors/state", rclcpp::SensorDataQoS(),
             [this](const mentor_pi_interfaces::msg::MotorState::SharedPtr
                        message) { AcceptMotor(*message); },
             safety_options);
@@ -188,14 +187,14 @@ class TrackerNode final : public rclcpp::Node {
         safety_options);
     heartbeat_subscription_ =
         create_subscription<mentor_pi_interfaces::msg::Heartbeat>(
-            "/mentor_pi/heartbeat", rclcpp::QoS(1).reliable(),
+            "heartbeat", rclcpp::QoS(1).reliable(),
             [this](
                 const mentor_pi_interfaces::msg::Heartbeat::SharedPtr message) {
               AcceptHeartbeat(*message);
             },
             safety_options);
     cancel_service_ = create_service<std_srvs::srv::Trigger>(
-        "/mentor_pi/trajectory_tracker/cancel",
+        "trajectory_tracker/cancel",
         [this](const std_srvs::srv::Trigger::Request::SharedPtr,
                const std_srvs::srv::Trigger::Response::SharedPtr response) {
           {
@@ -436,7 +435,7 @@ class TrackerNode final : public rclcpp::Node {
     const auto publishers = get_publishers_info_by_topic(kAuthorizationTopic);
     return publishers.size() == 1U &&
            publishers.front().node_name() == "configuration_supervisor" &&
-           publishers.front().node_namespace() == "/mentor_pi";
+           publishers.front().node_namespace() == get_namespace();
   }
 
   bool FreshLocked(SteadyClock::time_point now) const {

@@ -39,6 +39,36 @@ autosuggestions, and syntax highlighting. Post-create setup seeds common
 component build/test commands into an idempotent Zsh history block; hardware,
 service-installation, and HIL commands are intentionally excluded.
 
+## One-command onboard setup
+
+On the native Ubuntu 22.04 robot, export the identity once and run onboarding
+as the normal operator. The command asks for the existing exact firmware flash
+acknowledgement and uses `sudo` only for privileged installation and hardware
+access:
+
+```sh
+export MENTOR_PI_TYPE=mecanum       # or ackermann
+export MENTOR_PI_NAME=mentor_pi_1   # relative ROS namespace
+make onboard-setup
+```
+
+This builds, tests, packages, and flashes namespace-specific firmware; installs
+the non-root Agent service; generates the selected vehicle configuration;
+builds the ROS workspace; and normalizes a managed ROS block in the current
+operator's `.zshrc`. It installs the checksum-pinned ARM64 CubeProgrammer
+package from top-level `third_party/`, and resolves the account, home directory,
+and repository path dynamically.
+
+After changing either exported identity value, stop vehicle bringup and run:
+
+```sh
+make onboard-configure
+```
+
+Namespace changes rebuild and flash the firmware because ROS 2 Humble's
+micro-ROS reference mode does not cover the complete service API. The
+reconfiguration command does not rebuild the Agent or the complete workspace.
+
 ## Component commands
 
 ```sh
@@ -70,11 +100,15 @@ Onboard, install the Agent as a versioned, non-root boot service:
 
 ```sh
 make -C micro_ros_agent find-device
-sudo make -C micro_ros_agent install-service ROS_DOMAIN_ID=0
+sudo make -C micro_ros_agent install-service \
+  ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=0 \
+  ROS_DISCOVERY_SERVER=192.168.2.191:11811
 systemctl status mentor-pi-agent.service
 ```
 
-Replace `0` if the deployment uses a different ROS domain.
+The Agent's Fast DDS UDPv4 profile is installed as immutable package data in
+its versioned release. The systemd unit contains the ROS environment but no
+source-checkout or generated-profile paths.
 
 Discovery scans udev for USB identity `1a86:55d4` and succeeds only when one
 CH9102F tty is unambiguous. With multiple connected adapters, select the
@@ -86,12 +120,10 @@ ROS applications always start manually. The Agent service never starts them:
 ```sh
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
-: "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-ros2 launch mentor_pi_hardwares mecanum.launch.py
+ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
-The root Makefile contains integration, passive-check, characterization, and
-qualification commands only. Run `make help` for that interface.
+Run `make help` for the onboarding, integration, and qualification interface.
 
 ## Tutorials
 

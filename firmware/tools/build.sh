@@ -10,6 +10,7 @@ readonly SDK_ROOT="${MCU_ROOT}/build/microros-sdk"
 readonly SDK_MANIFEST="${MCU_ROOT}/sdk/humble/manifest.txt"
 readonly JOBS="${RRCLITE_BUILD_JOBS:-1}"
 readonly SHA256="${SCRIPT_DIR}/sha256.sh"
+readonly MENTOR_PI_NAME="${MENTOR_PI_NAME:-}"
 
 Fail() {
   echo "Firmware build error: $*" >&2
@@ -28,6 +29,8 @@ fi
 [[ "$#" == 0 ]] || Fail "usage: build.sh [--print-motor-profile]"
 
 [[ "${JOBS}" =~ ^[1-9][0-9]*$ ]] || Fail "RRCLITE_BUILD_JOBS must be positive"
+[[ "${MENTOR_PI_NAME}" =~ ^[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*)*$ ]] || \
+  Fail "MENTOR_PI_NAME must be an exported relative ROS namespace"
 "${SCRIPT_DIR}/setup.sh" --verify >/dev/null
 "${SCRIPT_DIR}/validate_sdk.sh" >/dev/null
 "${SCRIPT_DIR}/extract_microros_sdk.sh" >/dev/null
@@ -57,6 +60,7 @@ rm -rf -- "${BUILD_ROOT}"
 cmake -S "${MCU_ROOT}/target/stm32" -B "${BUILD_ROOT}" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="${MCU_ROOT}/target/stm32/arm-none-eabi-toolchain.cmake" \
   -DCMAKE_BUILD_TYPE=MinSizeRel \
+  -DMENTOR_PI_ROS_NAMESPACE="/${MENTOR_PI_NAME}" \
   -DRRCLITE_MICROROS_ROOT="${SDK_ROOT}"
 cmake --build "${BUILD_ROOT}" --parallel "${JOBS}"
 
@@ -87,6 +91,7 @@ printf '%s\n' \
   'artifact_mode=NORMAL' \
   'classification=NORMAL_CLOSED_LOOP_DEFAULT' \
   'release_qualified=0' \
+  "ros_namespace=/${MENTOR_PI_NAME}" \
   "source_sha256=${source_sha_before}" \
   "interfaces_sha256=${interface_sha}" \
   "microros_sdk_archive_sha256=${sdk_archive_sha}" \

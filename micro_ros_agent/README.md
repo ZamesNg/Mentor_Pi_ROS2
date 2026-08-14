@@ -11,7 +11,8 @@ make setup
 make build
 make test
 make find-device
-sudo make install-service ROS_DOMAIN_ID=0
+sudo make install-service ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=0 \
+  ROS_DISCOVERY_SERVER=192.168.2.191:11811
 ```
 
 `make setup` recovers an interrupted initial source fetch when the partial Git
@@ -28,13 +29,18 @@ rerun installation with the intended `ID_SERIAL_SHORT=...` or `ID_PATH=...`
 selector.
 
 Service installation never selects a default ROS domain. Pass the deployment's
-`ROS_DOMAIN_ID` explicitly to `make`; replace `0` above when necessary. The
-validated value is rendered directly into the installed systemd unit. The
-installer removes the former `/etc/mentor-pi/agent.env` file.
+`ROS_DOMAIN_ID` explicitly to `make`; change that value when necessary. The
+validated value is rendered directly into the installed systemd unit.
+`ROS_LOCALHOST_ONLY` defaults to `0` and accepts only `0` or `1`.
+`ROS_DISCOVERY_SERVER` is required in `HOST:PORT` form. The Fast DDS UDPv4
+profile is packaged under `share/micro_ros_agent/config/fastdds.xml` in each
+immutable Agent release. The launcher resolves it relative to its own installed
+prefix, validates it, and exports `FASTRTPS_DEFAULT_PROFILES_FILE`; neither the
+systemd unit nor the runtime reads profiles from `/etc` or the source checkout.
 
-The default versioned release ID represents the complete installed Agent tree,
-so a supporting-file change creates a new side-by-side release even when the
-Agent executable itself is unchanged.
+The default versioned release ID represents the complete built Agent tree.
+Rerunning `install-service` safely refreshes the separately managed systemd
+unit without rebuilding or duplicating that release.
 
 macOS and other Linux distributions use the repository VS Code Dev Container
 for build and test. Service installation is supported only on the native

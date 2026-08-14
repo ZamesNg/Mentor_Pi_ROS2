@@ -1,13 +1,13 @@
 # `mentor_pi_hardwares` architecture
 
-`mentor_pi_hardwares` is the host-side `ros2_control` adapter for the native
-`/mentor_pi` micro-ROS contract. It does not replace the micro-ROS Agent or the
+`mentor_pi_hardwares` is the host-side `ros2_control` adapter for the generated
+robot namespace. It does not replace the micro-ROS Agent or the
 configuration supervisor. The Agent is an external systemd prerequisite; the
 manual application launch owns the supervisor and ROS application processes.
 
 ## Runtime topology
 
-The mode-specific top-level launch contains three independently managed
+The unified top-level launch contains three independently managed
 application processes:
 
 1. the configuration supervisor from `controller.launch.py`;
@@ -15,13 +15,11 @@ application processes:
 3. `controller_manager`, which loads one `SystemInterface` plugin and spawns
    the selected drive controller plus `joint_state_broadcaster`.
 
-Use `vehicle.launch.py` with a selected YAML deployment profile.
-`mecanum.launch.py` and `ackermann.launch.py` are convenience wrappers that
-select their checked-in profiles, and `exp_vehicle_launch.py` remains only as
-a compatibility filename. All four launch files accept `vehicle_config`, not
-direct robot-name or vehicle-type values. The profile's `robot_name`
-namespaces host-side robot and controller nodes; firmware transport and
-supervisor endpoints remain the compatible, absolute `/mentor_pi/*` API.
+Use `vehicle.launch.py`; onboarding installs its generated `vehicle.yaml` and
+matching controller profile. The profile's `robot_name` namespaces firmware
+and host APIs, controller nodes, tracking interfaces, and TF frame IDs. An
+absolute `vehicle_config` override is retained for development; its sibling
+`controllers.yaml` is used automatically.
 
 ## Configuration ownership
 
@@ -46,9 +44,9 @@ odometry reference is the rear-axle midpoint `rear_axle_footprint`; a fixed
 center. The retained visual/collision wheel coordinates and visual radius are
 illustrative and are not the controller's kinematic authority.
 
-Custom multi-robot deployments copy a profile, change its `robot_name`, and
-start it with a distinct `ROS_DOMAIN_ID`. Distinct domains are required because
-the firmware-facing API intentionally remains fixed at `/mentor_pi/*`.
+`make onboard-configure` regenerates both profiles after a type or namespace
+change and flashes firmware with the same namespace. Multiple robots may share
+domain 42 because their ROS entity and TF names are distinct.
 
 ## Units and connector mapping
 
@@ -142,7 +140,7 @@ systemctl is-active mentor-pi-agent.service
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 : "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-ros2 launch mentor_pi_hardwares mecanum.launch.py
+ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
 The default ADRC firmware accepts bounded nonzero commands only after its normal

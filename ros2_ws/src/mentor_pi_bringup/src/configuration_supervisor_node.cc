@@ -200,7 +200,7 @@ class ConfigurationSupervisorNode final : public rclcpp::Node {
 
   void CheckControllerPresence() {
     const bool graph_present =
-        count_publishers("/mentor_pi/heartbeat") > std::size_t{0};
+        count_publishers("heartbeat") > std::size_t{0};
     const auto now = SupervisorCore::Clock::now();
     if (graph_present != graph_present_) {
       graph_present_ = graph_present;

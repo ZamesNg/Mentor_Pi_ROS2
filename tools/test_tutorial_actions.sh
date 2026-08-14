@@ -79,9 +79,9 @@ for runtime_tutorial in \
   grep -Fq 'ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first' \
     "${runtime_tutorial}" || \
     Fail "runtime tutorial does not require the deployment domain: ${runtime_tutorial}"
-  grep -Fq 'ros2 launch mentor_pi_hardwares mecanum.launch.py' \
+  grep -Fq 'ros2 launch mentor_pi_hardwares vehicle.launch.py' \
     "${runtime_tutorial}" || \
-    Fail "runtime tutorial lacks the direct mecanum launch: ${runtime_tutorial}"
+    Fail "runtime tutorial lacks the unified vehicle launch: ${runtime_tutorial}"
 done
 PYTHONPYCACHEPREFIX="${TEST_ROOT}/pycache" python3 -m py_compile \
   "${CONTROLLER_LAUNCH}" \

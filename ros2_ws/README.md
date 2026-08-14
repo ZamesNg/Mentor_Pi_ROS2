@@ -21,8 +21,8 @@ started manually.
 
 Tracking is disabled by default. Onboard runtime uses the checked-in ROS launch
 files directly after sourcing Humble and this workspace with the same exported
-`ROS_DOMAIN_ID` used to install the Agent service. Select
-`mecanum.launch.py` or `ackermann.launch.py`; opt into tracking with the matching
-`tracking_controller` launch argument. The host clock must be synchronized, and
+`ROS_DOMAIN_ID` used to install the Agent service. Use `vehicle.launch.py`; its
+generated profile selects the type and namespace. Opt into tracking with the
+matching `tracking_controller` launch argument. The host clock must be synchronized, and
 the publisher must provide future-scheduled `odom`-frame polynomial
 trajectories.

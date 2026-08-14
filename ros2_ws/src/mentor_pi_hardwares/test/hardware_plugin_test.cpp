@@ -141,27 +141,28 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
   auto state_publisher =
       node->create_publisher<mentor_pi_interfaces::msg::MotorState>(
-          "/mentor_pi/motors/state", qos);
+          "/mentor_pi_test/motors/state", qos);
   auto imu_publisher =
       node->create_publisher<mentor_pi_interfaces::msg::ImuState>(
-          "/mentor_pi/imu", qos);
+          "/mentor_pi_test/imu", qos);
   std::optional<mentor_pi_interfaces::msg::MotorCommand> received;
   auto command_subscription =
       node->create_subscription<mentor_pi_interfaces::msg::MotorCommand>(
-          "/mentor_pi/motors/command", qos,
+          "/mentor_pi_test/motors/command", qos,
           [&received](mentor_pi_interfaces::msg::MotorCommand::SharedPtr msg) {
             received = *msg;
           });
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
-  auto supervisor =
-      std::make_shared<rclcpp::Node>("configuration_supervisor", "/mentor_pi");
+  auto supervisor = std::make_shared<rclcpp::Node>(
+      "configuration_supervisor", "/mentor_pi_test");
   auto heartbeat_publisher =
       supervisor->create_publisher<mentor_pi_interfaces::msg::Heartbeat>(
-          "/mentor_pi/heartbeat", rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
+          "/mentor_pi_test/heartbeat",
+          rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
   auto authorization_publisher =
       supervisor->create_publisher<std_msgs::msg::UInt64>(
-          "/mentor_pi/configuration/motion_authorization",
+          "/mentor_pi_test/configuration/motion_authorization",
           rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local());
   executor.add_node(supervisor);
 
@@ -334,39 +335,40 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
   auto motor_state_publisher =
       node->create_publisher<mentor_pi_interfaces::msg::MotorState>(
-          "/mentor_pi/motors/state", qos);
+          "/mentor_pi_test/motors/state", qos);
   auto pwm_state_publisher =
       node->create_publisher<mentor_pi_interfaces::msg::PwmServoState>(
-          "/mentor_pi/pwm_servos/state", qos);
+          "/mentor_pi_test/pwm_servos/state", qos);
   auto imu_publisher =
       node->create_publisher<mentor_pi_interfaces::msg::ImuState>(
-          "/mentor_pi/imu", qos);
+          "/mentor_pi_test/imu", qos);
   std::optional<mentor_pi_interfaces::msg::MotorCommand> motor_received;
   std::optional<mentor_pi_interfaces::msg::PwmServoCommand> pwm_received;
   auto motor_subscription =
       node->create_subscription<mentor_pi_interfaces::msg::MotorCommand>(
-          "/mentor_pi/motors/command", qos,
+          "/mentor_pi_test/motors/command", qos,
           [&motor_received](
               mentor_pi_interfaces::msg::MotorCommand::SharedPtr msg) {
             motor_received = *msg;
           });
   auto pwm_subscription =
       node->create_subscription<mentor_pi_interfaces::msg::PwmServoCommand>(
-          "/mentor_pi/pwm_servos/command", qos,
+          "/mentor_pi_test/pwm_servos/command", qos,
           [&pwm_received](
               mentor_pi_interfaces::msg::PwmServoCommand::SharedPtr msg) {
             pwm_received = *msg;
           });
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
-  auto supervisor =
-      std::make_shared<rclcpp::Node>("configuration_supervisor", "/mentor_pi");
+  auto supervisor = std::make_shared<rclcpp::Node>(
+      "configuration_supervisor", "/mentor_pi_test");
   auto heartbeat_publisher =
       supervisor->create_publisher<mentor_pi_interfaces::msg::Heartbeat>(
-          "/mentor_pi/heartbeat", rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
+          "/mentor_pi_test/heartbeat",
+          rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
   auto authorization_publisher =
       supervisor->create_publisher<std_msgs::msg::UInt64>(
-          "/mentor_pi/configuration/motion_authorization",
+          "/mentor_pi_test/configuration/motion_authorization",
           rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local());
   executor.add_node(supervisor);
 

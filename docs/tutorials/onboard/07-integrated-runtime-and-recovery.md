@@ -21,9 +21,9 @@ With the Agent active and the MCU connected, observe firmware-owned RGB1:
 If the ROS graph contains the firmware topics but RGB1 red remains static, stop
 here: entity discovery succeeded but the firmware telemetry path is not live.
 If LED1 blinks but the graph is absent, repeat Tutorial 05 service installation
-and verify its required UDPv4 Fast DDS environment. Retain the current Agent
-journal; do not start the applications or enable actuator power until heartbeat
-data is visible.
+and verify the packaged UDPv4 Fast DDS profile plus Discovery Server setting.
+Retain the current Agent journal; do not start the applications or enable
+actuator power until heartbeat data is visible.
 
 Start applications manually:
 
@@ -31,11 +31,12 @@ Start applications manually:
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
 : "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
-ros2 launch mentor_pi_hardwares mecanum.launch.py
+: "${ROS_LOCALHOST_ONLY:?export the Agent ROS_LOCALHOST_ONLY value first}"
+ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
-For the Ackermann model, substitute `ackermann.launch.py`. The Agent remains a
-separately managed service and does not start this launch.
+The generated profile selects the vehicle type. The Agent remains a separately
+managed service and does not start this launch.
 
 In another terminal, source the workspace and inspect the safety endpoints:
 

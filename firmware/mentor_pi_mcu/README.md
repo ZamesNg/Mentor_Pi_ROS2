@@ -47,9 +47,14 @@ Build and inspect the ADRC release profile from the repository root:
 ```sh
 make -C firmware setup
 make -C firmware test
-make -C firmware build
+MENTOR_PI_NAME=mentor_pi_1 make -C firmware build
 make -C firmware verify
 ```
+
+`MENTOR_PI_NAME` is a required relative ROS namespace. It is compiled into the
+micro-ROS node so publishers, subscriptions, and services share the selected
+robot namespace. Changing it requires a new verified firmware build and flash;
+`make onboard-configure` performs that bounded reconfiguration workflow.
 
 Maintainers regenerate the checked Humble SDK after changing
 `ros2_ws/src/mentor_pi_interfaces` with:

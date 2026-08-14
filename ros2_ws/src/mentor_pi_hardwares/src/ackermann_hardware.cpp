@@ -13,10 +13,7 @@
 namespace mentor_pi {
 namespace {
 
-constexpr char kMotionAuthorizationTopic[] =
-    "/mentor_pi/configuration/motion_authorization";
 constexpr char kConfigurationSupervisorName[] = "configuration_supervisor";
-constexpr char kConfigurationSupervisorNamespace[] = "/mentor_pi";
 
 std::string ToLower(std::string text) {
   std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
@@ -245,33 +242,33 @@ hardware_interface::CallbackReturn AckermannHardware::on_configure(
   const auto qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort();
   motor_command_publisher_ =
       node_->create_publisher<mentor_pi_interfaces::msg::MotorCommand>(
-          "/mentor_pi/motors/command", qos);
+          "motors/command", qos);
   pwm_command_publisher_ =
       node_->create_publisher<mentor_pi_interfaces::msg::PwmServoCommand>(
-          "/mentor_pi/pwm_servos/command", qos);
+          "pwm_servos/command", qos);
   motor_state_subscription_ =
       node_->create_subscription<mentor_pi_interfaces::msg::MotorState>(
-          "/mentor_pi/motors/state", qos,
+          "motors/state", qos,
           std::bind(&AckermannHardware::MotorStateCallback, this,
                     std::placeholders::_1));
   imu_state_subscription_ =
       node_->create_subscription<mentor_pi_interfaces::msg::ImuState>(
-          "/mentor_pi/imu", qos,
+          "imu", qos,
           std::bind(&AckermannHardware::ImuStateCallback, this,
                     std::placeholders::_1));
   pwm_state_subscription_ =
       node_->create_subscription<mentor_pi_interfaces::msg::PwmServoState>(
-          "/mentor_pi/pwm_servos/state", qos,
+          "pwm_servos/state", qos,
           std::bind(&AckermannHardware::PwmServoStateCallback, this,
                     std::placeholders::_1));
   heartbeat_subscription_ =
       node_->create_subscription<mentor_pi_interfaces::msg::Heartbeat>(
-          "/mentor_pi/heartbeat", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
+          "heartbeat", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
           std::bind(&AckermannHardware::HeartbeatCallback, this,
                     std::placeholders::_1));
   motion_authorization_subscription_ =
       node_->create_subscription<std_msgs::msg::UInt64>(
-          "/mentor_pi/configuration/motion_authorization",
+          "configuration/motion_authorization",
           rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(),
           std::bind(&AckermannHardware::MotionAuthorizationCallback, this,
                     std::placeholders::_1));
@@ -577,12 +574,11 @@ bool AckermannHardware::MotionIsAuthorized() const {
     return false;
   }
   const auto publisher_information =
-      node_->get_publishers_info_by_topic(kMotionAuthorizationTopic);
+      node_->get_publishers_info_by_topic("configuration/motion_authorization");
   if (publisher_information.size() != std::size_t{1} ||
       publisher_information.front().node_name() !=
           kConfigurationSupervisorName ||
-      publisher_information.front().node_namespace() !=
-          kConfigurationSupervisorNamespace) {
+      publisher_information.front().node_namespace() != "/" + robot_name_) {
     return false;
   }
   std::lock_guard<std::mutex> lock(authorization_mutex_);

@@ -70,6 +70,17 @@ install(
   PATTERN "*.pyc" EXCLUDE
 )
 
+# Remove launch entry points retired by the unified vehicle.launch.py. CMake's
+# install step does not otherwise delete files left by an older release.
+install(CODE "
+  file(REMOVE
+    \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/launch/mecanum.launch.py\"
+    \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/launch/ackermann.launch.py\"
+    \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/launch/exp_vehicle_launch.py\"
+    \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/launch/vehicle_launch.py\"
+  )
+")
+
 install(
   FILES ros2_control_plugins.xml
   DESTINATION share/${PROJECT_NAME}

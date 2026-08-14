@@ -1,4 +1,4 @@
-/mentor_pi/configuration_supervisor:
+/**/configuration_supervisor:
   ros__parameters:
     motor_model: "JGA27"
     input_gain_rps_per_second_per_permille: [0.03, 0.03, 0.03, 0.03]
