@@ -30,6 +30,7 @@ class Qmi8658Driver {
   explicit Qmi8658Driver(RegisterI2c& i2c) : i2c_(i2c) {}
 
   Result Initialize(std::uint32_t deadline_us);
+  Result Reset(std::uint32_t deadline_us);
   // Reads sensor-frame values in SI units without applying a board transform.
   // This is intended for safe axis characterization and driver-level tests.
   Result ReadRawSample(std::uint32_t deadline_us, ImuSample* sample);

@@ -491,9 +491,11 @@ class ControllerRuntime {
   mentor_pi_mcu::app::microros::ImuTelemetry imu_state_{};
   mentor_pi_mcu::app::microros::BatteryTelemetry battery_state_{};
   std::uint32_t next_imu_initialize_ms_{0U};
+  std::uint32_t imu_busy_started_ms_{0U};
   std::uint32_t next_button_sample_ms_{0U};
   std::uint32_t next_battery_sample_ms_{0U};
   bool imu_initialized_{false};
+  bool imu_busy_tracking_{false};
   bool imu_transform_error_recorded_{false};
   bool button_sampling_started_{false};
   bool battery_sampling_started_{false};

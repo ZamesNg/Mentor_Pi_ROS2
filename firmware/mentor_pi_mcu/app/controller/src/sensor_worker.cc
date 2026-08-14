@@ -20,6 +20,9 @@ using mentor_pi_mcu::app::microros::ErrorSource;
 constexpr std::uint32_t kSensorMaximumPeriodUs = 150000U;
 constexpr std::uint32_t kImuDeadlineUs = 10000U;
 constexpr std::uint32_t kImuRetryMs = 1000U;
+constexpr std::uint32_t kImuDataReadyTimeoutMs = 500U;
+constexpr std::uint32_t kImuResetSettleMs = 15U;
+constexpr std::uint16_t kImuStatus0Register = 46U;
 
 bool DeadlineReached(std::uint32_t now_ms, std::uint32_t deadline_ms) {
   return static_cast<std::int32_t>(now_ms - deadline_ms) >= 0;
@@ -57,6 +60,7 @@ void ControllerRuntime::SampleImu(std::uint32_t now_ms, std::uint32_t now_us) {
     }
     const Result initialized = imu_driver_.Initialize(now_us + kImuDeadlineUs);
     if (!initialized.ok()) {
+      imu_busy_tracking_ = false;
       imu_healthy_.store(false, std::memory_order_release);
       RecordPeripheralResult(1U, initialized, ErrorSource::kImu);
       next_imu_initialize_ms_ = now_ms + kImuRetryMs;
@@ -104,8 +108,36 @@ void ControllerRuntime::SampleImu(std::uint32_t now_ms, std::uint32_t now_us) {
   const Result result =
       imu_driver_.ReadSample(now_us + kImuDeadlineUs, imu_transform_, &sample);
   if (result.code == ResultCode::kBusy) {
+    if (!imu_busy_tracking_) {
+      imu_busy_started_ms_ = now_ms;
+      imu_busy_tracking_ = true;
+      return;
+    }
+    if (now_ms - imu_busy_started_ms_ < kImuDataReadyTimeoutMs) {
+      return;
+    }
+
+    // A transient data-not-ready response is normal between ODR releases. A
+    // continuous 500 ms interval is not: expose it through the existing IMU
+    // diagnostics slot and soft-reset the sensor. The QMI8658 reset process
+    // completes within 15 ms; configuration is reapplied on a later task
+    // release so this owner never blocks for the reset interval.
+    imu_healthy_.store(false, std::memory_order_release);
+    imu_state_.valid = false;
+    RecordPeripheralResult(1U, {ResultCode::kTimeout, kImuStatus0Register},
+                           ErrorSource::kImu);
+    static_cast<void>(imu_telemetry_.Publish(imu_state_));
+    const Result reset = imu_driver_.Reset(now_us + kImuDeadlineUs);
+    if (!reset.ok()) {
+      RecordPeripheralResult(1U, reset, ErrorSource::kImu);
+    }
+    imu_initialized_ = false;
+    imu_busy_tracking_ = false;
+    next_imu_initialize_ms_ =
+        now_ms + (reset.ok() ? kImuResetSettleMs : kImuRetryMs);
     return;
   }
+  imu_busy_tracking_ = false;
   if (!result.ok()) {
     imu_healthy_.store(false, std::memory_order_release);
     imu_state_.valid = false;

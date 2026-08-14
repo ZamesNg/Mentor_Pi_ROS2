@@ -18,7 +18,9 @@ constexpr std::uint8_t kCtrl7Register = 8U;
 constexpr std::uint8_t kCtrl8Register = 9U;
 constexpr std::uint8_t kStatus0Register = 46U;
 constexpr std::uint8_t kAccelerationDataRegister = 53U;
+constexpr std::uint8_t kResetRegister = 96U;
 constexpr std::uint8_t kWhoAmIValue = 0x05U;
+constexpr std::uint8_t kSoftResetCommand = 0xb0U;
 constexpr float kGravityMps2 = 9.80665F;
 constexpr float kDegreesToRadians = 0.017453292519943295F;
 
@@ -96,6 +98,16 @@ Result Qmi8658Driver::Initialize(std::uint32_t deadline_us) {
   }
   initialized_ = true;
   return OkResult();
+}
+
+Result Qmi8658Driver::Reset(std::uint32_t deadline_us) {
+  if (!initialized_ || address_ == 0U) {
+    return {ResultCode::kBusy, 0U};
+  }
+  const Result result =
+      WriteRegister(kResetRegister, kSoftResetCommand, deadline_us);
+  initialized_ = false;
+  return result;
 }
 
 bool Qmi8658Driver::DataReady(std::uint32_t deadline_us, Result* result) {

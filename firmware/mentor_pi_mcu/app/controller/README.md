@@ -74,6 +74,12 @@ the target retains compile-time count checks when converting the arrays.
 - The buzzer hook returns a `Result`. Safe boot must successfully command the
   buzzer off before task creation; later failures are counted in the buzzer
   diagnostics slot and reported with `ErrorSource::kBuzzer`.
+- Transient QMI8658 data-not-ready responses are normal between ODR releases.
+  If `STATUS0` remains not ready continuously for 500 ms, `SensorTask` reports
+  an IMU timeout with detail 46, publishes invalid IMU telemetry, soft-resets
+  the sensor, waits the documented 15 ms reset interval without blocking, and
+  reapplies the production configuration. Host consumers remain fail closed
+  until a valid post-reset sample arrives.
 - UART5 and SPI operations admit at most one transfer. Poll is bounded; cancel
   returns the peripheral to an idle state without queuing another transfer.
 - Stack high-water values are unused bytes, not FreeRTOS stack elements. Memory

@@ -551,6 +551,13 @@ bool TestImuAndOled() {
   CHECK(imu.ReadSample(1000U, transform, &sample).code ==
         mentor_pi::mcu::ResultCode::kInvalidArgument);
 
+  CHECK(imu.Reset(6000U).ok());
+  CHECK(!imu.initialized());
+  CHECK(i2c.writes[i2c.write_count - 1U].reg == 96U);
+  CHECK(i2c.writes[i2c.write_count - 1U].value == 0xb0U);
+  CHECK(imu.ReadRawSample(6001U, &sample).code == ResultCode::kBusy);
+  CHECK(imu.Initialize(7000U).ok());
+
   FakeRegisterI2c fallback_i2c;
   fallback_i2c.present_address = 0x6bU;
   fallback_i2c.registers[0] = 0x05U;
