@@ -13,10 +13,25 @@ the deployment's `ROS_DOMAIN_ID` as an explicit argument and refuses to choose
 a default:
 
 ```zsh
-sudo make -C micro_ros_agent install-service ROS_DOMAIN_ID=0
+sudo make -C micro_ros_agent install-service \
+  ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0
 ```
 
-Replace `0` if the deployment uses a different ROS domain.
+Replace the `ROS_DOMAIN_ID` value if the deployment uses a different domain.
+
+If `zenoh-bridge-ros2dds` is the only intended offboard ROS path, confine the
+onboard DDS graph to loopback instead:
+
+```zsh
+sudo make -C micro_ros_agent install-service \
+  ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=1
+```
+
+Set `ROS_LOCALHOST_ONLY=1` and the same `ROS_DOMAIN_ID` for the bridge, every
+onboard ROS application, and every onboard ROS CLI daemon. Confirm that the
+loopback interface has multicast enabled with `ip link show lo`. Do not mix
+localhost-only and non-local participants within the onboard graph; discovery
+may appear partial while samples and services remain separated.
 
 This same installation step is safe to rerun when applying an Agent service
 definition update: concurrent installer runs are rejected, and it reuses an
@@ -47,8 +62,8 @@ journalctl -u mentor-pi-agent.service -n 100 --no-pager
 
 The device policy must include `char-ttyACM rw`; this preserves clock
 protection without blocking `/dev/mentor_pi_mcu` inside the service cgroup.
-The environment must contain the configured `ROS_DOMAIN_ID`,
-`MENTOR_PI_RRCLITE_AUTORESET=1`, and
+The environment must contain the configured `ROS_DOMAIN_ID`, selected
+`ROS_LOCALHOST_ONLY`, `MENTOR_PI_RRCLITE_AUTORESET=1`, and
 `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`. The last setting prevents the dedicated
 Agent account from selecting owner-restricted Fast DDS shared memory for
 samples consumed by the interactive ROS user. These values are stored directly

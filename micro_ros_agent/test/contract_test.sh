@@ -10,9 +10,12 @@ grep -Eq '^find-device:' "${COMPONENT_ROOT}/Makefile"
 grep -Fq 'SERIAL_ACCESS_HELPER=' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
 ! grep -Fq 'ROS_DOMAIN_ID ?= 0' "${COMPONENT_ROOT}/Makefile"
-grep -Fq 'sudo make install-service ROS_DOMAIN_ID=0' \
+grep -Fq 'ROS_LOCALHOST_ONLY ?= 0' "${COMPONENT_ROOT}/Makefile"
+grep -Fq 'sudo make install-service ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0' \
   "${COMPONENT_ROOT}/Makefile"
 grep -Fq 'pass ROS_DOMAIN_ID=<0..232> to make install-service' \
+  "${COMPONENT_ROOT}/tools/install_service.sh"
+grep -Fq 'ROS_LOCALHOST_ONLY must be 0 or 1' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
 grep -Fq 'RELEASE_ID:-${build_tree_sha:0:16}' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
@@ -54,6 +57,8 @@ grep -Fqx 'Environment=FASTDDS_BUILTIN_TRANSPORTS=UDPv4' \
   echo "Agent service does not disable cross-user Fast DDS shared memory" >&2
   exit 1
 }
+grep -Fqx 'Environment=ROS_LOCALHOST_ONLY=@ROS_LOCALHOST_ONLY@' \
+  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 grep -Fqx 'Environment=MENTOR_PI_RRCLITE_AUTORESET=1' \
   "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 ! grep -Fq 'EnvironmentFile=' \
@@ -75,11 +80,13 @@ installer="${COMPONENT_ROOT}/tools/install_service.sh"
 release_test_root="$(mktemp -d)"
 trap 'rm -rf -- "${release_test_root}"' EXIT
 rendered_service="${release_test_root}/mentor-pi-agent.service"
-bash -c 'source "$1"; RenderServiceUnit "$2" 37' bash \
+bash -c 'source "$1"; RenderServiceUnit "$2" 37 1' bash \
   "${installer}" "${rendered_service}"
 grep -Fqx 'Environment=ROS_DOMAIN_ID=37' "${rendered_service}"
+grep -Fqx 'Environment=ROS_LOCALHOST_ONLY=1' "${rendered_service}"
 grep -Fqx 'Environment=MENTOR_PI_RRCLITE_AUTORESET=1' "${rendered_service}"
 ! grep -Fq '@ROS_DOMAIN_ID@' "${rendered_service}"
+! grep -Fq '@ROS_LOCALHOST_ONLY@' "${rendered_service}"
 ! grep -Fq '/etc/mentor-pi/agent.env' "${rendered_service}"
 expected_release="${release_test_root}/expected"
 mkdir -p "${expected_release}/lib/micro_ros_agent" \

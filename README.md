@@ -70,11 +70,15 @@ Onboard, install the Agent as a versioned, non-root boot service:
 
 ```sh
 make -C micro_ros_agent find-device
-sudo make -C micro_ros_agent install-service ROS_DOMAIN_ID=0
+sudo make -C micro_ros_agent install-service \
+  ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0
 systemctl status mentor-pi-agent.service
 ```
 
-Replace `0` if the deployment uses a different ROS domain.
+Replace the `ROS_DOMAIN_ID` value if the deployment uses a different domain.
+For a Zenoh bridge that confines DDS to the onboard computer, instead pass
+`ROS_LOCALHOST_ONLY=1` and use that value consistently for the Agent, bridge,
+ROS applications, and CLI daemon.
 
 Discovery scans udev for USB identity `1a86:55d4` and succeeds only when one
 CH9102F tty is unambiguous. With multiple connected adapters, select the
@@ -87,6 +91,7 @@ ROS applications always start manually. The Agent service never starts them:
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 : "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
+: "${ROS_LOCALHOST_ONLY:?export the Agent ROS_LOCALHOST_ONLY value first}"
 ros2 launch mentor_pi_hardwares mecanum.launch.py
 ```
 

@@ -16,13 +16,17 @@ With exactly one connected CH9102F, install by stable identity:
 
 ```zsh
 make -C micro_ros_agent find-device
-sudo make -C micro_ros_agent install-service ROS_DOMAIN_ID=0
+sudo make -C micro_ros_agent install-service \
+  ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0
 systemctl is-enabled mentor-pi-agent.service
 systemctl is-active mentor-pi-agent.service
 journalctl -u mentor-pi-agent.service -n 50 --no-pager
 ```
 
-Replace `0` if the deployment uses a different ROS domain.
+Replace the `ROS_DOMAIN_ID` value if the deployment uses a different domain.
+For a Zenoh bridge that confines DDS to the onboard computer, install with
+`ROS_LOCALHOST_ONLY=1` and use that same value for the Agent, bridge, onboard
+applications, and onboard ROS CLI daemon.
 
 The installer discovers USB `1a86:55d4` and chooses its stable serial, falling
 back to `ID_PATH`. If multiple matching adapters are connected, select the
@@ -36,6 +40,7 @@ guarded, and the supply is current-limited, start the applications manually:
 source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
 : "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
+: "${ROS_LOCALHOST_ONLY:?export the Agent ROS_LOCALHOST_ONLY value first}"
 ros2 launch mentor_pi_hardwares mecanum.launch.py
 ```
 

@@ -11,7 +11,7 @@ make setup
 make build
 make test
 make find-device
-sudo make install-service ROS_DOMAIN_ID=0
+sudo make install-service ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0
 ```
 
 `make setup` recovers an interrupted initial source fetch when the partial Git
@@ -28,9 +28,17 @@ rerun installation with the intended `ID_SERIAL_SHORT=...` or `ID_PATH=...`
 selector.
 
 Service installation never selects a default ROS domain. Pass the deployment's
-`ROS_DOMAIN_ID` explicitly to `make`; replace `0` above when necessary. The
-validated value is rendered directly into the installed systemd unit. The
-installer removes the former `/etc/mentor-pi/agent.env` file.
+`ROS_DOMAIN_ID` explicitly to `make`; change that value when necessary. The
+validated value is rendered directly into the installed systemd unit.
+`ROS_LOCALHOST_ONLY` defaults to `0` and accepts only `0` or `1`.
+
+For a `zenoh-bridge-ros2dds` deployment that confines DDS to the onboard
+computer, install with `ROS_LOCALHOST_ONLY=1`. Use that same value and
+`ROS_DOMAIN_ID` for the Agent, bridge, ROS applications, and ROS CLI daemon;
+mixing localhost-only and non-local participants separates the local graph.
+The Agent remains UDPv4-only, so local cross-user traffic does not use Fast DDS
+shared memory. The installer removes the former `/etc/mentor-pi/agent.env`
+file.
 
 The default versioned release ID represents the complete installed Agent tree,
 so a supporting-file change creates a new side-by-side release even when the
