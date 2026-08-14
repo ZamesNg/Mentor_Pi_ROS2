@@ -10,14 +10,9 @@ grep -Eq '^find-device:' "${COMPONENT_ROOT}/Makefile"
 grep -Fq 'SERIAL_ACCESS_HELPER=' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
 ! grep -Fq 'ROS_DOMAIN_ID ?= 0' "${COMPONENT_ROOT}/Makefile"
-grep -Fq 'ROS_LOCALHOST_ONLY ?= 0' "${COMPONENT_ROOT}/Makefile"
-grep -Fq 'sudo make install-service ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0' \
-  "${COMPONENT_ROOT}/Makefile"
-grep -Fq 'sudo make install-service ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=1' \
+grep -Fq 'sudo make install-service ROS_DOMAIN_ID=0' \
   "${COMPONENT_ROOT}/Makefile"
 grep -Fq 'pass ROS_DOMAIN_ID=<0..232> to make install-service' \
-  "${COMPONENT_ROOT}/tools/install_service.sh"
-grep -Fq 'ROS_LOCALHOST_ONLY must be 0 or 1' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
 grep -Fq 'RELEASE_ID:-${build_tree_sha:0:16}' \
   "${COMPONENT_ROOT}/tools/install_service.sh"
@@ -54,15 +49,11 @@ grep -Fqx 'DeviceAllow=char-ttyACM rw' \
   echo "Agent service does not allow its ttyACM transport device" >&2
   exit 1
 }
-grep -Fqx 'Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/mentor-pi/agent-fastdds.xml' \
+grep -Fqx 'Environment=FASTDDS_BUILTIN_TRANSPORTS=UDPv4' \
   "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in" || {
-  echo "Agent service does not load its managed Fast DDS transport profile" >&2
+  echo "Agent service does not disable cross-user Fast DDS shared memory" >&2
   exit 1
 }
-! grep -Fq 'FASTDDS_BUILTIN_TRANSPORTS=' \
-  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
-grep -Fqx 'Environment=ROS_LOCALHOST_ONLY=@ROS_LOCALHOST_ONLY@' \
-  "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 grep -Fqx 'Environment=MENTOR_PI_RRCLITE_AUTORESET=1' \
   "${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
 ! grep -Fq 'EnvironmentFile=' \
@@ -84,33 +75,12 @@ installer="${COMPONENT_ROOT}/tools/install_service.sh"
 release_test_root="$(mktemp -d)"
 trap 'rm -rf -- "${release_test_root}"' EXIT
 rendered_service="${release_test_root}/mentor-pi-agent.service"
-bash -c 'source "$1"; RenderServiceUnit "$2" 37 1' bash \
+bash -c 'source "$1"; RenderServiceUnit "$2" 37' bash \
   "${installer}" "${rendered_service}"
 grep -Fqx 'Environment=ROS_DOMAIN_ID=37' "${rendered_service}"
-grep -Fqx 'Environment=ROS_LOCALHOST_ONLY=1' "${rendered_service}"
 grep -Fqx 'Environment=MENTOR_PI_RRCLITE_AUTORESET=1' "${rendered_service}"
 ! grep -Fq '@ROS_DOMAIN_ID@' "${rendered_service}"
-! grep -Fq '@ROS_LOCALHOST_ONLY@' "${rendered_service}"
 ! grep -Fq '/etc/mentor-pi/agent.env' "${rendered_service}"
-grep -Fqx \
-  'Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/mentor-pi/agent-fastdds.xml' \
-  "${rendered_service}"
-rendered_network_profile="${release_test_root}/fastdds-network.xml"
-rendered_loopback_profile="${release_test_root}/fastdds-loopback.xml"
-bash -c 'source "$1"; StageFastDDSProfile "$2" 0' bash \
-  "${installer}" "${rendered_network_profile}"
-bash -c 'source "$1"; StageFastDDSProfile "$2" 1' bash \
-  "${installer}" "${rendered_loopback_profile}"
-grep -Fqx '        <useBuiltinTransports>false</useBuiltinTransports>' \
-  "${rendered_network_profile}"
-! grep -Fq '<interfaceWhiteList>' "${rendered_network_profile}"
-grep -Fqx '          <address>127.0.0.1</address>' \
-  "${rendered_loopback_profile}"
-if bash -c 'source "$1"; StageFastDDSProfile "$2" 2' bash \
-    "${installer}" "${release_test_root}/invalid.xml" 2>/dev/null; then
-  echo "Agent Fast DDS profile accepted an invalid localhost-only value" >&2
-  exit 1
-fi
 expected_release="${release_test_root}/expected"
 mkdir -p "${expected_release}/lib/micro_ros_agent" \
   "${expected_release}/share/micro_ros_agent/hook" "${expected_release}/bin"

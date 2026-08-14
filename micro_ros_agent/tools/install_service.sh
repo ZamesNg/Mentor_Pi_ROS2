@@ -10,13 +10,9 @@ readonly EXECUTABLE="${BUILD_PREFIX}/lib/micro_ros_agent/micro_ros_agent"
 readonly LAUNCHER="${BUILD_PREFIX}/bin/mentor-pi-agent"
 readonly SERIAL_ACCESS_HELPER="${COMPONENT_ROOT}/tools/configure_serial_access.sh"
 readonly SERVICE_TEMPLATE="${COMPONENT_ROOT}/systemd/mentor-pi-agent.service.in"
-readonly FASTDDS_NETWORK_PROFILE="${COMPONENT_ROOT}/systemd/fastdds-network.xml"
-readonly FASTDDS_LOOPBACK_PROFILE="${COMPONENT_ROOT}/systemd/fastdds-loopback.xml"
-readonly FASTDDS_INSTALLED_PROFILE="/etc/mentor-pi/agent-fastdds.xml"
 readonly RELEASE_ROOT="/opt/mentor_pi/agent/releases"
 DEVICE="${DEVICE:-}"
 readonly ROS_DOMAIN_ID="${ROS_DOMAIN_ID-}"
-readonly ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-0}"
 ID_SERIAL_SHORT="${ID_SERIAL_SHORT:-}"
 ID_PATH="${ID_PATH:-}"
 temporary_release=""
@@ -105,32 +101,14 @@ EnsureTrustedDirectory() {
 }
 
 RenderServiceUnit() {
-  local destination="$1" domain_id="$2" localhost_only="$3"
+  local destination="$1" domain_id="$2"
   [[ -f "${SERVICE_TEMPLATE}" && ! -L "${SERVICE_TEMPLATE}" ]] || \
     Fail "Agent service template is missing or symbolic"
   [[ "$(grep -o '@ROS_DOMAIN_ID@' "${SERVICE_TEMPLATE}" | wc -l)" -eq 1 ]] || \
     Fail "Agent service template must contain one ROS domain marker"
-  [[ "$(grep -o '@ROS_LOCALHOST_ONLY@' "${SERVICE_TEMPLATE}" | wc -l)" \
-     -eq 1 ]] || \
-    Fail "Agent service template must contain one localhost-only marker"
-  sed -e "s/@ROS_DOMAIN_ID@/${domain_id}/" \
-    -e "s/@ROS_LOCALHOST_ONLY@/${localhost_only}/" \
-    "${SERVICE_TEMPLATE}" >"${destination}"
-  if grep -Eq '@ROS_(DOMAIN_ID|LOCALHOST_ONLY)@' "${destination}"; then
-    Fail "Agent service environment rendering failed"
-  fi
-}
-
-StageFastDDSProfile() {
-  local destination="$1" localhost_only="$2" source_profile
-  case "${localhost_only}" in
-    0) source_profile="${FASTDDS_NETWORK_PROFILE}" ;;
-    1) source_profile="${FASTDDS_LOOPBACK_PROFILE}" ;;
-    *) Fail "ROS_LOCALHOST_ONLY must be 0 or 1" ;;
-  esac
-  [[ -f "${source_profile}" && ! -L "${source_profile}" ]] || \
-    Fail "Fast DDS profile is missing or symbolic: ${source_profile}"
-  cp -- "${source_profile}" "${destination}"
+  sed "s/@ROS_DOMAIN_ID@/${domain_id}/" "${SERVICE_TEMPLATE}" >"${destination}"
+  ! grep -Fq '@ROS_DOMAIN_ID@' "${destination}" || \
+    Fail "Agent service domain rendering failed"
 }
 
 RemoveLegacyAgentEnvironment() {
@@ -213,8 +191,6 @@ Main() {
     Fail "pass ROS_DOMAIN_ID=<0..232> to make install-service"
   [[ "${ROS_DOMAIN_ID}" =~ ^(0|[1-9][0-9]{0,2})$ ]] && \
     ((ROS_DOMAIN_ID <= 232)) || Fail "ROS_DOMAIN_ID must be in [0,232]"
-  [[ "${ROS_LOCALHOST_ONLY}" =~ ^[01]$ ]] || \
-    Fail "ROS_LOCALHOST_ONLY must be 0 or 1"
   [[ -z "${ID_SERIAL_SHORT}" || -z "${ID_PATH}" ]] || \
     Fail "set at most one of ID_SERIAL_SHORT or ID_PATH"
   local -a serial_access_arguments=(--user mentor-pi)
@@ -267,7 +243,7 @@ Main() {
     VerifyExistingRelease "${temporary_release}" "${METADATA}" \
       "${executable_sha}" "${launcher_sha}" "${build_tree_sha}"
   fi
-  EnsureTrustedDirectory /etc/systemd/system /etc/mentor-pi
+  EnsureTrustedDirectory /etc/systemd/system
 
   if ! id mentor-pi >/dev/null 2>&1; then
     useradd --system --user-group --home-dir /nonexistent \
@@ -298,20 +274,10 @@ Main() {
   local temporary_service
   temporary_service="$(mktemp \
     /etc/systemd/system/.mentor-pi-agent.service.XXXXXX)"
-  RenderServiceUnit "${temporary_service}" "${ROS_DOMAIN_ID}" \
-    "${ROS_LOCALHOST_ONLY}"
+  RenderServiceUnit "${temporary_service}" "${ROS_DOMAIN_ID}"
   chown root:root "${temporary_service}"
   chmod 0644 "${temporary_service}"
   mv -Tf "${temporary_service}" "${service_path}"
-  local temporary_fastdds_profile
-  temporary_fastdds_profile="$(mktemp \
-    /etc/mentor-pi/.agent-fastdds.xml.XXXXXX)"
-  StageFastDDSProfile "${temporary_fastdds_profile}" "${ROS_LOCALHOST_ONLY}"
-  chown root:root "${temporary_fastdds_profile}"
-  chmod 0644 "${temporary_fastdds_profile}"
-  mv -Tf "${temporary_fastdds_profile}" "${FASTDDS_INSTALLED_PROFILE}"
-  VerifySecureEntry "${FASTDDS_INSTALLED_PROFILE}" 0 0 \
-    "Fast DDS profile"
   RemoveLegacyAgentEnvironment
 
   systemctl daemon-reload

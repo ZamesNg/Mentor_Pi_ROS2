@@ -5,7 +5,6 @@ DEVICE ?=
 ID_SERIAL_SHORT ?=
 ID_PATH ?=
 RELEASE_ID ?=
-ROS_LOCALHOST_ONLY ?= 0
 BUILD_JOBS ?= $(shell nproc 2>/dev/null || echo 1)
 
 .PHONY: help doctor find-device setup build test install-service clean
@@ -19,10 +18,8 @@ help:
 		'  make setup          Fetch sources and install ROS dependencies.' \
 		'  make build          Build the patched, pinned Agent natively.' \
 		'  make test           Validate locks, patch, metadata, and executable.' \
-		'  sudo make install-service ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0' \
-		'                       Install using the deployment DDS boundary.' \
-		'  sudo make install-service ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=1' \
-		'                       Install loopback DDS for an onboard Zenoh bridge.' \
+		'  sudo make install-service ROS_DOMAIN_ID=0' \
+		'                       Install using the explicit deployment domain.' \
 		'  make clean          Remove this component build directory.'
 
 doctor:
@@ -44,8 +41,7 @@ test: build
 	@./test/contract_test.sh
 
 install-service:
-	@ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" \
-		ROS_LOCALHOST_ONLY="$(ROS_LOCALHOST_ONLY)" DEVICE="$(DEVICE)" \
+	@ROS_DOMAIN_ID="$(ROS_DOMAIN_ID)" DEVICE="$(DEVICE)" \
 		ID_SERIAL_SHORT="$(ID_SERIAL_SHORT)" ID_PATH="$(ID_PATH)" \
 		RELEASE_ID="$(RELEASE_ID)" ./tools/install_service.sh
 
