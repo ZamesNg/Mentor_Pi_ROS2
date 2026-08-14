@@ -78,6 +78,29 @@ extract_function("${peripheral_source}" "Status StartPwmServoFrameGenerator()"
 require_timer_start_rollback(pwm_start_body "g_servo_running"
                              "DriveServoPinsLow()" "PWM servo timer start")
 
+extract_function("${peripheral_source}" "Status ClearImuI2cBus("
+                 "Status ImuI2cStart(" imu_bus_clear_body)
+foreach(required_fragment
+    "pulse < 9U && !ReadImuSda()"
+    "SetImuScl(false)"
+    "SetImuScl(true)"
+    "I2cDeadlineExpired(start_ms, timeout_ms)"
+    "return Status::kBusy")
+  string(FIND "${imu_bus_clear_body}" "${required_fragment}" position)
+  if(position EQUAL -1)
+    message(FATAL_ERROR
+            "Bounded IMU I2C bus clear lacks ${required_fragment}")
+  endif()
+endforeach()
+
+extract_function("${peripheral_source}" "Status ImuI2cStart("
+                 "void ImuI2cStop()" imu_i2c_start_body)
+string(FIND "${imu_i2c_start_body}"
+       "ClearImuI2cBus(start_ms, timeout_ms)" imu_bus_clear_call)
+if(imu_bus_clear_call EQUAL -1)
+  message(FATAL_ERROR "IMU I2C START does not attempt bounded bus clear")
+endif()
+
 extract_function("${peripheral_source}" "Status SetBuzzerFrequency("
                  "Status StartRgbTransfer(" buzzer_start_body)
 require_timer_start_rollback(buzzer_start_body "g_buzzer_running"

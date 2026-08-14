@@ -62,7 +62,22 @@ void ControllerRuntime::SampleImu(std::uint32_t now_ms, std::uint32_t now_us) {
     if (!initialized.ok()) {
       imu_busy_tracking_ = false;
       imu_healthy_.store(false, std::memory_order_release);
-      RecordPeripheralResult(1U, initialized, ErrorSource::kImu);
+      if (initialized.code == ResultCode::kBusy) {
+        if (!imu_initialize_busy_tracking_) {
+          imu_initialize_busy_started_ms_ = now_ms;
+          imu_initialize_busy_tracking_ = true;
+        } else if (now_ms - imu_initialize_busy_started_ms_ >=
+                   kImuDataReadyTimeoutMs) {
+          // Initialize retries are one second apart. Turn a persistent BUSY
+          // into an existing-slot timeout so a stuck software-I2C bus is
+          // visible through ControllerDiagnostics without touching USART1.
+          RecordPeripheralResult(1U, {ResultCode::kTimeout, initialized.detail},
+                                 ErrorSource::kImu);
+        }
+      } else {
+        imu_initialize_busy_tracking_ = false;
+        RecordPeripheralResult(1U, initialized, ErrorSource::kImu);
+      }
       next_imu_initialize_ms_ = now_ms + kImuRetryMs;
       imu_state_.valid = false;
       if (!imu_transform_.verified) {
@@ -73,6 +88,7 @@ void ControllerRuntime::SampleImu(std::uint32_t now_ms, std::uint32_t now_us) {
       static_cast<void>(imu_telemetry_.Publish(imu_state_));
       return;
     }
+    imu_initialize_busy_tracking_ = false;
     imu_initialized_ = true;
   }
 

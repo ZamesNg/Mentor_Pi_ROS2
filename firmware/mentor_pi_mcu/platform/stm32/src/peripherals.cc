@@ -213,12 +213,44 @@ bool I2cDeadlineExpired(std::uint32_t start_ms, std::uint32_t timeout_ms) {
   return MonotonicMilliseconds() - start_ms >= timeout_ms;
 }
 
+Status ClearImuI2cBus(std::uint32_t start_ms, std::uint32_t timeout_ms) {
+  // UM10204 bus clear: a target that is holding SDA low must be given up to
+  // nine SCL pulses so it can finish the interrupted byte. End with a STOP
+  // condition before the caller retries START. This is bounded to less than
+  // one normal transaction deadline and runs only after an observed stuck SDA.
+  SetImuSda(true);
+  for (std::size_t pulse = 0U; pulse < 9U && !ReadImuSda(); ++pulse) {
+    SetImuScl(false);
+    DelayMicroseconds(2U);
+    SetImuScl(true);
+    DelayMicroseconds(2U);
+    if (I2cDeadlineExpired(start_ms, timeout_ms)) {
+      return Status::kTimeout;
+    }
+  }
+  if (!ReadImuSda()) {
+    return Status::kBusy;
+  }
+
+  SetImuSda(false);
+  DelayMicroseconds(2U);
+  SetImuScl(true);
+  DelayMicroseconds(2U);
+  SetImuSda(true);
+  DelayMicroseconds(2U);
+  return I2cDeadlineExpired(start_ms, timeout_ms) ? Status::kTimeout
+                                                  : Status::kOk;
+}
+
 Status ImuI2cStart(std::uint32_t start_ms, std::uint32_t timeout_ms) {
   SetImuSda(true);
   SetImuScl(true);
   DelayMicroseconds(2U);
   if (!ReadImuSda()) {
-    return Status::kBusy;
+    const Status recovered = ClearImuI2cBus(start_ms, timeout_ms);
+    if (recovered != Status::kOk) {
+      return recovered;
+    }
   }
   if (I2cDeadlineExpired(start_ms, timeout_ms)) {
     return Status::kTimeout;

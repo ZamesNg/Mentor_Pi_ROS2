@@ -75,6 +75,12 @@ the target retains compile-time count checks when converting the arrays.
   buzzer off before task creation; later failures are counted in the buzzer
   diagnostics slot and reported with `ErrorSource::kBuzzer`.
 - Transient QMI8658 data-not-ready responses are normal between ODR releases.
+  A software-I2C START that finds SDA held low first performs the standard,
+  bounded nine-clock bus-clear sequence and retries the transaction. If IMU
+  initialization remains busy across the 500 ms diagnosis interval,
+  `SensorTask` reports an IMU timeout with the attempted identity address as
+  its detail (normally `0x6a`) and republishes invalid IMU telemetry on each
+  one-second retry so the fault remains visible through ROS diagnostics.
   If `STATUS0` remains not ready continuously for 500 ms, `SensorTask` reports
   an IMU timeout with detail 46, publishes invalid IMU telemetry, soft-resets
   the sensor, waits the documented 15 ms reset interval without blocking, and

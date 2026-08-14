@@ -110,6 +110,7 @@ struct FakePlatform {
   Result arm_result{};
   Result apply_result{};
   Result buzzer_result{};
+  IoStatus imu_identity_read_status{IoStatus::kOk};
   IoStatus imu_status_read_status{IoStatus::kOk};
   bool imu_data_ready{true};
   std::uint32_t imu_reset_writes{0U};
@@ -278,6 +279,9 @@ struct FakePlatform {
                                std::size_t size, std::uint32_t) {
     if (address != 0x6aU) {
       return IoStatus::kIoError;
+    }
+    if (reg == 0U && Self(context)->imu_identity_read_status != IoStatus::kOk) {
+      return Self(context)->imu_identity_read_status;
     }
     if (reg == 46U && Self(context)->imu_status_read_status != IoStatus::kOk) {
       return Self(context)->imu_status_read_status;
@@ -1173,6 +1177,57 @@ bool TestImuPersistentBusyIsDiagnosedAndReset() {
   runtime.ReadHealth(&health);
   CHECK(health.imu_healthy);
   CHECK(platform.imu_reset_writes == 1U);
+  return true;
+}
+
+bool TestImuPersistentInitializeBusyIsDiagnosedAndRecovers() {
+  FakePlatform platform;
+  platform.imu_identity_read_status = IoStatus::kBusy;
+  AxisTransform transform{};
+  transform.output = {{{0U, 1}, {1U, 1}, {2U, 1}}};
+  transform.verified = true;
+  ControllerRuntime runtime(FullRangeTestMotorConfiguration());
+  CHECK(runtime.Configure(platform.Hooks(), transform));
+  CHECK(runtime.InitializeSafeBoot());
+
+  runtime.RunSensorOnce();
+  ImuTelemetry telemetry{};
+  CHECK(runtime.ReadImuTelemetry(&telemetry));
+  CHECK(!telemetry.valid);
+  WorkerDiagnostics diagnostics{};
+  runtime.ReadWorkerDiagnostics(&diagnostics);
+  CHECK(diagnostics.peripheral_errors[1] == 0U);
+  CHECK(diagnostics.peripheral_timeouts[1] == 0U);
+
+  platform.SetTimeMs(999U);
+  runtime.RunSensorOnce();
+  CHECK(!runtime.ReadImuTelemetry(&telemetry));
+  runtime.ReadWorkerDiagnostics(&diagnostics);
+  CHECK(diagnostics.peripheral_errors[1] == 0U);
+
+  platform.SetTimeMs(1000U);
+  runtime.RunSensorOnce();
+  CHECK(runtime.ReadImuTelemetry(&telemetry));
+  CHECK(!telemetry.valid);
+  runtime.ReadWorkerDiagnostics(&diagnostics);
+  CHECK(diagnostics.peripheral_errors[1] == 1U);
+  CHECK(diagnostics.peripheral_timeouts[1] == 1U);
+  CHECK(diagnostics.last_error_code ==
+        static_cast<std::uint8_t>(ResultCode::kTimeout));
+  CHECK(diagnostics.last_error_source ==
+        static_cast<std::uint8_t>(
+            mentor_pi_mcu::app::microros::ErrorSource::kImu));
+  CHECK(diagnostics.last_error_detail == 0x6aU);
+
+  platform.imu_identity_read_status = IoStatus::kOk;
+  platform.SetTimeMs(2000U);
+  runtime.RunSensorOnce();
+  CHECK(runtime.ReadImuTelemetry(&telemetry));
+  CHECK(telemetry.valid);
+  CHECK(telemetry.timestamp_ms == 2000U);
+  HealthSnapshot health{};
+  runtime.ReadHealth(&health);
+  CHECK(health.imu_healthy);
   return true;
 }
 
@@ -2593,6 +2648,7 @@ int main() {
       !TestImuCharacterizationSnapshot() ||
       !TestImuCharacterizationRequiresSuccessfulRawRead() ||
       !TestImuPersistentBusyIsDiagnosedAndReset() ||
+      !TestImuPersistentInitializeBusyIsDiagnosedAndRecovers() ||
       !TestSensorSchedulesRemainPhaseStable() || !TestControllerIntegration() ||
       !TestBusServoServicesAndStopPreemption() || !TestSafetyStartupGrace() ||
       !TestRetainedWatchdogTaskSemantics() ||
