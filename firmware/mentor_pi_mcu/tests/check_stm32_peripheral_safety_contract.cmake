@@ -73,6 +73,19 @@ function(require_timer_start_rollback function_body_variable running_flag
   endif()
 endfunction()
 
+extract_function("${peripheral_source}" "void ScheduleTimer13("
+                 "void BeginServoFrameFromIsr()" pwm_schedule_body)
+foreach(required_fragment
+    "const bool single_tick_interval = bounded_delay_us == 1U"
+    "single_tick_interval ? 1U : bounded_delay_us - 1U"
+    "single_tick_interval ? 1U : 0U")
+  string(FIND "${pwm_schedule_body}" "${required_fragment}" position)
+  if(position EQUAL -1)
+    message(FATAL_ERROR
+            "TIM13 one-tick scheduling can program a blocked ARR=0: ${required_fragment}")
+  endif()
+endforeach()
+
 extract_function("${peripheral_source}" "Status StartPwmServoFrameGenerator()"
                  "void StopPwmServoFrameGenerator()" pwm_start_body)
 require_timer_start_rollback(pwm_start_body "g_servo_running"

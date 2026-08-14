@@ -167,9 +167,14 @@ void DriveSelectedServoPinsLow(std::uint8_t mask) {
 
 void ScheduleTimer13(std::uint32_t delay_us) {
   const std::uint32_t bounded_delay_us = std::max<std::uint32_t>(delay_us, 1U);
+  // RM0090 specifies that an ARR value of zero blocks the timer counter. Keep
+  // the requested one-microsecond interval by starting an ARR=1 period at
+  // CNT=1, so its next 1 MHz timer tick still produces the update event.
+  const bool single_tick_interval = bounded_delay_us == 1U;
   g_servo_interval_us = bounded_delay_us;
-  __HAL_TIM_SET_AUTORELOAD(&g_tim13, bounded_delay_us - 1U);
-  __HAL_TIM_SET_COUNTER(&g_tim13, 0U);
+  __HAL_TIM_SET_AUTORELOAD(
+      &g_tim13, single_tick_interval ? 1U : bounded_delay_us - 1U);
+  __HAL_TIM_SET_COUNTER(&g_tim13, single_tick_interval ? 1U : 0U);
 }
 
 void BeginServoFrameFromIsr() {
