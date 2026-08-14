@@ -209,6 +209,7 @@ hardware_interface::CallbackReturn MecanumHardware::on_configure(
   {
     std::lock_guard<std::mutex> lock(authorization_mutex_);
     motion_authorization_ = 0U;
+    authorization_changed_at_ = SteadyClock::now();
     heartbeat_session_id_ = 0U;
     heartbeat_ready_ = false;
     has_heartbeat_ = false;
@@ -305,8 +306,11 @@ hardware_interface::return_type MecanumHardware::read(const rclcpp::Time&,
   }
   if (active_ && !fresh) {
     SendZeroMotorCommand();
-    return MotionIsAuthorized() ? hardware_interface::return_type::ERROR
-                                : hardware_interface::return_type::OK;
+    if (!MotionIsAuthorized() || FeedbackCanSettle(SteadyClock::now())) {
+      return hardware_interface::return_type::OK;
+    }
+    LogFeedbackFailure(SteadyClock::now());
+    return hardware_interface::return_type::ERROR;
   }
   for (std::size_t wheel = 0U; wheel < hardware::kWheelCount; ++wheel) {
     auto& joint = joints_.at(joint_names_[wheel]);
@@ -331,13 +335,19 @@ hardware_interface::return_type MecanumHardware::write(
     SendZeroMotorCommand();
     return hardware_interface::return_type::OK;
   }
+  bool feedback_fresh = false;
   {
     std::lock_guard<std::mutex> lock(feedback_mutex_);
-    if (!FeedbackIsFresh(SteadyClock::now())) {
-      ResetChassisAdrc();
-      SendZeroMotorCommand();
-      return hardware_interface::return_type::ERROR;
+    feedback_fresh = FeedbackIsFresh(SteadyClock::now());
+  }
+  if (!feedback_fresh) {
+    ResetChassisAdrc();
+    SendZeroMotorCommand();
+    if (FeedbackCanSettle(SteadyClock::now())) {
+      return hardware_interface::return_type::OK;
     }
+    LogFeedbackFailure(SteadyClock::now());
+    return hardware_interface::return_type::ERROR;
   }
   if (!SendMotorCommand(period.seconds())) {
     ResetChassisAdrc();
@@ -403,6 +413,9 @@ void MecanumHardware::HeartbeatCallback(
 void MecanumHardware::MotionAuthorizationCallback(
     const std_msgs::msg::UInt64::SharedPtr message) {
   std::lock_guard<std::mutex> lock(authorization_mutex_);
+  if (message->data != motion_authorization_) {
+    authorization_changed_at_ = SteadyClock::now();
+  }
   motion_authorization_ = message->data;
 }
 
@@ -449,6 +462,61 @@ bool MecanumHardware::FeedbackIsFresh(SteadyClock::time_point now) const {
   return has_motor_state_ && has_imu_state_ && imu_valid_ &&
          now - last_motor_state_ <= feedback_timeout_ &&
          now - last_imu_state_ <= imu_timeout_;
+}
+
+bool MecanumHardware::FeedbackCanSettle(SteadyClock::time_point now) const {
+  bool waiting_for_motor = false;
+  bool waiting_for_imu = false;
+  {
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    waiting_for_motor = !has_motor_state_;
+    waiting_for_imu = !has_imu_state_;
+    if ((!waiting_for_motor && now - last_motor_state_ > feedback_timeout_) ||
+        (!waiting_for_imu &&
+         (!imu_valid_ || now - last_imu_state_ > imu_timeout_)) ||
+        (!waiting_for_motor && !waiting_for_imu)) {
+      return false;
+    }
+  }
+  std::lock_guard<std::mutex> lock(authorization_mutex_);
+  const auto settling_time = now - authorization_changed_at_;
+  return (!waiting_for_motor || settling_time <= feedback_timeout_) &&
+         (!waiting_for_imu || settling_time <= imu_timeout_);
+}
+
+void MecanumHardware::LogFeedbackFailure(SteadyClock::time_point now) const {
+  if (!node_) {
+    return;
+  }
+  bool has_motor = false;
+  bool has_imu = false;
+  bool imu_valid = false;
+  long long motor_age_ms = -1;
+  long long imu_age_ms = -1;
+  {
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    has_motor = has_motor_state_;
+    has_imu = has_imu_state_;
+    imu_valid = imu_valid_;
+    if (has_motor) {
+      motor_age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         now - last_motor_state_)
+                         .count();
+    }
+    if (has_imu) {
+      imu_age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       now - last_imu_state_)
+                       .count();
+    }
+  }
+  RCLCPP_ERROR_THROTTLE(
+      node_->get_logger(), *node_->get_clock(), 1000,
+      "authorized feedback timeout: motor_received=%d motor_age_ms=%lld "
+      "motor_timeout_ms=%lld imu_received=%d imu_valid=%d imu_age_ms=%lld "
+      "imu_timeout_ms=%lld; zero motor command sent",
+      has_motor, motor_age_ms,
+      static_cast<long long>(feedback_timeout_.count()), has_imu, imu_valid,
+      imu_age_ms, static_cast<long long>(imu_timeout_.count()));
 }
 
 bool MecanumHardware::MotionIsAuthorized() const {

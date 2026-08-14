@@ -291,6 +291,7 @@ hardware_interface::CallbackReturn AckermannHardware::on_configure(
   {
     std::lock_guard<std::mutex> lock(authorization_mutex_);
     motion_authorization_ = 0U;
+    authorization_changed_at_ = SteadyClock::now();
     heartbeat_session_id_ = 0U;
     heartbeat_ready_ = false;
     has_heartbeat_ = false;
@@ -401,8 +402,10 @@ hardware_interface::return_type AckermannHardware::read(
   }
   if (active_ && !fresh) {
     SendZeroCommands();
-    return MotionIsAuthorized() ? hardware_interface::return_type::ERROR
-                                : hardware_interface::return_type::OK;
+    if (!MotionIsAuthorized() || FeedbackCanSettle(SteadyClock::now())) {
+      return hardware_interface::return_type::OK;
+    }
+    return hardware_interface::return_type::ERROR;
   }
   for (const auto& name : steering_names_) {
     joints_.at(name).state.position = steering;
@@ -432,13 +435,18 @@ hardware_interface::return_type AckermannHardware::write(
     SendZeroCommands();
     return hardware_interface::return_type::OK;
   }
+  bool feedback_fresh = false;
   {
     std::lock_guard<std::mutex> lock(feedback_mutex_);
-    if (!FeedbackIsFresh(SteadyClock::now())) {
-      ResetChassisAdrc();
-      SendZeroCommands();
-      return hardware_interface::return_type::ERROR;
+    feedback_fresh = FeedbackIsFresh(SteadyClock::now());
+  }
+  if (!feedback_fresh) {
+    ResetChassisAdrc();
+    SendZeroCommands();
+    if (FeedbackCanSettle(SteadyClock::now())) {
+      return hardware_interface::return_type::OK;
     }
+    return hardware_interface::return_type::ERROR;
   }
   if (!SendDriveAndSteeringCommands(period.seconds())) {
     ResetChassisAdrc();
@@ -520,6 +528,9 @@ void AckermannHardware::HeartbeatCallback(
 void AckermannHardware::MotionAuthorizationCallback(
     const std_msgs::msg::UInt64::SharedPtr message) {
   std::lock_guard<std::mutex> lock(authorization_mutex_);
+  if (message->data != motion_authorization_) {
+    authorization_changed_at_ = SteadyClock::now();
+  }
   motion_authorization_ = message->data;
 }
 
@@ -567,6 +578,30 @@ bool AckermannHardware::FeedbackIsFresh(SteadyClock::time_point now) const {
          now - last_motor_state_ <= feedback_timeout_ &&
          now - last_pwm_state_ <= feedback_timeout_ &&
          now - last_imu_state_ <= imu_timeout_;
+}
+
+bool AckermannHardware::FeedbackCanSettle(SteadyClock::time_point now) const {
+  bool waiting_for_motor = false;
+  bool waiting_for_pwm = false;
+  bool waiting_for_imu = false;
+  {
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    waiting_for_motor = !has_motor_state_;
+    waiting_for_pwm = !has_pwm_state_;
+    waiting_for_imu = !has_imu_state_;
+    if ((!waiting_for_motor && now - last_motor_state_ > feedback_timeout_) ||
+        (!waiting_for_pwm && now - last_pwm_state_ > feedback_timeout_) ||
+        (!waiting_for_imu &&
+         (!imu_valid_ || now - last_imu_state_ > imu_timeout_)) ||
+        (!waiting_for_motor && !waiting_for_pwm && !waiting_for_imu)) {
+      return false;
+    }
+  }
+  std::lock_guard<std::mutex> lock(authorization_mutex_);
+  const auto settling_time = now - authorization_changed_at_;
+  return (!waiting_for_motor || settling_time <= feedback_timeout_) &&
+         (!waiting_for_pwm || settling_time <= feedback_timeout_) &&
+         (!waiting_for_imu || settling_time <= imu_timeout_);
 }
 
 bool AckermannHardware::MotionIsAuthorized() const {

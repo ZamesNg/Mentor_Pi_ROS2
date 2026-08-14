@@ -58,12 +58,13 @@ hardware_interface::ComponentInfo SteeringJoint(const std::string& name) {
   return joint;
 }
 
-hardware_interface::HardwareInfo MecanumInfo() {
+hardware_interface::HardwareInfo MecanumInfo(
+    const std::string& robot_name = "mentor_pi_test") {
   hardware_interface::HardwareInfo info;
   info.name = "mentor_pi_hardware";
   info.type = "system";
   info.hardware_class_type = "mentor_pi/MecanumHardware";
-  info.hardware_parameters = {{"robot_name", "mentor_pi_test"}};
+  info.hardware_parameters = {{"robot_name", robot_name}};
   info.joints = {WheelJoint("wheel_left_front_joint"),
                  WheelJoint("wheel_right_front_joint"),
                  WheelJoint("wheel_left_rear_joint"),
@@ -71,13 +72,14 @@ hardware_interface::HardwareInfo MecanumInfo() {
   return info;
 }
 
-hardware_interface::HardwareInfo AckermannInfo() {
+hardware_interface::HardwareInfo AckermannInfo(
+    const std::string& robot_name = "mentor_pi_test") {
   hardware_interface::HardwareInfo info;
   info.name = "mentor_pi_hardware";
   info.type = "system";
   info.hardware_class_type = "mentor_pi/AckermannHardware";
   info.hardware_parameters = {
-      {"robot_name", "mentor_pi_test"},  {"steering_pwm_channel", "3"},
+      {"robot_name", robot_name},        {"steering_pwm_channel", "3"},
       {"steering_pwm_min_us", "500"},    {"steering_pwm_center_us", "1500"},
       {"steering_pwm_max_us", "2500"},   {"steering_angle_min_rad", "-0.6"},
       {"steering_angle_max_rad", "0.6"}, {"steering_inverted", "true"},
@@ -321,6 +323,142 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   EXPECT_EQ(hardware->on_cleanup(rclcpp_lifecycle::State()),
             CallbackReturn::SUCCESS);
   static_cast<void>(command_subscription);
+}
+
+TEST_F(HardwarePluginTest, MecanumAllowsInitialFeedbackToSettle) {
+  constexpr char kRobotName[] = "mecanum_settling_test";
+  auto hardware = loader_.createSharedInstance("mentor_pi/MecanumHardware");
+  ASSERT_EQ(hardware->on_init(MecanumInfo(kRobotName)),
+            CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware->on_configure(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
+
+  auto supervisor = std::make_shared<rclcpp::Node>(
+      "configuration_supervisor", "/" + std::string(kRobotName));
+  auto heartbeat_publisher =
+      supervisor->create_publisher<mentor_pi_interfaces::msg::Heartbeat>(
+          "/" + std::string(kRobotName) + "/heartbeat",
+          rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
+  auto authorization_publisher =
+      supervisor->create_publisher<std_msgs::msg::UInt64>(
+          "/" + std::string(kRobotName) + "/configuration/motion_authorization",
+          rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local());
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(supervisor);
+  ASSERT_TRUE(WaitUntil(
+      &executor,
+      [&heartbeat_publisher, &authorization_publisher]() {
+        return heartbeat_publisher->get_subscription_count() == 1U &&
+               authorization_publisher->get_subscription_count() == 1U;
+      },
+      []() {}));
+
+  ASSERT_EQ(hardware->on_activate(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
+  mentor_pi_interfaces::msg::Heartbeat heartbeat;
+  heartbeat.agent_session_id = 55U;
+  heartbeat.sequence = 1U;
+  heartbeat.uptime_ms = 1000U;
+  heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
+  std_msgs::msg::UInt64 authorization;
+  authorization.data = (UINT64_C(1) << 32U) | UINT64_C(55);
+
+  const auto start = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - start < 400ms) {
+    heartbeat_publisher->publish(heartbeat);
+    authorization_publisher->publish(authorization);
+    executor.spin_some();
+    EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+              ReturnType::OK);
+    EXPECT_EQ(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+              ReturnType::OK);
+    std::this_thread::sleep_for(5ms);
+  }
+
+  ASSERT_TRUE(WaitUntil(
+      &executor,
+      [&hardware]() {
+        return hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
+               ReturnType::ERROR;
+      },
+      [&heartbeat_publisher, &authorization_publisher, &heartbeat,
+       &authorization]() {
+        heartbeat_publisher->publish(heartbeat);
+        authorization_publisher->publish(authorization);
+      }));
+
+  EXPECT_EQ(hardware->on_deactivate(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
+  EXPECT_EQ(hardware->on_cleanup(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
+}
+
+TEST_F(HardwarePluginTest, AckermannAllowsInitialFeedbackToSettle) {
+  constexpr char kRobotName[] = "ackermann_settling_test";
+  auto hardware = loader_.createSharedInstance("mentor_pi/AckermannHardware");
+  ASSERT_EQ(hardware->on_init(AckermannInfo(kRobotName)),
+            CallbackReturn::SUCCESS);
+  ASSERT_EQ(hardware->on_configure(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
+
+  auto supervisor = std::make_shared<rclcpp::Node>(
+      "configuration_supervisor", "/" + std::string(kRobotName));
+  auto heartbeat_publisher =
+      supervisor->create_publisher<mentor_pi_interfaces::msg::Heartbeat>(
+          "/" + std::string(kRobotName) + "/heartbeat",
+          rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
+  auto authorization_publisher =
+      supervisor->create_publisher<std_msgs::msg::UInt64>(
+          "/" + std::string(kRobotName) + "/configuration/motion_authorization",
+          rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local());
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(supervisor);
+  ASSERT_TRUE(WaitUntil(
+      &executor,
+      [&heartbeat_publisher, &authorization_publisher]() {
+        return heartbeat_publisher->get_subscription_count() == 1U &&
+               authorization_publisher->get_subscription_count() == 1U;
+      },
+      []() {}));
+
+  ASSERT_EQ(hardware->on_activate(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
+  mentor_pi_interfaces::msg::Heartbeat heartbeat;
+  heartbeat.agent_session_id = 66U;
+  heartbeat.sequence = 1U;
+  heartbeat.uptime_ms = 1000U;
+  heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
+  std_msgs::msg::UInt64 authorization;
+  authorization.data = (UINT64_C(1) << 32U) | UINT64_C(66);
+
+  const auto start = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - start < 400ms) {
+    heartbeat_publisher->publish(heartbeat);
+    authorization_publisher->publish(authorization);
+    executor.spin_some();
+    EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+              ReturnType::OK);
+    EXPECT_EQ(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+              ReturnType::OK);
+    std::this_thread::sleep_for(5ms);
+  }
+
+  ASSERT_TRUE(WaitUntil(
+      &executor,
+      [&hardware]() {
+        return hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
+               ReturnType::ERROR;
+      },
+      [&heartbeat_publisher, &authorization_publisher, &heartbeat,
+       &authorization]() {
+        heartbeat_publisher->publish(heartbeat);
+        authorization_publisher->publish(authorization);
+      }));
+
+  EXPECT_EQ(hardware->on_deactivate(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
+  EXPECT_EQ(hardware->on_cleanup(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
 }
 
 TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {

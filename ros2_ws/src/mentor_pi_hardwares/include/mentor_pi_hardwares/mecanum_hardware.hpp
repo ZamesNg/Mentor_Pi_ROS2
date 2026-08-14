@@ -68,6 +68,8 @@ class MecanumHardware : public hardware_interface::SystemInterface {
   bool StartExecutor();
   void StopExecutor();
   bool FeedbackIsFresh(SteadyClock::time_point now) const;
+  bool FeedbackCanSettle(SteadyClock::time_point now) const;
+  void LogFeedbackFailure(SteadyClock::time_point now) const;
   bool MotionIsAuthorized() const;
   void ResetChassisAdrc();
   void SendZeroMotorCommand();
@@ -100,8 +102,8 @@ class MecanumHardware : public hardware_interface::SystemInterface {
   double maximum_rps_{0.0};
   SteadyClock::time_point last_motor_state_{};
   SteadyClock::time_point last_imu_state_{};
-  std::chrono::milliseconds feedback_timeout_{100};
-  std::chrono::milliseconds imu_timeout_{100};
+  std::chrono::milliseconds feedback_timeout_{500};
+  std::chrono::milliseconds imu_timeout_{500};
   std::array<hardware::FirstOrderLadrc, 3U> chassis_adrc_{};
   std::array<double, 3U> applied_correction_{};
   double wheel_radius_m_{0.0325};
@@ -109,6 +111,7 @@ class MecanumHardware : public hardware_interface::SystemInterface {
   double linear_adrc_input_gain_per_second_{5.0};
   double yaw_adrc_input_gain_per_second_{5.0};
   std::uint64_t motion_authorization_{0U};
+  SteadyClock::time_point authorization_changed_at_{};
   std::uint32_t heartbeat_session_id_{0U};
   bool heartbeat_ready_{false};
   bool has_heartbeat_{false};

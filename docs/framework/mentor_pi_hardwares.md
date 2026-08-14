@@ -40,6 +40,11 @@ Mode-specific profiles under `config/mecanum` and `config/ackermann` own:
 The 500 ms host feedback windows tolerate ROS scheduling and discovery jitter;
 they do not extend motor authority. The firmware's independent 198 ms
 per-motor leases remain the primary motion-loss boundary.
+When a new supervisor authorization arrives before the first feedback samples,
+the hardware plugin sends only zero actuator commands while allowing each
+missing stream up to its configured feedback window to settle. An invalid
+sample, a previously active stream becoming stale, or expiry of that bounded
+startup window still returns a hardware error.
 
 The measured Ackermann runtime geometry is a `0.135 m` wheelbase, `0.140 m`
 wheel track, `0.0325 m` wheel radius, and `+/-0.6 rad` steering limit. Its

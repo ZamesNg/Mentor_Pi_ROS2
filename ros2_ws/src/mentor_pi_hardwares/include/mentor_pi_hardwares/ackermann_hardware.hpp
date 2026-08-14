@@ -72,6 +72,7 @@ class AckermannHardware : public hardware_interface::SystemInterface {
   bool StartExecutor();
   void StopExecutor();
   bool FeedbackIsFresh(SteadyClock::time_point now) const;
+  bool FeedbackCanSettle(SteadyClock::time_point now) const;
   bool MotionIsAuthorized() const;
   void ResetChassisAdrc();
   void SendZeroCommands();
@@ -112,8 +113,8 @@ class AckermannHardware : public hardware_interface::SystemInterface {
   SteadyClock::time_point last_motor_state_{};
   SteadyClock::time_point last_imu_state_{};
   SteadyClock::time_point last_pwm_state_{};
-  std::chrono::milliseconds feedback_timeout_{100};
-  std::chrono::milliseconds imu_timeout_{100};
+  std::chrono::milliseconds feedback_timeout_{500};
+  std::chrono::milliseconds imu_timeout_{500};
   hardware::SteeringCalibration steering_calibration_{};
   hardware::FirstOrderLadrc linear_adrc_{};
   hardware::FirstOrderLadrc yaw_adrc_{};
@@ -126,6 +127,7 @@ class AckermannHardware : public hardware_interface::SystemInterface {
   double yaw_adrc_minimum_speed_mps_{0.1};
   std::uint16_t steering_duration_ms_{20U};
   std::uint64_t motion_authorization_{0U};
+  SteadyClock::time_point authorization_changed_at_{};
   std::uint32_t heartbeat_session_id_{0U};
   bool heartbeat_ready_{false};
   bool has_heartbeat_{false};
