@@ -1,6 +1,7 @@
 import math
 import os
 import re
+from functools import partial
 
 import yaml
 
@@ -65,6 +66,28 @@ def _shutdown_on_exit(action, label):
         OnProcessExit(
             target_action=action,
             on_exit=[EmitEvent(event=Shutdown(reason=f"{label} exited"))],
+        )
+    )
+
+
+def _shutdown_if_failed(event, context, label):
+    del context
+    if event.returncode == 0:
+        return []
+    return [
+        EmitEvent(
+            event=Shutdown(
+                reason=f"{label} failed with exit code {event.returncode}"
+            )
+        )
+    ]
+
+
+def _shutdown_on_failure(action, label):
+    return RegisterEventHandler(
+        OnProcessExit(
+            target_action=action,
+            on_exit=partial(_shutdown_if_failed, label=label),
         )
     )
 
@@ -235,31 +258,39 @@ def _launch_vehicle(context):
         output="screen",
         parameters=[controllers_file, robot_description],
     )
+    joint_state_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        name="spawner_joint_state_broadcaster",
+        namespace=robot_name,
+        output="screen",
+        arguments=[
+            "joint_state_broadcaster",
+            "--controller-manager",
+            f"/{robot_name}/controller_manager",
+        ],
+    )
+    drive_controller_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        name=f"spawner_{controller_name}",
+        namespace=robot_name,
+        output="screen",
+        arguments=[
+            controller_name,
+            "--controller-manager",
+            f"/{robot_name}/controller_manager",
+        ],
+    )
     delayed_actions = [
-        Node(
-            package="controller_manager",
-            executable="spawner",
-            name="spawner_joint_state_broadcaster",
-            namespace=robot_name,
-            output="screen",
-            arguments=[
-                "joint_state_broadcaster",
-                "--controller-manager",
-                f"/{robot_name}/controller_manager",
-            ],
+        _shutdown_on_failure(
+            joint_state_spawner, "joint state broadcaster spawner"
         ),
-        Node(
-            package="controller_manager",
-            executable="spawner",
-            name=f"spawner_{controller_name}",
-            namespace=robot_name,
-            output="screen",
-            arguments=[
-                controller_name,
-                "--controller-manager",
-                f"/{robot_name}/controller_manager",
-            ],
+        joint_state_spawner,
+        _shutdown_on_failure(
+            drive_controller_spawner, f"{controller_name} spawner"
         ),
+        drive_controller_spawner,
     ]
     if tracking_controller != "none":
         tracking_parameters_for_vehicle = tracking_parameters(

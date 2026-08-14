@@ -33,9 +33,13 @@ Mode-specific profiles under `config/mecanum` and `config/ackermann` own:
 - the `ros2_control` URDF and plugin selection;
 - controller parameters;
 - wheel geometry and chassis ADRC parameters;
-- `feedback_timeout_ms` and `imu_timeout_ms`, both defaulting to 100 ms;
+- `feedback_timeout_ms` and `imu_timeout_ms`, both defaulting to 500 ms;
 - Ackermann PWM channel, min/center/max pulse, inversion, angle limits, and
   command duration.
+
+The 500 ms host feedback windows tolerate ROS scheduling and discovery jitter;
+they do not extend motor authority. The firmware's independent 198 ms
+per-motor leases remain the primary motion-loss boundary.
 
 The measured Ackermann runtime geometry is a `0.135 m` wheelbase, `0.140 m`
 wheel track, `0.0325 m` wheel radius, and `+/-0.6 rad` steering limit. Its

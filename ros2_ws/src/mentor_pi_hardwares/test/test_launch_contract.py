@@ -3,10 +3,11 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
 from ament_index_python.packages import get_package_share_directory
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, EmitEvent
 import pytest
 import yaml
 
@@ -32,6 +33,21 @@ def test_vehicle_launch_rejects_the_dev_container(monkeypatch):
         RuntimeError, match="native Ubuntu 22.04, not the Dev Container"
     ):
         module._validate_native_runtime()
+
+
+def test_controller_spawner_exit_only_shuts_down_on_failure():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    module = vehicle_launch_module(share)
+
+    assert module._shutdown_if_failed(
+        SimpleNamespace(returncode=0), None, "controller spawner"
+    ) == []
+    actions = module._shutdown_if_failed(
+        SimpleNamespace(returncode=7), None, "controller spawner"
+    )
+    assert len(actions) == 1
+    assert isinstance(actions[0], EmitEvent)
+    assert actions[0].event.reason == "controller spawner failed with exit code 7"
 
 
 def render_description(share, mode):
@@ -73,8 +89,8 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
         "mentor_pi/MecanumHardware"
     )
     mecanum_parameters = parameters(mecanum)
-    assert mecanum_parameters["feedback_timeout_ms"] == "100"
-    assert mecanum_parameters["imu_timeout_ms"] == "100"
+    assert mecanum_parameters["feedback_timeout_ms"] == "500"
+    assert mecanum_parameters["imu_timeout_ms"] == "500"
     assert mecanum_parameters["wheel_radius_m"] == "0.0325"
     assert mecanum_parameters["wheel_projection_sum_m"] == "0.14"
     assert mecanum_parameters["linear_adrc_input_gain_per_second"] == "5.0"
@@ -97,7 +113,8 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert ackermann_parameters["steering_pwm_channel"] == "3"
     assert ackermann_parameters["steering_pwm_center_us"] == "1500"
     assert ackermann_parameters["steering_inverted"].lower() == "true"
-    assert ackermann_parameters["imu_timeout_ms"] == "100"
+    assert ackermann_parameters["feedback_timeout_ms"] == "500"
+    assert ackermann_parameters["imu_timeout_ms"] == "500"
     assert ackermann_parameters["rear_wheel_radius_m"] == "0.0325"
     assert ackermann_parameters["wheelbase_m"] == "0.135"
     assert ackermann_parameters["yaw_adrc_input_gain_per_mps"] == "30.0"

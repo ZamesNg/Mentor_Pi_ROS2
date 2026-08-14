@@ -108,6 +108,11 @@ so adapter vtables contain no deleting destructor and import no global
 - The controller uses the platform's pulse-shadow generator rather than the
   separate driver edge-plan abstraction; there must be only one PWM frame
   generator in the target.
+- While a ROS session is active, an unexpected PWM mailbox session-tag mismatch
+  is reported in peripheral slot 4 as `IO_ERROR` detail `0x5001`; a snapshot
+  generation mismatch uses detail `0x5002`. Expected unread work from a prior
+  session remains a silent discard. These diagnostics use the ROS telemetry
+  path and never write to the Agent-owned USART1 transport.
 
 ## Native verification
 
@@ -126,7 +131,8 @@ ctest --test-dir build/controller-test --output-on-failure
 
 The tests cover safe boot, complete micro-ROS hook wiring, 198 ms lease expiry,
 the locked/capped motor gate, immediate session disarm, physical PWM B0/B1
-commits for 20/21/39/41 ms commands, offset completion at its committing ISR,
-PWM freeze, bus/RGB stale-work invalidation, button events, task supervision,
-and startup grace under ASan/UBSan. They do not replace the pinned Arm
-link/resource audit or HIL.
+commits for 20/21/39/41 ms commands, exact PWM3 500 ms interpolation with
+repeated commands and session transitions, offset completion at its committing
+ISR, PWM freeze, bus/RGB stale-work invalidation, button events, task
+supervision, and startup grace under ASan/UBSan. They do not replace the pinned
+Arm link/resource audit or HIL.

@@ -2,8 +2,8 @@
 <robot name="mentor_pi_hardwares_mecanum" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="robot_name" default="mentor_pi"/>
-  <xacro:arg name="feedback_timeout_ms" default="100"/>
-  <xacro:arg name="imu_timeout_ms" default="100"/>
+  <xacro:arg name="feedback_timeout_ms" default="500"/>
+  <xacro:arg name="imu_timeout_ms" default="500"/>
   <xacro:arg name="wheel_radius_m" default="0.0325"/>
   <xacro:arg name="wheel_projection_sum_m" default="0.14"/>
   <xacro:arg name="linear_adrc_input_gain_per_second" default="5.0"/>

@@ -2,8 +2,8 @@ vehicle:
   robot_name: mentor_pi
   vehicle_type: mecanum
 hardware:
-  feedback_timeout_ms: 100
-  imu_timeout_ms: 100
+  feedback_timeout_ms: 500
+  imu_timeout_ms: 500
   wheel_radius_m: 0.0325
   wheel_projection_sum_m: 0.14
   linear_adrc_input_gain_per_second: 5.0

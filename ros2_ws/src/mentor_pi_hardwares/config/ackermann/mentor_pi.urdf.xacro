@@ -2,8 +2,8 @@
 <robot name="mentor_pi_hardwares_ackermann" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:arg name="robot_name" default="mentor_pi"/>
-  <xacro:arg name="feedback_timeout_ms" default="100"/>
-  <xacro:arg name="imu_timeout_ms" default="100"/>
+  <xacro:arg name="feedback_timeout_ms" default="500"/>
+  <xacro:arg name="imu_timeout_ms" default="500"/>
   <xacro:arg name="steering_pwm_channel" default="3"/>
   <xacro:arg name="steering_pwm_min_us" default="500"/>
   <xacro:arg name="steering_pwm_center_us" default="1500"/>

@@ -958,6 +958,99 @@ bool TestPwmPhysicalFrameTiming() {
          CheckPwmPhysicalDuration(39U) && CheckPwmPhysicalDuration(41U);
 }
 
+bool TestPwmChannelThreeRepeatedCommandsAndSessionTransitions() {
+  FakePlatform platform;
+  ControllerRuntime runtime(FullRangeTestMotorConfiguration());
+  CHECK(runtime.Configure(platform.Hooks(), AxisTransform{}));
+  CHECK(runtime.InitializeSafeBoot());
+  CHECK(EstablishStartupReadiness(&runtime, &platform));
+  runtime.SetSessionActive(true, 1U);
+
+  PwmServoCommand command{};
+  command.update_mask = 0x04U;
+  command.duration_ms = 500U;
+  command.pulse_width_us[2] = 1600U;
+  CHECK(runtime.PublishPwmServoCommand(command).result.ok());
+  const auto repeated = runtime.PublishPwmServoCommand(command);
+  CHECK(repeated.result.ok());
+  CHECK(repeated.overwrote_unread);
+  platform.SetTimeMs(1U);
+  runtime.RunPeripheralOnce();
+  CHECK(platform.pwm_shadow ==
+        (std::array<std::uint16_t, 4>{1500U, 1500U, 1500U, 1500U}));
+
+  // The first boundary is B0. The following 25 frames cover exactly 500 ms.
+  platform.CommitPwmFrame(20U);
+  runtime.RunPeripheralOnce();
+  PwmServoTelemetry telemetry{};
+  CHECK(runtime.ReadPwmServoTelemetry(&telemetry));
+  CHECK(telemetry.target_pulse_width_us[2] == 1600U);
+  CHECK(telemetry.output_pulse_width_us[2] == 1500U);
+  CHECK(telemetry.moving_mask == 0x04U);
+  for (std::uint16_t step = 1U; step <= 25U; ++step) {
+    const auto expected = static_cast<std::uint16_t>(1500U + (4U * step));
+    CHECK(platform.pwm_shadow[0] == 1500U);
+    CHECK(platform.pwm_shadow[1] == 1500U);
+    CHECK(platform.pwm_shadow[2] == expected);
+    CHECK(platform.pwm_shadow[3] == 1500U);
+    platform.CommitPwmFrame(20U + (static_cast<std::uint32_t>(step) * 20U));
+    runtime.RunPeripheralOnce();
+    CHECK(runtime.ReadPwmServoTelemetry(&telemetry));
+    CHECK(telemetry.target_pulse_width_us[2] == 1600U);
+    CHECK(telemetry.output_pulse_width_us[2] == expected);
+    CHECK(telemetry.moving_mask == (step < 25U ? 0x04U : 0U));
+  }
+
+  // Leave unread generation-1 work, then replace the owner. The stale command
+  // must be discarded without changing the physically committed PWM3 output.
+  command.pulse_width_us[2] = 1400U;
+  CHECK(runtime.PublishPwmServoCommand(command).result.ok());
+  runtime.SetSessionActive(false, 1U);
+  runtime.InvalidateSessionWork(1U);
+  runtime.SetSessionActive(true, 2U);
+  platform.SetTimeMs(521U);
+  runtime.RunPeripheralOnce();
+  CHECK(platform.pwm_shadow[2] == 1600U);
+  platform.CommitPwmFrame(540U);
+  runtime.RunPeripheralOnce();
+  CHECK(platform.pwm_active[2] == 1600U);
+
+  // Repeated generation-2 commands must merge to PWM channel index 2 and
+  // replan from the committed 1600 us pulse, again over exactly 500 ms.
+  const auto current = runtime.PublishPwmServoCommand(command);
+  CHECK(current.result.ok());
+  const auto current_repeated = runtime.PublishPwmServoCommand(command);
+  CHECK(current_repeated.result.ok());
+  CHECK(current_repeated.overwrote_unread);
+  platform.SetTimeMs(541U);
+  runtime.RunPeripheralOnce();
+  CHECK(platform.pwm_shadow[2] == 1600U);
+  platform.CommitPwmFrame(560U);
+  runtime.RunPeripheralOnce();
+  CHECK(runtime.ReadPwmServoTelemetry(&telemetry));
+  CHECK(telemetry.target_pulse_width_us[2] == 1400U);
+  CHECK(telemetry.output_pulse_width_us[2] == 1600U);
+  CHECK(telemetry.moving_mask == 0x04U);
+  for (std::uint16_t step = 1U; step <= 25U; ++step) {
+    const auto expected = static_cast<std::uint16_t>(1600U - (8U * step));
+    CHECK(platform.pwm_shadow[0] == 1500U);
+    CHECK(platform.pwm_shadow[1] == 1500U);
+    CHECK(platform.pwm_shadow[2] == expected);
+    CHECK(platform.pwm_shadow[3] == 1500U);
+    platform.CommitPwmFrame(560U + (static_cast<std::uint32_t>(step) * 20U));
+    runtime.RunPeripheralOnce();
+    CHECK(runtime.ReadPwmServoTelemetry(&telemetry));
+    CHECK(telemetry.target_pulse_width_us[2] == 1400U);
+    CHECK(telemetry.output_pulse_width_us[2] == expected);
+    CHECK(telemetry.moving_mask == (step < 25U ? 0x04U : 0U));
+  }
+
+  WorkerDiagnostics diagnostics{};
+  runtime.ReadWorkerDiagnostics(&diagnostics);
+  CHECK(diagnostics.peripheral_errors[4] == 0U);
+  return true;
+}
+
 bool TestImuCharacterizationSnapshot() {
   mentor_pi::mcu::drivers::ImuSample sample{};
   sample.acceleration_mps2 = {1.0F, -2.0F, 3.0F};
@@ -2438,7 +2531,9 @@ int main() {
       !TestPlatformHookCompletenessContract() ||
       !TestBuzzerFailuresAreObservable() || !TestMicroRosAdapterDelegates() ||
       !TestMicroRosMicrosecondAcceptanceBoundary() ||
-      !TestPwmPhysicalFrameTiming() || !TestImuCharacterizationSnapshot() ||
+      !TestPwmPhysicalFrameTiming() ||
+      !TestPwmChannelThreeRepeatedCommandsAndSessionTransitions() ||
+      !TestImuCharacterizationSnapshot() ||
       !TestImuCharacterizationRequiresSuccessfulRawRead() ||
       !TestSensorSchedulesRemainPhaseStable() || !TestControllerIntegration() ||
       !TestBusServoServicesAndStopPreemption() || !TestSafetyStartupGrace() ||

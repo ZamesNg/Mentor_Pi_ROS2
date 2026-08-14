@@ -63,8 +63,7 @@ hardware_interface::HardwareInfo MecanumInfo() {
   info.name = "mentor_pi_hardware";
   info.type = "system";
   info.hardware_class_type = "mentor_pi/MecanumHardware";
-  info.hardware_parameters = {{"robot_name", "mentor_pi_test"},
-                              {"feedback_timeout_ms", "100"}};
+  info.hardware_parameters = {{"robot_name", "mentor_pi_test"}};
   info.joints = {WheelJoint("wheel_left_front_joint"),
                  WheelJoint("wheel_right_front_joint"),
                  WheelJoint("wheel_left_rear_joint"),
@@ -78,11 +77,11 @@ hardware_interface::HardwareInfo AckermannInfo() {
   info.type = "system";
   info.hardware_class_type = "mentor_pi/AckermannHardware";
   info.hardware_parameters = {
-      {"robot_name", "mentor_pi_test"},   {"feedback_timeout_ms", "100"},
-      {"steering_pwm_channel", "3"},      {"steering_pwm_min_us", "500"},
-      {"steering_pwm_center_us", "1500"}, {"steering_pwm_max_us", "2500"},
-      {"steering_angle_min_rad", "-0.6"}, {"steering_angle_max_rad", "0.6"},
-      {"steering_inverted", "true"},      {"steering_duration_ms", "20"}};
+      {"robot_name", "mentor_pi_test"},  {"steering_pwm_channel", "3"},
+      {"steering_pwm_min_us", "500"},    {"steering_pwm_center_us", "1500"},
+      {"steering_pwm_max_us", "2500"},   {"steering_angle_min_rad", "-0.6"},
+      {"steering_angle_max_rad", "0.6"}, {"steering_inverted", "true"},
+      {"steering_duration_ms", "20"}};
   info.joints = {SteeringJoint("wheel_left_front_joint"),
                  SteeringJoint("wheel_right_front_joint"),
                  WheelJoint("wheel_left_rear_joint"),
@@ -154,8 +153,8 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
           });
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
-  auto supervisor = std::make_shared<rclcpp::Node>(
-      "configuration_supervisor", "/mentor_pi_test");
+  auto supervisor = std::make_shared<rclcpp::Node>("configuration_supervisor",
+                                                   "/mentor_pi_test");
   auto heartbeat_publisher =
       supervisor->create_publisher<mentor_pi_interfaces::msg::Heartbeat>(
           "/mentor_pi_test/heartbeat",
@@ -209,6 +208,9 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   EXPECT_NEAR(states[5].get_value(), 2.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[6].get_value(), -4.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[7].get_value(), -4.0 * kTwoPi, 1.0e-9);
+  std::this_thread::sleep_for(110ms);
+  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
 
   for (std::size_t index = 0U; index < commands.size(); ++index) {
     commands[index].set_value(static_cast<double>(index + 1U) * kTwoPi);
@@ -302,7 +304,7 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
       &executor, [&received]() { return received.has_value(); }, []() {}));
   EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
 
-  std::this_thread::sleep_for(110ms);
+  std::this_thread::sleep_for(510ms);
   received.reset();
   EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
             ReturnType::ERROR);
@@ -360,8 +362,8 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
           });
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
-  auto supervisor = std::make_shared<rclcpp::Node>(
-      "configuration_supervisor", "/mentor_pi_test");
+  auto supervisor = std::make_shared<rclcpp::Node>("configuration_supervisor",
+                                                   "/mentor_pi_test");
   auto heartbeat_publisher =
       supervisor->create_publisher<mentor_pi_interfaces::msg::Heartbeat>(
           "/mentor_pi_test/heartbeat",
@@ -422,6 +424,9 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   EXPECT_NEAR(states[3].get_value(), 2.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[4].get_value(), -4.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[5].get_value(), -4.0 * kTwoPi, 1.0e-9);
+  std::this_thread::sleep_for(110ms);
+  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
   commands[0].set_value(0.3);
   commands[1].set_value(0.3);
   commands[2].set_value(2.0 * kTwoPi);
@@ -488,7 +493,7 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
         return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
                    ReturnType::OK &&
                motor_received.has_value() && pwm_received.has_value() &&
-               pwm_received->pulse_width_us[2] == 1500U;
+               pwm_received->pulse_width_us[2] != 1500U;
       },
       [&motor_state_publisher, &pwm_state_publisher, &imu_publisher,
        &motor_feedback, &pwm_feedback, &imu]() {
@@ -496,7 +501,7 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
         pwm_state_publisher->publish(pwm_feedback);
         imu_publisher->publish(imu);
       }));
-  EXPECT_EQ(pwm_received->pulse_width_us[2], 1500U);
+  EXPECT_NE(pwm_received->pulse_width_us[2], 1500U);
 
   imu.valid = false;
   motor_received.reset();

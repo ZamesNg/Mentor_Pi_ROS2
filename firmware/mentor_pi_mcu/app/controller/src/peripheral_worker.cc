@@ -24,6 +24,8 @@ constexpr std::uint32_t kSystemHeartbeatHalfPeriodMs = 500U;
 // the end-to-end deadline for the bounded multi-chunk flush.
 constexpr std::uint32_t kOledDeadlineMs = 100U;
 constexpr std::uint32_t kOledRetryMs = 250U;
+constexpr std::uint16_t kPwmMailboxSessionMismatchDetail = 0x5001U;
+constexpr std::uint16_t kPwmMailboxSnapshotMismatchDetail = 0x5002U;
 
 }  // namespace
 
@@ -124,12 +126,28 @@ void ControllerRuntime::ProcessPwmCommands(std::uint32_t now_ms) {
   }
   {
     CriticalGuard guard(this);
-    const bool current =
-        desired_session_active_.load(std::memory_order_relaxed) &&
-        tag.session_generation ==
-            session_generation_.load(std::memory_order_relaxed) &&
-        tag.command_generation == snapshot.generation;
-    if (!current) {
+    const bool session_active =
+        desired_session_active_.load(std::memory_order_relaxed);
+    const std::uint32_t session_generation =
+        session_generation_.load(std::memory_order_relaxed);
+    if (!session_active) {
+      return;
+    }
+    if (tag.session_generation != session_generation) {
+      // An unread command from the prior session is an expected teardown
+      // discard. Once this session has published, however, a different tag is
+      // an internal ownership failure and must be visible over ROS.
+      if (pwm_mailbox_session_generation_ == session_generation) {
+        RecordPeripheralResult(
+            4U, {ResultCode::kIoError, kPwmMailboxSessionMismatchDetail},
+            ErrorSource::kPwmServos);
+      }
+      return;
+    }
+    if (tag.command_generation != snapshot.generation) {
+      RecordPeripheralResult(
+          4U, {ResultCode::kIoError, kPwmMailboxSnapshotMismatchDetail},
+          ErrorSource::kPwmServos);
       return;
     }
     if (pwm_consumed_session_generation_ != tag.session_generation) {

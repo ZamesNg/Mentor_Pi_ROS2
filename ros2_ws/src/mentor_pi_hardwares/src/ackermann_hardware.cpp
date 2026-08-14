@@ -105,9 +105,9 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
   double yaw_controller_bandwidth = 0.0;
   double yaw_observer_bandwidth = 0.0;
   if (!IsValidRobotName(robot_name_) ||
-      !ParseInteger(HardwareParameter(info, "feedback_timeout_ms", "100"), 1U,
+      !ParseInteger(HardwareParameter(info, "feedback_timeout_ms", "500"), 1U,
                     10000U, &timeout_ms) ||
-      !ParseInteger(HardwareParameter(info, "imu_timeout_ms", "100"), 1U,
+      !ParseInteger(HardwareParameter(info, "imu_timeout_ms", "500"), 1U,
                     10000U, &imu_timeout_ms) ||
       !ParseInteger(HardwareParameter(info, "steering_pwm_channel", "3"),
                     static_cast<std::uint16_t>(1U),
@@ -693,7 +693,7 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
   const double feedforward_steering =
       std::clamp((left + right) * 0.5, steering_calibration_.minimum_angle_rad,
                  steering_calibration_.maximum_angle_rad);
-  double steering_command = 0.0;
+  double steering_command = feedforward_steering;
   if (std::fabs(measured_speed_m_s) < yaw_adrc_minimum_speed_mps_) {
     yaw_adrc_.Reset();
     applied_steering_correction_rad_ = 0.0;
