@@ -78,7 +78,10 @@ systemctl status mentor-pi-agent.service
 Replace the `ROS_DOMAIN_ID` value if the deployment uses a different domain.
 For a Zenoh bridge that confines DDS to the onboard computer, instead pass
 `ROS_LOCALHOST_ONLY=1` and use that value consistently for the Agent, bridge,
-ROS applications, and CLI daemon.
+ROS applications, and CLI daemon. The installer selects a managed Fast DDS
+UDPv4 profile for the Agent; its localhost-only profile explicitly restricts
+the Agent to `127.0.0.1` because the native micro-ROS Agent does not interpret
+the ROS/RMW `ROS_LOCALHOST_ONLY` policy itself.
 
 Discovery scans udev for USB identity `1a86:55d4` and succeeds only when one
 CH9102F tty is unambiguous. With multiple connected adapters, select the

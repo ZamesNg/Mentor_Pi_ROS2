@@ -36,13 +36,22 @@ For a `zenoh-bridge-ros2dds` deployment that confines DDS to the onboard
 computer, install with `ROS_LOCALHOST_ONLY=1`. Use that same value and
 `ROS_DOMAIN_ID` for the Agent, bridge, ROS applications, and ROS CLI daemon;
 mixing localhost-only and non-local participants separates the local graph.
-The Agent remains UDPv4-only, so local cross-user traffic does not use Fast DDS
-shared memory. The installer removes the former `/etc/mentor-pi/agent.env`
-file.
+The native micro-ROS Agent does not consume the ROS/RMW localhost-only policy,
+so the installer also selects and installs a Fast DDS UDPv4 participant profile
+at `/etc/mentor-pi/agent-fastdds.xml`. Its localhost-only variant explicitly
+whitelists `127.0.0.1`; the network variant permits all interfaces. Both avoid
+Fast DDS shared memory, allowing traffic across the dedicated `mentor-pi`
+service account and the interactive ROS user. The installer removes the former
+`/etc/mentor-pi/agent.env` file.
 
-The default versioned release ID represents the complete installed Agent tree,
-so a supporting-file change creates a new side-by-side release even when the
-Agent executable itself is unchanged.
+Switch boundaries by rerunning `install-service` with the desired
+`ROS_LOCALHOST_ONLY=0` or `1`; do not edit the installed unit or profile. No
+Agent rebuild is required. Restart the bridge, ROS applications, and ROS CLI
+daemon with the same value after switching.
+
+The default versioned release ID represents the complete built Agent tree.
+Rerunning `install-service` safely refreshes the separately managed systemd
+unit and Fast DDS profile without rebuilding or duplicating that release.
 
 macOS and other Linux distributions use the repository VS Code Dev Container
 for build and test. Service installation is supported only on the native

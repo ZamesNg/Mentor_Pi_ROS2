@@ -26,7 +26,9 @@ journalctl -u mentor-pi-agent.service -n 50 --no-pager
 Replace the `ROS_DOMAIN_ID` value if the deployment uses a different domain.
 For a Zenoh bridge that confines DDS to the onboard computer, install with
 `ROS_LOCALHOST_ONLY=1` and use that same value for the Agent, bridge, onboard
-applications, and onboard ROS CLI daemon.
+applications, and onboard ROS CLI daemon. The installer makes this effective
+for the native micro-ROS Agent by installing a Fast DDS UDPv4 profile whose
+interface whitelist contains only `127.0.0.1`.
 
 The installer discovers USB `1a86:55d4` and chooses its stable serial, falling
 back to `ID_PATH`. If multiple matching adapters are connected, select the

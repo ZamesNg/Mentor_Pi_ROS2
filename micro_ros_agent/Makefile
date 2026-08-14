@@ -21,6 +21,8 @@ help:
 		'  make test           Validate locks, patch, metadata, and executable.' \
 		'  sudo make install-service ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0' \
 		'                       Install using the deployment DDS boundary.' \
+		'  sudo make install-service ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=1' \
+		'                       Install loopback DDS for an onboard Zenoh bridge.' \
 		'  make clean          Remove this component build directory.'
 
 doctor:

@@ -21,9 +21,10 @@ With the Agent active and the MCU connected, observe firmware-owned RGB1:
 If the ROS graph contains the firmware topics but RGB1 red remains static, stop
 here: entity discovery succeeded but the firmware telemetry path is not live.
 If LED1 blinks but the graph is absent, repeat Tutorial 05 service installation
-and verify its required UDPv4 Fast DDS environment. Retain the current Agent
-journal; do not start the applications or enable actuator power until heartbeat
-data is visible.
+and verify its required UDPv4 Fast DDS profile. In a localhost-only deployment,
+confirm that `/etc/mentor-pi/agent-fastdds.xml` whitelists `127.0.0.1`. Retain
+the current Agent journal; do not start the applications or enable actuator
+power until heartbeat data is visible.
 
 Start applications manually:
 
@@ -53,9 +54,10 @@ ros2 topic echo --once \
 
 Every ROS terminal must inherit the same exported `ROS_DOMAIN_ID` and
 `ROS_LOCALHOST_ONLY` values used for Agent installation. The service stores
-those values directly in its installed unit; there is no separate Agent
-environment file to source. After changing either value, restart the matching
-ROS CLI daemon with `ros2 daemon stop` followed by `ros2 daemon start`.
+those values directly in its installed unit and loads its managed Fast DDS
+profile; there is no separate Agent environment file to source. After changing
+either value, restart the matching ROS CLI daemon with `ros2 daemon stop`
+followed by `ros2 daemon start`.
 
 Test these cases while commanded targets are zero:
 
