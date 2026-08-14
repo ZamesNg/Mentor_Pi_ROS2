@@ -14,6 +14,11 @@ make find-device
 sudo make install-service ROS_DOMAIN_ID=0
 ```
 
+`make setup` recovers an interrupted initial source fetch when the partial Git
+checkout still has the pinned origin and no working-tree state. It continues
+to reject origin mismatches, dirty partial checkouts, and existing checkouts at
+an unexpected revision.
+
 `find-device` identifies the connected CH9102F by USB vendor/product identity
 instead of assuming a tty name. Installation revalidates the same shared
 serial-access policy used by the root tutorial façade: it uses stable

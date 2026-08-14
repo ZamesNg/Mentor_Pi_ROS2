@@ -35,6 +35,7 @@ build: doctor
 	@RRCLITE_BUILD_JOBS="$(BUILD_JOBS)" ./tools/build.sh
 
 test: build
+	@./test/source_checkout_test.sh
 	@./test/device_discovery_test.sh
 	@./test/configure_serial_access_test.sh
 	@./test/contract_test.sh

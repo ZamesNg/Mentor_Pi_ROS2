@@ -5,6 +5,7 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SOURCE_LOCK="${SCRIPT_DIR}/../sources.lock"
 readonly STATE_VALIDATOR="${SCRIPT_DIR}/verify_source_state.sh"
+readonly SOURCE_CHECKOUT="${SCRIPT_DIR}/checkout_pinned_source.sh"
 readonly XRCE_AGENT_PATCH="${SCRIPT_DIR}/../patches/micro_xrce_agent_rrclite_modem_lines.patch"
 
 mode=""
@@ -70,6 +71,7 @@ fi
 [[ -f "${SOURCE_LOCK}" && ! -L "${SOURCE_LOCK}" ]] || \
   Fail "Agent source lock is missing or symbolic"
 [[ -x "${STATE_VALIDATOR}" ]] || Fail "Agent source validator is unavailable"
+[[ -x "${SOURCE_CHECKOUT}" ]] || Fail "Agent source checkout helper is unavailable"
 [[ -f "${XRCE_AGENT_PATCH}" && ! -L "${XRCE_AGENT_PATCH}" ]] || \
   Fail "RRCLite Agent patch is missing or symbolic"
 [[ "${ROS_DISTRO:-}" == "humble" ]] || \
@@ -106,14 +108,7 @@ CloneAndVerify() {
   local repository="$1"
   local commit="$2"
   local destination="$3"
-  if [[ ! -d "${destination}/.git" ]]; then
-    [[ ! -e "${destination}" && ! -L "${destination}" ]] || \
-      Fail "refusing to replace non-Git source path ${destination}"
-    git init "${destination}"
-    git -C "${destination}" remote add origin "${repository}"
-    git -C "${destination}" fetch --depth 1 origin "${commit}"
-    git -C "${destination}" checkout --detach FETCH_HEAD
-  fi
+  "${SOURCE_CHECKOUT}" "${repository}" "${commit}" "${destination}"
 }
 
 RestoreUnmodifiedXrceAgent() {
