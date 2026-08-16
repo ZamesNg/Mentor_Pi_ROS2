@@ -720,11 +720,18 @@ void AckermannHardware::ResetChassisAdrc() {
 
 bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
   if (!motor_command_publisher_ || !pwm_command_publisher_) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Ackermann command calculation failed: command publisher "
+                 "is unavailable");
     return false;
   }
   const double left = joints_.at(steering_names_[0]).command.position;
   const double right = joints_.at(steering_names_[1]).command.position;
   if (!std::isfinite(left) || !std::isfinite(right)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Ackermann command calculation failed: nonfinite steering "
+                 "interfaces left=%f right=%f period_s=%f",
+                 left, right, period_seconds);
     return false;
   }
   std::array<double, 2U> reference_rear_velocity{
@@ -735,6 +742,11 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
           .command.velocity};
   if (!std::isfinite(reference_rear_velocity[0]) ||
       !std::isfinite(reference_rear_velocity[1])) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Ackermann command calculation failed: nonfinite rear wheel "
+                 "interfaces left=%f right=%f period_s=%f",
+                 reference_rear_velocity[0], reference_rear_velocity[1],
+                 period_seconds);
     return false;
   }
   if (reference_rear_velocity[0] == 0.0 && reference_rear_velocity[1] == 0.0) {
@@ -765,6 +777,10 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
   const auto measured_speed =
       linear_measurement_lpf_.Update(raw_measured_speed_m_s, period_seconds);
   if (!measured_speed) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Ackermann command calculation failed: linear measurement "
+                 "LPF rejected measurement=%f period_s=%f",
+                 raw_measured_speed_m_s, period_seconds);
     return false;
   }
   const double measured_speed_m_s = *measured_speed;
@@ -772,6 +788,12 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
       reference_speed_m_s, measured_speed_m_s, applied_linear_correction_m_s_,
       linear_adrc_input_gain_per_second_, period_seconds);
   if (!linear_correction) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Ackermann command calculation failed: linear ADRC rejected "
+                 "reference=%f measurement=%f applied=%f gain=%f period_s=%f",
+                 reference_speed_m_s, measured_speed_m_s,
+                 applied_linear_correction_m_s_,
+                 linear_adrc_input_gain_per_second_, period_seconds);
     return false;
   }
   std::array<double, 2U> target_rear_velocity{
@@ -782,6 +804,10 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
       std::fabs(target_rear_velocity[0]), std::fabs(target_rear_velocity[1]));
   if (!std::isfinite(maximum_wheel_velocity) || maximum_wheel_velocity <= 0.0 ||
       !std::isfinite(largest_wheel_velocity)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Ackermann command calculation failed: invalid wheel limit "
+                 "maximum_rps=%f maximum_velocity=%f requested_velocity=%f",
+                 maximum_rps, maximum_wheel_velocity, largest_wheel_velocity);
     return false;
   }
   if (largest_wheel_velocity > maximum_wheel_velocity) {
@@ -810,12 +836,23 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
     const auto filtered_yaw_rate =
         yaw_measurement_lpf_.Update(measured_yaw_rate, period_seconds);
     if (!filtered_yaw_rate) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "Ackermann command calculation failed: yaw measurement "
+                   "LPF rejected measurement=%f period_s=%f",
+                   measured_yaw_rate, period_seconds);
       return false;
     }
     const auto steering_correction = yaw_adrc_.Update(
         reference_yaw_rate, *filtered_yaw_rate,
         applied_steering_correction_rad_, yaw_input_gain, period_seconds);
     if (!steering_correction) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "Ackermann command calculation failed: yaw ADRC rejected "
+                   "reference=%f measurement=%f applied=%f gain=%f "
+                   "period_s=%f",
+                   reference_yaw_rate, *filtered_yaw_rate,
+                   applied_steering_correction_rad_, yaw_input_gain,
+                   period_seconds);
       return false;
     }
     steering_command = std::clamp(feedforward_steering + *steering_correction,
@@ -826,6 +863,10 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
   const auto pulse =
       hardware::SteeringAngleToPulse(steering_command, steering_calibration_);
   if (!pulse) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Ackermann command calculation failed: steering conversion "
+                 "rejected angle=%f",
+                 steering_command);
     return false;
   }
 
@@ -842,6 +883,11 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
     const auto rps = hardware::RadiansPerSecondToRps(
         direction * target_rear_velocity[rear_index], maximum_rps);
     if (!rps) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "Ackermann command calculation failed: wheel conversion "
+                   "rejected rear_index=%zu velocity=%f maximum_rps=%f",
+                   rear_index, direction * target_rear_velocity[rear_index],
+                   maximum_rps);
       return false;
     }
     motor_command.target_rps[hardware::McuMotorIndex(wheel)] = *rps;
