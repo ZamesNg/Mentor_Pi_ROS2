@@ -129,6 +129,13 @@ hardware_interface::CallbackReturn MecanumHardware::on_init(
       !measurement_lpf_[2].Configure(yaw_measurement_lpf_cutoff_hz)) {
     return hardware_interface::CallbackReturn::ERROR;
   }
+  if (!reconnect_gate_.Configure(
+          static_cast<std::uint8_t>(
+              hardware::FeedbackMask(hardware::FeedbackStream::kMotor) |
+              hardware::FeedbackMask(hardware::FeedbackStream::kImu)),
+          feedback_timeout_, imu_timeout_, feedback_timeout_)) {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
   node_ = std::make_shared<rclcpp::Node>("mecanum_hardware", "/" + robot_name_);
 
   if (info.joints.size() != hardware::kWheelCount) {
@@ -214,18 +221,8 @@ hardware_interface::CallbackReturn MecanumHardware::on_configure(
     position_rad_.fill(0.0);
     yaw_rate_rad_s_ = 0.0;
     maximum_rps_ = 0.0;
-    has_motor_state_ = false;
-    has_imu_state_ = false;
-    imu_valid_ = false;
   }
-  {
-    std::lock_guard<std::mutex> lock(authorization_mutex_);
-    motion_authorization_ = 0U;
-    authorization_changed_at_ = SteadyClock::now();
-    heartbeat_session_id_ = 0U;
-    heartbeat_ready_ = false;
-    has_heartbeat_ = false;
-  }
+  reconnect_gate_.Reset(SteadyClock::now());
   executor_failed_.store(false, std::memory_order_release);
   if (!StartExecutor()) {
     SendZeroMotorCommand();
@@ -236,7 +233,17 @@ hardware_interface::CallbackReturn MecanumHardware::on_configure(
 
 hardware_interface::CallbackReturn MecanumHardware::on_cleanup(
     const rclcpp_lifecycle::State&) {
+  return Teardown();
+}
+
+hardware_interface::CallbackReturn MecanumHardware::on_error(
+    const rclcpp_lifecycle::State&) {
+  return Teardown();
+}
+
+hardware_interface::CallbackReturn MecanumHardware::Teardown() {
   active_ = false;
+  ResetChassisAdrc();
   SendZeroMotorCommand();
   StopExecutor();
   motion_authorization_subscription_.reset();
@@ -244,14 +251,19 @@ hardware_interface::CallbackReturn MecanumHardware::on_cleanup(
   imu_state_subscription_.reset();
   motor_state_subscription_.reset();
   motor_command_publisher_.reset();
-  {
-    std::lock_guard<std::mutex> lock(authorization_mutex_);
-    motion_authorization_ = 0U;
-    heartbeat_session_id_ = 0U;
-    heartbeat_ready_ = false;
-    has_heartbeat_ = false;
+  for (auto& entry : joints_) {
+    entry.second.state = {};
+    entry.second.command = {};
   }
-  ResetChassisAdrc();
+  {
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    velocity_rad_s_.fill(0.0);
+    position_rad_.fill(0.0);
+    yaw_rate_rad_s_ = 0.0;
+    maximum_rps_ = 0.0;
+  }
+  reconnect_gate_.Reset(SteadyClock::now());
+  executor_failed_.store(false, std::memory_order_release);
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -274,6 +286,7 @@ hardware_interface::CallbackReturn MecanumHardware::on_deactivate(
     const rclcpp_lifecycle::State&) {
   active_ = false;
   ResetChassisAdrc();
+  reconnect_gate_.Reset(SteadyClock::now());
   SendZeroMotorCommand();
   for (auto& entry : joints_) {
     entry.second.command.velocity = 0.0;
@@ -307,23 +320,28 @@ MecanumHardware::export_command_interfaces() {
 
 hardware_interface::return_type MecanumHardware::read(const rclcpp::Time&,
                                                       const rclcpp::Duration&) {
-  std::array<double, hardware::kWheelCount> velocity{};
-  std::array<double, hardware::kWheelCount> position{};
-  bool fresh = false;
-  {
-    std::lock_guard<std::mutex> lock(feedback_mutex_);
-    fresh = FeedbackIsFresh(SteadyClock::now());
-    velocity = velocity_rad_s_;
-    position = position_rad_;
-  }
-  if (active_ && !fresh) {
-    ResetChassisAdrc();
-    SendZeroMotorCommand();
-    if (!MotionIsAuthorized() || FeedbackCanSettle(SteadyClock::now())) {
+  if (active_) {
+    if (executor_failed_.load(std::memory_order_acquire)) {
+      ResetChassisAdrc();
+      SendZeroMotorCommand();
+      return hardware_interface::return_type::ERROR;
+    }
+    const auto reconnect = EvaluateReconnect(SteadyClock::now());
+    if (!reconnect.ready) {
+      ResetChassisAdrc();
+      SendZeroMotorCommand();
+      for (const auto& name : joint_names_) {
+        joints_.at(name).state.velocity = 0.0;
+      }
       return hardware_interface::return_type::OK;
     }
-    LogFeedbackFailure(SteadyClock::now());
-    return hardware_interface::return_type::ERROR;
+  }
+  std::array<double, hardware::kWheelCount> velocity{};
+  std::array<double, hardware::kWheelCount> position{};
+  {
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    velocity = velocity_rad_s_;
+    position = position_rad_;
   }
   for (std::size_t wheel = 0U; wheel < hardware::kWheelCount; ++wheel) {
     auto& joint = joints_.at(joint_names_[wheel]);
@@ -343,24 +361,11 @@ hardware_interface::return_type MecanumHardware::write(
     SendZeroMotorCommand();
     return hardware_interface::return_type::ERROR;
   }
-  if (!MotionIsAuthorized()) {
+  const auto reconnect = EvaluateReconnect(SteadyClock::now());
+  if (!reconnect.ready) {
     ResetChassisAdrc();
     SendZeroMotorCommand();
     return hardware_interface::return_type::OK;
-  }
-  bool feedback_fresh = false;
-  {
-    std::lock_guard<std::mutex> lock(feedback_mutex_);
-    feedback_fresh = FeedbackIsFresh(SteadyClock::now());
-  }
-  if (!feedback_fresh) {
-    ResetChassisAdrc();
-    SendZeroMotorCommand();
-    if (FeedbackCanSettle(SteadyClock::now())) {
-      return hardware_interface::return_type::OK;
-    }
-    LogFeedbackFailure(SteadyClock::now());
-    return hardware_interface::return_type::ERROR;
   }
   if (!SendMotorCommand(period.seconds())) {
     ResetChassisAdrc();
@@ -372,9 +377,12 @@ hardware_interface::return_type MecanumHardware::write(
 
 void MecanumHardware::MotorStateCallback(
     const mentor_pi_interfaces::msg::MotorState::SharedPtr message) {
+  const auto now = SteadyClock::now();
   const auto maximum_rps = hardware::MotorMaximumRps(message->motor_model);
   const auto ticks = hardware::MotorTicksPerRevolution(message->motor_model);
   if (!maximum_rps || !ticks) {
+    reconnect_gate_.ObserveFeedback(hardware::FeedbackStream::kMotor, false,
+                                    now);
     return;
   }
   std::array<double, hardware::kWheelCount> velocity{};
@@ -389,26 +397,31 @@ void MecanumHardware::MotorStateCallback(
     position[wheel] = direction * hardware::EncoderCountToRadians(
                                       message->encoder_count[motor], *ticks);
     if (!std::isfinite(velocity[wheel]) || !std::isfinite(position[wheel])) {
+      reconnect_gate_.ObserveFeedback(hardware::FeedbackStream::kMotor, false,
+                                      now);
       return;
     }
   }
-  std::lock_guard<std::mutex> lock(feedback_mutex_);
-  velocity_rad_s_ = velocity;
-  position_rad_ = position;
-  maximum_rps_ = *maximum_rps;
-  last_motor_state_ = SteadyClock::now();
-  has_motor_state_ = true;
+  {
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    velocity_rad_s_ = velocity;
+    position_rad_ = position;
+    maximum_rps_ = *maximum_rps;
+  }
+  reconnect_gate_.ObserveFeedback(hardware::FeedbackStream::kMotor, true, now);
 }
 
 void MecanumHardware::ImuStateCallback(
     const mentor_pi_interfaces::msg::ImuState::SharedPtr message) {
+  const auto now = SteadyClock::now();
   const double yaw_rate =
       static_cast<double>(message->angular_velocity_rad_s[2]);
-  std::lock_guard<std::mutex> lock(feedback_mutex_);
-  last_imu_state_ = SteadyClock::now();
-  has_imu_state_ = true;
-  imu_valid_ = message->valid && std::isfinite(yaw_rate);
-  yaw_rate_rad_s_ = imu_valid_ ? yaw_rate : 0.0;
+  const bool valid = message->valid && std::isfinite(yaw_rate);
+  {
+    std::lock_guard<std::mutex> lock(feedback_mutex_);
+    yaw_rate_rad_s_ = valid ? yaw_rate : 0.0;
+  }
+  reconnect_gate_.ObserveFeedback(hardware::FeedbackStream::kImu, valid, now);
 }
 
 void MecanumHardware::HeartbeatCallback(
@@ -417,19 +430,13 @@ void MecanumHardware::HeartbeatCallback(
       message->agent_session_id != 0U &&
       (message->state == mentor_pi_interfaces::msg::Heartbeat::READY ||
        message->state == mentor_pi_interfaces::msg::Heartbeat::DEGRADED);
-  std::lock_guard<std::mutex> lock(authorization_mutex_);
-  heartbeat_session_id_ = message->agent_session_id;
-  heartbeat_ready_ = ready;
-  has_heartbeat_ = true;
+  reconnect_gate_.ObserveHeartbeat(
+      message->agent_session_id, message->uptime_ms, ready, SteadyClock::now());
 }
 
 void MecanumHardware::MotionAuthorizationCallback(
     const std_msgs::msg::UInt64::SharedPtr message) {
-  std::lock_guard<std::mutex> lock(authorization_mutex_);
-  if (message->data != motion_authorization_) {
-    authorization_changed_at_ = SteadyClock::now();
-  }
-  motion_authorization_ = message->data;
+  reconnect_gate_.ObserveAuthorization(message->data, SteadyClock::now());
 }
 
 bool MecanumHardware::StartExecutor() {
@@ -439,12 +446,17 @@ bool MecanumHardware::StartExecutor() {
   try {
     executor_ = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
     executor_->add_node(node_);
+    executor_stop_requested_.store(false, std::memory_order_release);
     executor_thread_ = std::thread([this]() {
       try {
-        executor_->spin();
+        while (!executor_stop_requested_.load(std::memory_order_acquire)) {
+          executor_->spin_once(std::chrono::milliseconds(100));
+        }
       } catch (...) {
-        executor_failed_.store(true, std::memory_order_release);
-        SendZeroMotorCommand();
+        if (!executor_stop_requested_.load(std::memory_order_acquire)) {
+          executor_failed_.store(true, std::memory_order_release);
+          SendZeroMotorCommand();
+        }
       }
     });
   } catch (...) {
@@ -459,6 +471,7 @@ bool MecanumHardware::StartExecutor() {
 }
 
 void MecanumHardware::StopExecutor() {
+  executor_stop_requested_.store(true, std::memory_order_release);
   if (executor_) {
     executor_->cancel();
   }
@@ -471,68 +484,7 @@ void MecanumHardware::StopExecutor() {
   executor_.reset();
 }
 
-bool MecanumHardware::FeedbackIsFresh(SteadyClock::time_point now) const {
-  return has_motor_state_ && has_imu_state_ && imu_valid_ &&
-         now - last_motor_state_ <= feedback_timeout_ &&
-         now - last_imu_state_ <= imu_timeout_;
-}
-
-bool MecanumHardware::FeedbackCanSettle(SteadyClock::time_point now) const {
-  bool waiting_for_motor = false;
-  bool waiting_for_imu = false;
-  {
-    std::lock_guard<std::mutex> lock(feedback_mutex_);
-    waiting_for_motor = !has_motor_state_;
-    waiting_for_imu = !has_imu_state_;
-    if ((!waiting_for_motor && now - last_motor_state_ > feedback_timeout_) ||
-        (!waiting_for_imu &&
-         (!imu_valid_ || now - last_imu_state_ > imu_timeout_)) ||
-        (!waiting_for_motor && !waiting_for_imu)) {
-      return false;
-    }
-  }
-  std::lock_guard<std::mutex> lock(authorization_mutex_);
-  const auto settling_time = now - authorization_changed_at_;
-  return (!waiting_for_motor || settling_time <= feedback_timeout_) &&
-         (!waiting_for_imu || settling_time <= imu_timeout_);
-}
-
-void MecanumHardware::LogFeedbackFailure(SteadyClock::time_point now) const {
-  if (!node_) {
-    return;
-  }
-  bool has_motor = false;
-  bool has_imu = false;
-  bool imu_valid = false;
-  long long motor_age_ms = -1;
-  long long imu_age_ms = -1;
-  {
-    std::lock_guard<std::mutex> lock(feedback_mutex_);
-    has_motor = has_motor_state_;
-    has_imu = has_imu_state_;
-    imu_valid = imu_valid_;
-    if (has_motor) {
-      motor_age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                         now - last_motor_state_)
-                         .count();
-    }
-    if (has_imu) {
-      imu_age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                       now - last_imu_state_)
-                       .count();
-    }
-  }
-  RCLCPP_ERROR_THROTTLE(
-      node_->get_logger(), *node_->get_clock(), 1000,
-      "authorized feedback timeout: motor_received=%d motor_age_ms=%lld "
-      "motor_timeout_ms=%lld imu_received=%d imu_valid=%d imu_age_ms=%lld "
-      "imu_timeout_ms=%lld; zero motor command sent",
-      has_motor, motor_age_ms,
-      static_cast<long long>(feedback_timeout_.count()), has_imu, imu_valid,
-      imu_age_ms, static_cast<long long>(imu_timeout_.count()));
-}
-
-bool MecanumHardware::MotionIsAuthorized() const {
+bool MecanumHardware::AuthorizationPublisherIsValid() const {
   if (!node_ || !motion_authorization_subscription_) {
     return false;
   }
@@ -544,15 +496,35 @@ bool MecanumHardware::MotionIsAuthorized() const {
       publisher_information.front().node_namespace() != "/" + robot_name_) {
     return false;
   }
-  std::lock_guard<std::mutex> lock(authorization_mutex_);
-  const std::uint64_t authorization = motion_authorization_;
-  const std::uint32_t configuration_generation =
-      static_cast<std::uint32_t>(authorization >> 32U);
-  const std::uint32_t authorized_session =
-      static_cast<std::uint32_t>(authorization);
-  return heartbeat_ready_ && has_heartbeat_ && configuration_generation != 0U &&
-         authorized_session != 0U &&
-         authorized_session == heartbeat_session_id_;
+  return true;
+}
+
+hardware::ReconnectStatus MecanumHardware::EvaluateReconnect(
+    SteadyClock::time_point now) {
+  const auto status =
+      reconnect_gate_.Evaluate(AuthorizationPublisherIsValid(), now);
+  LogReconnectTransition(status);
+  return status;
+}
+
+void MecanumHardware::LogReconnectTransition(
+    const hardware::ReconnectStatus& status) const {
+  if (!node_ || !status.transition) {
+    return;
+  }
+  if (status.ready) {
+    RCLCPP_INFO(node_->get_logger(),
+                "reconnect recovery complete: reason=%s session=%u "
+                "uptime_ms=%u authorization_generation=%u",
+                hardware::RecoveryReasonName(status.reason), status.session_id,
+                status.uptime_ms, status.authorization_generation);
+  } else {
+    RCLCPP_WARN(node_->get_logger(),
+                "motion inhibited for reconnect recovery: reason=%s "
+                "session=%u uptime_ms=%u authorization_generation=%u",
+                hardware::RecoveryReasonName(status.reason), status.session_id,
+                status.uptime_ms, status.authorization_generation);
+  }
 }
 
 void MecanumHardware::SendZeroMotorCommand() {

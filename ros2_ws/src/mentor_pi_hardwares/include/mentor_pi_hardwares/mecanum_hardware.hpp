@@ -39,6 +39,8 @@ class MecanumHardware : public hardware_interface::SystemInterface {
       const rclcpp_lifecycle::State& previous_state) override;
   hardware_interface::CallbackReturn on_cleanup(
       const rclcpp_lifecycle::State& previous_state) override;
+  hardware_interface::CallbackReturn on_error(
+      const rclcpp_lifecycle::State& previous_state) override;
   hardware_interface::CallbackReturn on_activate(
       const rclcpp_lifecycle::State& previous_state) override;
   hardware_interface::CallbackReturn on_deactivate(
@@ -67,10 +69,10 @@ class MecanumHardware : public hardware_interface::SystemInterface {
       const std_msgs::msg::UInt64::SharedPtr message);
   bool StartExecutor();
   void StopExecutor();
-  bool FeedbackIsFresh(SteadyClock::time_point now) const;
-  bool FeedbackCanSettle(SteadyClock::time_point now) const;
-  void LogFeedbackFailure(SteadyClock::time_point now) const;
-  bool MotionIsAuthorized() const;
+  hardware_interface::CallbackReturn Teardown();
+  bool AuthorizationPublisherIsValid() const;
+  hardware::ReconnectStatus EvaluateReconnect(SteadyClock::time_point now);
+  void LogReconnectTransition(const hardware::ReconnectStatus& status) const;
   void ResetChassisAdrc();
   void SendZeroMotorCommand();
   bool SendMotorCommand(double period_seconds);
@@ -95,15 +97,13 @@ class MecanumHardware : public hardware_interface::SystemInterface {
   std::map<std::string, Joint> joints_;
 
   mutable std::mutex feedback_mutex_;
-  mutable std::mutex authorization_mutex_;
   std::array<double, hardware::kWheelCount> velocity_rad_s_{};
   std::array<double, hardware::kWheelCount> position_rad_{};
   double yaw_rate_rad_s_{0.0};
   double maximum_rps_{0.0};
-  SteadyClock::time_point last_motor_state_{};
-  SteadyClock::time_point last_imu_state_{};
-  std::chrono::milliseconds feedback_timeout_{500};
-  std::chrono::milliseconds imu_timeout_{500};
+  std::chrono::milliseconds feedback_timeout_{100};
+  std::chrono::milliseconds imu_timeout_{100};
+  hardware::ReconnectGate reconnect_gate_{};
   std::array<hardware::FirstOrderLadrc, 3U> chassis_adrc_{};
   std::array<hardware::FirstOrderLowPass, 3U> measurement_lpf_{};
   std::array<double, 3U> applied_correction_{};
@@ -111,15 +111,8 @@ class MecanumHardware : public hardware_interface::SystemInterface {
   double wheel_projection_sum_m_{0.14};
   double linear_adrc_input_gain_per_second_{5.0};
   double yaw_adrc_input_gain_per_second_{5.0};
-  std::uint64_t motion_authorization_{0U};
-  SteadyClock::time_point authorization_changed_at_{};
-  std::uint32_t heartbeat_session_id_{0U};
-  bool heartbeat_ready_{false};
-  bool has_heartbeat_{false};
   std::atomic<bool> executor_failed_{false};
-  bool has_motor_state_{false};
-  bool has_imu_state_{false};
-  bool imu_valid_{false};
+  std::atomic<bool> executor_stop_requested_{false};
   bool active_{false};
   std::string robot_name_{"mentor_pi"};
 };

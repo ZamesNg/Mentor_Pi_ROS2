@@ -59,8 +59,20 @@ Test these cases while commanded targets are zero:
 1. stop the application; the Agent remains active;
 2. restart the Agent; the previous authorization becomes invalid;
 3. unplug/replug USB; the service reconnects and a new session is configured;
-4. stop the Agent; applications remain disarmed and stale feedback is rejected;
-5. start the Agent; motion stays zero until supervisor configuration succeeds.
+4. stop the Agent; hardware components and controllers remain active and
+   claimed, while hardware outputs are inhibited and wheel velocities read
+   zero;
+5. start the Agent; motion stays zero until the supervisor publishes a fresh
+   generation for the current session and every required feedback stream has
+   supplied a new valid sample.
+
+On Humble 2.54, do not use a recoverable transport or feedback interruption to
+force a hardware `ERROR`: that transition removes interfaces and leaves the
+component unconfigured without automatically restoring controller claims.
+The Mentor Pi hardware plugins instead keep their lifecycle active during
+transparent reconnect recovery. Genuine local plugin failures still enter the
+normal `ros2_control` error transition and run a complete endpoint teardown so
+the component can be configured again.
 
 Use `journalctl -u mentor-pi-agent.service` and ROS diagnostics to retain the
 session transitions. Never configure systemd to start the ROS application.

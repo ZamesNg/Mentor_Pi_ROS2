@@ -213,6 +213,13 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   mentor_pi_interfaces::msg::ImuState imu;
   imu.valid = true;
   imu.angular_velocity_rad_s.fill(0.0F);
+  mentor_pi_interfaces::msg::Heartbeat heartbeat;
+  heartbeat.agent_session_id = 42U;
+  heartbeat.sequence = 100U;
+  heartbeat.uptime_ms = 1000U;
+  heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
+  std_msgs::msg::UInt64 authorization;
+  authorization.data = (UINT64_C(1) << 32U) | UINT64_C(42);
   ASSERT_TRUE(WaitUntil(
       &executor,
       [&hardware, &states]() {
@@ -222,7 +229,10 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
         }
         return std::fabs(states[1].get_value()) > 1.0;
       },
-      [&state_publisher, &imu_publisher, &feedback, &imu]() {
+      [&heartbeat_publisher, &authorization_publisher, &state_publisher,
+       &imu_publisher, &heartbeat, &authorization, &feedback, &imu]() {
+        heartbeat_publisher->publish(heartbeat);
+        authorization_publisher->publish(authorization);
         state_publisher->publish(feedback);
         imu_publisher->publish(imu);
       }));
@@ -239,20 +249,6 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   for (std::size_t index = 0U; index < commands.size(); ++index) {
     commands[index].set_value(static_cast<double>(index + 1U) * kTwoPi);
   }
-  received.reset();
-  EXPECT_EQ(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)),
-            ReturnType::OK);
-  ASSERT_TRUE(WaitUntil(
-      &executor, [&received]() { return received.has_value(); }, []() {}));
-  EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
-
-  mentor_pi_interfaces::msg::Heartbeat heartbeat;
-  heartbeat.agent_session_id = 42U;
-  heartbeat.sequence = 100U;
-  heartbeat.uptime_ms = 1000U;
-  heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
-  std_msgs::msg::UInt64 authorization;
-  authorization.data = (UINT64_C(1) << 32U) | UINT64_C(42);
   const auto received_motion_command = [&received]() {
     return received.has_value() && received->target_rps[0] > 0.0F &&
            received->target_rps[1] > 0.0F && received->target_rps[2] < 0.0F &&
@@ -279,18 +275,19 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   }
 
   imu.valid = false;
+  received.reset();
   ASSERT_TRUE(WaitUntil(
       &executor,
-      [&hardware]() {
+      [&hardware, &received_zero_command]() {
         return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-               ReturnType::ERROR;
+                   ReturnType::OK &&
+               received_zero_command();
       },
       [&imu_publisher, &imu]() { imu_publisher->publish(imu); }));
-  received.reset();
-  ASSERT_TRUE(WaitUntil(&executor, received_zero_command, [&hardware]() {
-    static_cast<void>(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)));
-  }));
   imu.valid = true;
+  received.reset();
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_motion_command, publish_state_and_write));
 
   authorization.data = UINT64_C(42);
   received.reset();
@@ -320,6 +317,51 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   ASSERT_TRUE(
       WaitUntil(&executor, received_motion_command, publish_state_and_write));
 
+  heartbeat.agent_session_id = 43U;
+  heartbeat.uptime_ms = 10U;
+  authorization.data = (UINT64_C(1) << 32U) | UINT64_C(43);
+  received.reset();
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_zero_command, publish_state_and_write));
+  for (int iteration = 0; iteration < 5; ++iteration) {
+    publish_state_and_write();
+    executor.spin_some();
+    EXPECT_TRUE(received_zero_command());
+  }
+  authorization.data = (UINT64_C(2) << 32U) | UINT64_C(43);
+  received.reset();
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_motion_command, publish_state_and_write));
+
+  heartbeat.uptime_ms = 1U;
+  received.reset();
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_zero_command, publish_state_and_write));
+  authorization.data = (UINT64_C(3) << 32U) | UINT64_C(43);
+  heartbeat.uptime_ms = 2U;
+  received.reset();
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_motion_command, publish_state_and_write));
+
+  std::array<double, 4U> frozen_positions{};
+  for (std::size_t wheel = 0U; wheel < frozen_positions.size(); ++wheel) {
+    frozen_positions[wheel] = states[wheel * 2U].get_value();
+  }
+  std::this_thread::sleep_for(110ms);
+  received.reset();
+  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
+  for (std::size_t index = 1U; index < states.size(); index += 2U) {
+    EXPECT_DOUBLE_EQ(states[index].get_value(), 0.0);
+  }
+  for (std::size_t wheel = 0U; wheel < frozen_positions.size(); ++wheel) {
+    EXPECT_DOUBLE_EQ(states[wheel * 2U].get_value(), frozen_positions[wheel]);
+  }
+  ASSERT_TRUE(WaitUntil(&executor, received_zero_command, []() {}));
+  received.reset();
+  ASSERT_TRUE(
+      WaitUntil(&executor, received_motion_command, publish_state_and_write));
+
   commands[0].set_value(std::numeric_limits<double>::quiet_NaN());
   received.reset();
   EXPECT_EQ(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)),
@@ -327,27 +369,16 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   ASSERT_TRUE(WaitUntil(
       &executor, [&received]() { return received.has_value(); }, []() {}));
   EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
-
-  std::this_thread::sleep_for(110ms);
-  received.reset();
-  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
-            ReturnType::ERROR);
-  ASSERT_TRUE(WaitUntil(
-      &executor, [&received]() { return received.has_value(); }, []() {}));
-  EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
-
-  received.reset();
-  ASSERT_EQ(hardware->on_deactivate(rclcpp_lifecycle::State()),
+  ASSERT_EQ(hardware->on_error(rclcpp_lifecycle::State()),
             CallbackReturn::SUCCESS);
-  ASSERT_TRUE(WaitUntil(
-      &executor, [&received]() { return received.has_value(); }, []() {}));
-  EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
+  ASSERT_EQ(hardware->on_configure(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
   EXPECT_EQ(hardware->on_cleanup(rclcpp_lifecycle::State()),
             CallbackReturn::SUCCESS);
   static_cast<void>(command_subscription);
 }
 
-TEST_F(HardwarePluginTest, MecanumAllowsInitialFeedbackToSettle) {
+TEST_F(HardwarePluginTest, MecanumRemainsInhibitedWithoutFeedback) {
   constexpr char kRobotName[] = "mecanum_settling_test";
   auto hardware = loader_.createSharedInstance("mentor_pi/MecanumHardware");
   ASSERT_EQ(hardware->on_init(MecanumInfo(kRobotName)),
@@ -397,17 +428,14 @@ TEST_F(HardwarePluginTest, MecanumAllowsInitialFeedbackToSettle) {
     std::this_thread::sleep_for(5ms);
   }
 
-  ASSERT_TRUE(WaitUntil(
-      &executor,
-      [&hardware]() {
-        return hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-               ReturnType::ERROR;
-      },
-      [&heartbeat_publisher, &authorization_publisher, &heartbeat,
-       &authorization]() {
-        heartbeat_publisher->publish(heartbeat);
-        authorization_publisher->publish(authorization);
-      }));
+  std::this_thread::sleep_for(110ms);
+  heartbeat_publisher->publish(heartbeat);
+  authorization_publisher->publish(authorization);
+  executor.spin_some();
+  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
+  EXPECT_EQ(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
 
   EXPECT_EQ(hardware->on_deactivate(rclcpp_lifecycle::State()),
             CallbackReturn::SUCCESS);
@@ -415,7 +443,7 @@ TEST_F(HardwarePluginTest, MecanumAllowsInitialFeedbackToSettle) {
             CallbackReturn::SUCCESS);
 }
 
-TEST_F(HardwarePluginTest, AckermannAllowsInitialFeedbackToSettle) {
+TEST_F(HardwarePluginTest, AckermannRemainsInhibitedWithoutFeedback) {
   constexpr char kRobotName[] = "ackermann_settling_test";
   auto hardware = loader_.createSharedInstance("mentor_pi/AckermannHardware");
   ASSERT_EQ(hardware->on_init(AckermannInfo(kRobotName)),
@@ -465,17 +493,14 @@ TEST_F(HardwarePluginTest, AckermannAllowsInitialFeedbackToSettle) {
     std::this_thread::sleep_for(5ms);
   }
 
-  ASSERT_TRUE(WaitUntil(
-      &executor,
-      [&hardware]() {
-        return hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-               ReturnType::ERROR;
-      },
-      [&heartbeat_publisher, &authorization_publisher, &heartbeat,
-       &authorization]() {
-        heartbeat_publisher->publish(heartbeat);
-        authorization_publisher->publish(authorization);
-      }));
+  std::this_thread::sleep_for(110ms);
+  heartbeat_publisher->publish(heartbeat);
+  authorization_publisher->publish(authorization);
+  executor.spin_some();
+  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
+  EXPECT_EQ(hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)),
+            ReturnType::OK);
 
   EXPECT_EQ(hardware->on_deactivate(rclcpp_lifecycle::State()),
             CallbackReturn::SUCCESS);
@@ -563,6 +588,13 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   mentor_pi_interfaces::msg::ImuState imu;
   imu.valid = true;
   imu.angular_velocity_rad_s.fill(0.0F);
+  mentor_pi_interfaces::msg::Heartbeat heartbeat;
+  heartbeat.agent_session_id = 84U;
+  heartbeat.sequence = 200U;
+  heartbeat.uptime_ms = 2000U;
+  heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
+  std_msgs::msg::UInt64 authorization;
+  authorization.data = (UINT64_C(2) << 32U) | UINT64_C(84);
   ASSERT_TRUE(WaitUntil(
       &executor,
       [&hardware, &states]() {
@@ -572,8 +604,11 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
         }
         return std::fabs(states[3].get_value()) > 1.0;
       },
-      [&motor_state_publisher, &pwm_state_publisher, &imu_publisher,
+      [&heartbeat_publisher, &authorization_publisher, &motor_state_publisher,
+       &pwm_state_publisher, &imu_publisher, &heartbeat, &authorization,
        &motor_feedback, &pwm_feedback, &imu]() {
+        heartbeat_publisher->publish(heartbeat);
+        authorization_publisher->publish(authorization);
         motor_state_publisher->publish(motor_feedback);
         pwm_state_publisher->publish(pwm_feedback);
         imu_publisher->publish(imu);
@@ -588,13 +623,6 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   commands[1].set_value(0.3);
   commands[2].set_value(2.0 * kTwoPi);
   commands[3].set_value(4.0 * kTwoPi);
-  mentor_pi_interfaces::msg::Heartbeat heartbeat;
-  heartbeat.agent_session_id = 84U;
-  heartbeat.sequence = 200U;
-  heartbeat.uptime_ms = 2000U;
-  heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
-  std_msgs::msg::UInt64 authorization;
-  authorization.data = (UINT64_C(2) << 32U) | UINT64_C(84);
   ASSERT_TRUE(WaitUntil(
       &executor,
       [&hardware]() {
@@ -667,7 +695,7 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
       &executor,
       [&hardware, &motor_received, &pwm_received]() {
         return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
-                   ReturnType::ERROR &&
+                   ReturnType::OK &&
                motor_received.has_value() && pwm_received.has_value() &&
                motor_received->target_rps == std::array<float, 4U>{} &&
                pwm_received->pulse_width_us[2] == 1500U;
@@ -676,9 +704,31 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   EXPECT_EQ(motor_received->target_rps, (std::array<float, 4U>{}));
   EXPECT_EQ(pwm_received->pulse_width_us[2], 1500U);
 
+  imu.valid = true;
   motor_received.reset();
   pwm_received.reset();
-  ASSERT_EQ(hardware->on_deactivate(rclcpp_lifecycle::State()),
+  ASSERT_TRUE(WaitUntil(
+      &executor,
+      [&hardware, &motor_received, &pwm_received]() {
+        return hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)) ==
+                   ReturnType::OK &&
+               motor_received.has_value() && pwm_received.has_value() &&
+               motor_received->target_rps != std::array<float, 4U>{} &&
+               pwm_received->pulse_width_us[2] != 1500U;
+      },
+      [&heartbeat_publisher, &authorization_publisher, &motor_state_publisher,
+       &pwm_state_publisher, &imu_publisher, &heartbeat, &authorization,
+       &motor_feedback, &pwm_feedback, &imu]() {
+        heartbeat_publisher->publish(heartbeat);
+        authorization_publisher->publish(authorization);
+        motor_state_publisher->publish(motor_feedback);
+        pwm_state_publisher->publish(pwm_feedback);
+        imu_publisher->publish(imu);
+      }));
+
+  motor_received.reset();
+  pwm_received.reset();
+  ASSERT_EQ(hardware->on_error(rclcpp_lifecycle::State()),
             CallbackReturn::SUCCESS);
   ASSERT_TRUE(WaitUntil(
       &executor,
@@ -688,6 +738,8 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
       []() {}));
   EXPECT_EQ(motor_received->target_rps, (std::array<float, 4U>{}));
   EXPECT_EQ(pwm_received->pulse_width_us[2], 1500U);
+  ASSERT_EQ(hardware->on_configure(rclcpp_lifecycle::State()),
+            CallbackReturn::SUCCESS);
   EXPECT_EQ(hardware->on_cleanup(rclcpp_lifecycle::State()),
             CallbackReturn::SUCCESS);
   static_cast<void>(motor_subscription);

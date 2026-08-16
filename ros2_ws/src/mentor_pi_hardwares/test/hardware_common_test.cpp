@@ -43,6 +43,126 @@ TEST(HardwareCommonTest, ExposesLegacyMotorProfileLimits) {
   EXPECT_FALSE(MotorMaximumRps(4U).has_value());
 }
 
+TEST(HardwareCommonTest, ReconnectGateStartsInhibitedAndRequiresFreshInputs) {
+  using namespace std::chrono_literals;
+  ReconnectGate gate;
+  ASSERT_TRUE(gate.Configure(
+      FeedbackMask(FeedbackStream::kMotor) | FeedbackMask(FeedbackStream::kImu),
+      100ms, 100ms, 100ms));
+  const auto start = ReconnectGate::TimePoint{};
+  gate.Reset(start);
+  gate.ObserveHeartbeat(7U, 1000U, true, start + 1ms);
+  gate.ObserveAuthorization((UINT64_C(1) << 32U) | UINT64_C(7), start + 1ms);
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 1ms);
+  gate.ObserveFeedback(FeedbackStream::kImu, true, start + 1ms);
+
+  const auto inhibited = gate.Evaluate(true, start + 2ms);
+  EXPECT_FALSE(inhibited.ready);
+  EXPECT_TRUE(inhibited.transition);
+  const auto ready = gate.Evaluate(true, start + 3ms);
+  EXPECT_TRUE(ready.ready);
+  EXPECT_TRUE(ready.transition);
+  EXPECT_EQ(ready.session_id, 7U);
+  EXPECT_EQ(ready.authorization_generation, 1U);
+}
+
+TEST(HardwareCommonTest, ReconnectGateRecoversSameSessionAfterEveryNewStream) {
+  using namespace std::chrono_literals;
+  ReconnectGate gate;
+  ASSERT_TRUE(gate.Configure(
+      FeedbackMask(FeedbackStream::kMotor) | FeedbackMask(FeedbackStream::kImu),
+      100ms, 100ms, 100ms));
+  const auto start = ReconnectGate::TimePoint{};
+  gate.Reset(start);
+  gate.ObserveHeartbeat(9U, 1000U, true, start + 1ms);
+  gate.ObserveAuthorization((UINT64_C(3) << 32U) | UINT64_C(9), start + 1ms);
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 1ms);
+  gate.ObserveFeedback(FeedbackStream::kImu, true, start + 1ms);
+  EXPECT_FALSE(gate.Evaluate(true, start + 2ms).ready);
+  EXPECT_TRUE(gate.Evaluate(true, start + 3ms).ready);
+
+  gate.ObserveHeartbeat(9U, 1150U, true, start + 150ms);
+  const auto stale = gate.Evaluate(true, start + 151ms);
+  EXPECT_FALSE(stale.ready);
+  EXPECT_TRUE(stale.transition);
+  EXPECT_EQ(stale.reason, RecoveryReason::kFeedbackStale);
+
+  gate.ObserveHeartbeat(9U, 1160U, true, start + 160ms);
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 160ms);
+  EXPECT_FALSE(gate.Evaluate(true, start + 161ms).ready);
+  gate.ObserveFeedback(FeedbackStream::kImu, true, start + 162ms);
+  const auto recovered = gate.Evaluate(true, start + 163ms);
+  EXPECT_TRUE(recovered.ready);
+  EXPECT_TRUE(recovered.transition);
+  EXPECT_EQ(recovered.authorization_generation, 3U);
+}
+
+TEST(HardwareCommonTest, ReconnectGateRequiresNewGenerationAfterRestart) {
+  using namespace std::chrono_literals;
+  ReconnectGate gate;
+  ASSERT_TRUE(gate.Configure(
+      FeedbackMask(FeedbackStream::kMotor) | FeedbackMask(FeedbackStream::kImu),
+      100ms, 100ms, 100ms));
+  const auto start = ReconnectGate::TimePoint{};
+  gate.Reset(start);
+  gate.ObserveHeartbeat(4U, 1000U, true, start + 1ms);
+  gate.ObserveAuthorization((UINT64_C(8) << 32U) | UINT64_C(4), start + 1ms);
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 1ms);
+  gate.ObserveFeedback(FeedbackStream::kImu, true, start + 1ms);
+  EXPECT_FALSE(gate.Evaluate(true, start + 2ms).ready);
+  EXPECT_TRUE(gate.Evaluate(true, start + 3ms).ready);
+
+  gate.ObserveHeartbeat(5U, 20U, true, start + 10ms);
+  gate.ObserveAuthorization((UINT64_C(8) << 32U) | UINT64_C(5), start + 10ms);
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 10ms);
+  gate.ObserveFeedback(FeedbackStream::kImu, true, start + 10ms);
+  const auto changed = gate.Evaluate(true, start + 11ms);
+  EXPECT_FALSE(changed.ready);
+  EXPECT_EQ(changed.reason, RecoveryReason::kSessionChanged);
+  gate.ObserveHeartbeat(5U, 30U, true, start + 12ms);
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 12ms);
+  gate.ObserveFeedback(FeedbackStream::kImu, true, start + 12ms);
+  EXPECT_FALSE(gate.Evaluate(true, start + 13ms).ready);
+  gate.ObserveAuthorization((UINT64_C(9) << 32U) | UINT64_C(5), start + 14ms);
+  EXPECT_TRUE(gate.Evaluate(true, start + 15ms).ready);
+
+  gate.ObserveHeartbeat(5U, 100U, true, start + 20ms);
+  gate.ObserveHeartbeat(5U, 10U, true, start + 21ms);
+  gate.ObserveAuthorization((UINT64_C(9) << 32U) | UINT64_C(5), start + 21ms);
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 21ms);
+  gate.ObserveFeedback(FeedbackStream::kImu, true, start + 21ms);
+  const auto regressed = gate.Evaluate(true, start + 22ms);
+  EXPECT_FALSE(regressed.ready);
+  EXPECT_EQ(regressed.reason, RecoveryReason::kUptimeRegressed);
+  gate.ObserveHeartbeat(5U, 20U, true, start + 23ms);
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 23ms);
+  gate.ObserveFeedback(FeedbackStream::kImu, true, start + 23ms);
+  EXPECT_FALSE(gate.Evaluate(true, start + 24ms).ready);
+  gate.ObserveAuthorization((UINT64_C(10) << 32U) | UINT64_C(5), start + 25ms);
+  EXPECT_TRUE(gate.Evaluate(true, start + 26ms).ready);
+}
+
+TEST(HardwareCommonTest, ReconnectGateRejectsStaleHeartbeatAndAuthorization) {
+  using namespace std::chrono_literals;
+  ReconnectGate gate;
+  ASSERT_TRUE(gate.Configure(FeedbackMask(FeedbackStream::kMotor), 100ms, 100ms,
+                             100ms));
+  const auto start = ReconnectGate::TimePoint{};
+  gate.Reset(start);
+  gate.ObserveHeartbeat(2U, 100U, true, start + 1ms);
+  gate.ObserveAuthorization((UINT64_C(1) << 32U) | UINT64_C(2), start + 1ms);
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 1ms);
+  EXPECT_FALSE(gate.Evaluate(true, start + 2ms).ready);
+  EXPECT_TRUE(gate.Evaluate(true, start + 3ms).ready);
+
+  gate.ObserveFeedback(FeedbackStream::kMotor, true, start + 1501ms);
+  const auto heartbeat_stale = gate.Evaluate(true, start + 1502ms);
+  EXPECT_FALSE(heartbeat_stale.ready);
+  EXPECT_EQ(heartbeat_stale.reason, RecoveryReason::kHeartbeatStale);
+  gate.ObserveAuthorization(0U, start + 1503ms);
+  EXPECT_FALSE(gate.Evaluate(true, start + 1504ms).ready);
+}
+
 TEST(HardwareCommonTest, FirstOrderLowPassUsesMeasuredPeriodAndResets) {
   FirstOrderLowPass filter;
   EXPECT_FALSE(filter.Configure(0.0));

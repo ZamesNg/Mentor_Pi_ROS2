@@ -43,11 +43,21 @@ must be diagnosed at the publisher, Agent, and DDS discovery path rather than
 hidden with a wider window. The firmware's independent 198 ms per-motor leases
 remain the primary motion-loss boundary.
 
-When a new supervisor authorization arrives before the first feedback samples,
-the hardware plugin sends only zero actuator commands while allowing each
-missing stream up to its configured feedback window to settle. An invalid
-sample, a previously active stream becoming stale, or expiry of that bounded
-startup window still returns a hardware error.
+The plugins use a fixed 1500 ms heartbeat freshness limit matching the
+configuration supervisor. Missing, invalid, or stale required feedback;
+missing, stale, or not-ready heartbeat; invalid authorization; Agent-session
+change; and MCU-uptime regression enter transparent recovery. Recovery
+publishes zero motor commands, centers Ackermann PWM3, resets the chassis
+ADRCs and measurement filters, exposes zero wheel velocities, and freezes the
+last exported positions. The hardware lifecycle and controller interface
+claims remain active.
+
+Recovery requires a later heartbeat and a later valid sample from every
+vehicle-required feedback stream. After an Agent-session change or MCU-uptime
+regression, the supervisor generation must also be nonzero, match the current
+session, and differ from the last accepted generation. This prevents cached
+feedback or a transient-local authorization from the previous session from
+rearming motion.
 
 The measured Ackermann runtime geometry is a `0.135 m` wheelbase, `0.140 m`
 wheel track, `0.0325 m` wheel radius, and `+/-0.6 rad` steering limit. Its
@@ -120,8 +130,8 @@ The chassis defaults are provisional: linear input gain `5 s^-1`, controller
 bandwidth `1 rad/s`, and observer bandwidth `3 rad/s`; mecanum yaw uses the same
 values, while Ackermann yaw uses coefficient `30` times measured speed. Missing,
 invalid, or older-than-100-ms IMU or actuator feedback resets chassis ADRC,
-publishes zero/center commands, and enters the existing authorized hardware
-error path. Acceleration is not integrated for velocity feedback.
+publishes zero/center commands, and enters transparent recovery. Acceleration
+is not integrated for velocity feedback.
 
 ## Lifecycle and failure behavior
 
@@ -142,11 +152,23 @@ depth one, matching the firmware command/state contract. Firmware remains the
 final authority for command validation, model and implementation limits,
 independent 198 ms leases, and session-loss disarming.
 
-Missing or invalid authorization is an expected inhibited state, not a
-`ros2_control` hardware failure: `read` and `write` keep their interfaces
-available while publishing zero commands. Executor failure, an invalid command
-while authorized, or stale feedback while authorized returns an error and
-triggers the fail-coupled hardware shutdown.
+Recoverable communication, session, authorization, and required-feedback
+interruptions are expected inhibited states, not `ros2_control` hardware
+failures: `read` and `write` return `OK` so interfaces and controller claims
+remain available. An uninterrupted live controller reference resumes only
+after the complete recovery gate passes; each drive controller's existing
+100 ms reference timeout prevents an abandoned reference from replaying.
+
+On Humble controller manager 2.54, a hardware `read()` or `write()` error calls
+the SystemInterface error transition and removes its interfaces. A successful
+default `on_error()` leaves the component `unconfigured`; controller manager
+does not automatically configure, activate, and reclaim its controllers.
+Therefore `ERROR` is reserved for local plugin failures such as executor
+failure, a non-finite command, or an invalid control calculation. Both plugins
+override `on_error()` to send zero, stop and join the private executor, release
+ROS endpoints, clear cached state, and leave the component safely
+reconfigurable. See the
+[ros2_control 2.54 implementation](https://github.com/ros-controls/ros2_control/blob/2.54.0/hardware_interface/src/system.cpp#L213-L253).
 
 ## Developer entry points
 

@@ -2,8 +2,10 @@
 #define MENTOR_PI_HARDWARES__HARDWARE_COMMON_HPP_
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 
 namespace mentor_pi::hardware {
@@ -53,6 +55,98 @@ std::optional<float> RadiansPerSecondToRps(double radians_per_second,
                                            double maximum_rps);
 std::optional<double> MotorMaximumRps(std::uint8_t model);
 std::optional<std::uint32_t> MotorTicksPerRevolution(std::uint8_t model);
+
+enum class FeedbackStream : std::uint8_t {
+  kMotor = 0x01U,
+  kImu = 0x02U,
+  kPwm = 0x04U,
+};
+
+constexpr std::uint8_t FeedbackMask(FeedbackStream stream) {
+  return static_cast<std::uint8_t>(stream);
+}
+
+enum class RecoveryReason : std::uint8_t {
+  kInitial,
+  kFeedbackMissing,
+  kFeedbackInvalid,
+  kFeedbackStale,
+  kHeartbeatMissing,
+  kHeartbeatNotReady,
+  kHeartbeatStale,
+  kAuthorizationPublisherInvalid,
+  kAuthorizationInvalid,
+  kSessionChanged,
+  kUptimeRegressed,
+};
+
+const char* RecoveryReasonName(RecoveryReason reason);
+
+struct ReconnectStatus {
+  bool ready{false};
+  bool transition{false};
+  RecoveryReason reason{RecoveryReason::kInitial};
+  std::uint32_t session_id{0U};
+  std::uint32_t uptime_ms{0U};
+  std::uint32_t authorization_generation{0U};
+};
+
+// Thread-safe host-side reconnect gate. Callbacks record observations while the
+// ros2_control loop evaluates whether cached controller references may reach
+// the firmware. A recovery always requires observations newer than its entry
+// snapshot, and an MCU/Agent restart also requires a new supervisor generation.
+class ReconnectGate {
+ public:
+  using Clock = std::chrono::steady_clock;
+  using TimePoint = Clock::time_point;
+
+  static constexpr std::chrono::milliseconds kHeartbeatTimeout{1500};
+
+  bool Configure(std::uint8_t required_feedback_mask,
+                 std::chrono::milliseconds motor_timeout,
+                 std::chrono::milliseconds imu_timeout,
+                 std::chrono::milliseconds pwm_timeout);
+  void Reset(TimePoint now);
+  void ObserveHeartbeat(std::uint32_t session_id, std::uint32_t uptime_ms,
+                        bool ready, TimePoint now);
+  void ObserveAuthorization(std::uint64_t authorization, TimePoint now);
+  void ObserveFeedback(FeedbackStream stream, bool valid, TimePoint now);
+  ReconnectStatus Evaluate(bool authorization_publisher_valid, TimePoint now);
+
+ private:
+  struct FeedbackObservation {
+    bool seen{false};
+    bool valid{false};
+    TimePoint received_at{};
+    std::uint64_t valid_sequence{0U};
+    std::chrono::milliseconds timeout{100};
+  };
+
+  static std::size_t FeedbackIndex(FeedbackStream stream);
+  void ResetLocked(TimePoint now);
+  void EnterRecoveryLocked(RecoveryReason reason, bool require_new_generation,
+                           bool force_new_snapshot = false);
+  ReconnectStatus StatusLocked(bool transition) const;
+
+  mutable std::mutex mutex_;
+  std::array<FeedbackObservation, 3U> feedback_{};
+  std::array<std::uint64_t, 3U> recovery_feedback_sequence_{};
+  std::uint8_t required_feedback_mask_{0U};
+  std::uint64_t heartbeat_sequence_{0U};
+  std::uint64_t recovery_heartbeat_sequence_{0U};
+  std::uint64_t authorization_{0U};
+  TimePoint last_heartbeat_{};
+  std::uint32_t heartbeat_session_id_{0U};
+  std::uint32_t heartbeat_uptime_ms_{0U};
+  std::uint32_t last_connected_generation_{0U};
+  RecoveryReason recovery_reason_{RecoveryReason::kInitial};
+  bool has_heartbeat_{false};
+  bool heartbeat_ready_{false};
+  bool recovering_{true};
+  bool recovery_cycle_observed_{false};
+  bool require_new_generation_{false};
+  bool transition_pending_{true};
+};
 
 class FirstOrderLowPass {
  public:

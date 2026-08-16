@@ -57,6 +57,264 @@ std::optional<std::uint32_t> MotorTicksPerRevolution(std::uint8_t model) {
   return contract->ticks_per_revolution;
 }
 
+const char* RecoveryReasonName(RecoveryReason reason) {
+  switch (reason) {
+    case RecoveryReason::kInitial:
+      return "initial inhibition";
+    case RecoveryReason::kFeedbackMissing:
+      return "required feedback missing";
+    case RecoveryReason::kFeedbackInvalid:
+      return "required feedback invalid";
+    case RecoveryReason::kFeedbackStale:
+      return "required feedback stale";
+    case RecoveryReason::kHeartbeatMissing:
+      return "heartbeat missing";
+    case RecoveryReason::kHeartbeatNotReady:
+      return "heartbeat not ready";
+    case RecoveryReason::kHeartbeatStale:
+      return "heartbeat stale";
+    case RecoveryReason::kAuthorizationPublisherInvalid:
+      return "authorization publisher invalid";
+    case RecoveryReason::kAuthorizationInvalid:
+      return "authorization invalid";
+    case RecoveryReason::kSessionChanged:
+      return "Agent session changed";
+    case RecoveryReason::kUptimeRegressed:
+      return "MCU uptime regressed";
+  }
+  return "unknown";
+}
+
+bool ReconnectGate::Configure(std::uint8_t required_feedback_mask,
+                              std::chrono::milliseconds motor_timeout,
+                              std::chrono::milliseconds imu_timeout,
+                              std::chrono::milliseconds pwm_timeout) {
+  constexpr std::uint8_t kKnownFeedbackMask =
+      FeedbackMask(FeedbackStream::kMotor) |
+      FeedbackMask(FeedbackStream::kImu) | FeedbackMask(FeedbackStream::kPwm);
+  if (required_feedback_mask == 0U ||
+      (required_feedback_mask & ~kKnownFeedbackMask) != 0U ||
+      motor_timeout.count() <= 0 || imu_timeout.count() <= 0 ||
+      pwm_timeout.count() <= 0) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  required_feedback_mask_ = required_feedback_mask;
+  feedback_[FeedbackIndex(FeedbackStream::kMotor)].timeout = motor_timeout;
+  feedback_[FeedbackIndex(FeedbackStream::kImu)].timeout = imu_timeout;
+  feedback_[FeedbackIndex(FeedbackStream::kPwm)].timeout = pwm_timeout;
+  ResetLocked(Clock::now());
+  return true;
+}
+
+void ReconnectGate::Reset(TimePoint now) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ResetLocked(now);
+}
+
+void ReconnectGate::ObserveHeartbeat(std::uint32_t session_id,
+                                     std::uint32_t uptime_ms, bool ready,
+                                     TimePoint now) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const bool session_changed =
+      has_heartbeat_ && session_id != heartbeat_session_id_;
+  const bool uptime_regressed =
+      has_heartbeat_ && !session_changed &&
+      (uptime_ms - heartbeat_uptime_ms_) >= UINT32_C(0x80000000);
+
+  heartbeat_session_id_ = session_id;
+  heartbeat_uptime_ms_ = uptime_ms;
+  heartbeat_ready_ = ready && session_id != 0U;
+  has_heartbeat_ = true;
+  last_heartbeat_ = now;
+  ++heartbeat_sequence_;
+
+  if (session_changed) {
+    EnterRecoveryLocked(RecoveryReason::kSessionChanged, true, true);
+  } else if (uptime_regressed) {
+    EnterRecoveryLocked(RecoveryReason::kUptimeRegressed, true, true);
+  } else if (!heartbeat_ready_) {
+    EnterRecoveryLocked(RecoveryReason::kHeartbeatNotReady, false);
+  }
+}
+
+void ReconnectGate::ObserveAuthorization(std::uint64_t authorization,
+                                         TimePoint) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  authorization_ = authorization;
+  const std::uint32_t generation =
+      static_cast<std::uint32_t>(authorization_ >> 32U);
+  const std::uint32_t session = static_cast<std::uint32_t>(authorization_);
+  if (generation == 0U || session == 0U ||
+      (has_heartbeat_ && session != heartbeat_session_id_)) {
+    EnterRecoveryLocked(RecoveryReason::kAuthorizationInvalid, false);
+  }
+}
+
+void ReconnectGate::ObserveFeedback(FeedbackStream stream, bool valid,
+                                    TimePoint now) {
+  const std::size_t index = FeedbackIndex(stream);
+  if (index >= feedback_.size()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto& observation = feedback_[index];
+  observation.seen = true;
+  observation.valid = valid;
+  observation.received_at = now;
+  if (valid) {
+    ++observation.valid_sequence;
+  } else if ((required_feedback_mask_ & FeedbackMask(stream)) != 0U) {
+    EnterRecoveryLocked(RecoveryReason::kFeedbackInvalid, false);
+  }
+}
+
+ReconnectStatus ReconnectGate::Evaluate(bool authorization_publisher_valid,
+                                        TimePoint now) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!authorization_publisher_valid) {
+    EnterRecoveryLocked(RecoveryReason::kAuthorizationPublisherInvalid, false);
+  } else if (!has_heartbeat_) {
+    EnterRecoveryLocked(RecoveryReason::kHeartbeatMissing, false);
+  } else if (!heartbeat_ready_) {
+    EnterRecoveryLocked(RecoveryReason::kHeartbeatNotReady, false);
+  } else if (now - last_heartbeat_ > kHeartbeatTimeout) {
+    EnterRecoveryLocked(RecoveryReason::kHeartbeatStale, false);
+  } else {
+    const std::uint32_t generation =
+        static_cast<std::uint32_t>(authorization_ >> 32U);
+    const std::uint32_t session = static_cast<std::uint32_t>(authorization_);
+    if (generation == 0U || session == 0U || session != heartbeat_session_id_) {
+      EnterRecoveryLocked(RecoveryReason::kAuthorizationInvalid, false);
+    } else {
+      for (FeedbackStream stream :
+           {FeedbackStream::kMotor, FeedbackStream::kImu,
+            FeedbackStream::kPwm}) {
+        if ((required_feedback_mask_ & FeedbackMask(stream)) == 0U) {
+          continue;
+        }
+        const auto& observation = feedback_[FeedbackIndex(stream)];
+        if (!observation.seen) {
+          EnterRecoveryLocked(RecoveryReason::kFeedbackMissing, false);
+          break;
+        }
+        if (!observation.valid) {
+          EnterRecoveryLocked(RecoveryReason::kFeedbackInvalid, false);
+          break;
+        }
+        if (now - observation.received_at > observation.timeout) {
+          EnterRecoveryLocked(RecoveryReason::kFeedbackStale, false);
+          break;
+        }
+      }
+    }
+  }
+
+  if (!recovering_) {
+    return StatusLocked(false);
+  }
+
+  const bool report_transition = transition_pending_;
+  transition_pending_ = false;
+  if (!recovery_cycle_observed_) {
+    recovery_cycle_observed_ = true;
+    return StatusLocked(report_transition);
+  }
+
+  const std::uint32_t generation =
+      static_cast<std::uint32_t>(authorization_ >> 32U);
+  const std::uint32_t session = static_cast<std::uint32_t>(authorization_);
+  bool prerequisites_ready =
+      authorization_publisher_valid && has_heartbeat_ && heartbeat_ready_ &&
+      now - last_heartbeat_ <= kHeartbeatTimeout && generation != 0U &&
+      session != 0U && session == heartbeat_session_id_ &&
+      heartbeat_sequence_ > recovery_heartbeat_sequence_;
+  if (require_new_generation_ && generation == last_connected_generation_) {
+    prerequisites_ready = false;
+  }
+  for (FeedbackStream stream :
+       {FeedbackStream::kMotor, FeedbackStream::kImu, FeedbackStream::kPwm}) {
+    if ((required_feedback_mask_ & FeedbackMask(stream)) == 0U) {
+      continue;
+    }
+    const std::size_t index = FeedbackIndex(stream);
+    const auto& observation = feedback_[index];
+    prerequisites_ready =
+        prerequisites_ready && observation.seen && observation.valid &&
+        now - observation.received_at <= observation.timeout &&
+        observation.valid_sequence > recovery_feedback_sequence_[index];
+  }
+  if (!prerequisites_ready) {
+    return StatusLocked(report_transition);
+  }
+
+  recovering_ = false;
+  require_new_generation_ = false;
+  last_connected_generation_ = generation;
+  return StatusLocked(true);
+}
+
+std::size_t ReconnectGate::FeedbackIndex(FeedbackStream stream) {
+  switch (stream) {
+    case FeedbackStream::kMotor:
+      return 0U;
+    case FeedbackStream::kImu:
+      return 1U;
+    case FeedbackStream::kPwm:
+      return 2U;
+  }
+  return 3U;
+}
+
+void ReconnectGate::ResetLocked(TimePoint now) {
+  for (auto& observation : feedback_) {
+    observation.seen = false;
+    observation.valid = false;
+    observation.received_at = now;
+    observation.valid_sequence = 0U;
+  }
+  recovery_feedback_sequence_.fill(0U);
+  heartbeat_sequence_ = 0U;
+  recovery_heartbeat_sequence_ = 0U;
+  authorization_ = 0U;
+  last_heartbeat_ = now;
+  heartbeat_session_id_ = 0U;
+  heartbeat_uptime_ms_ = 0U;
+  last_connected_generation_ = 0U;
+  recovery_reason_ = RecoveryReason::kInitial;
+  has_heartbeat_ = false;
+  heartbeat_ready_ = false;
+  recovering_ = true;
+  recovery_cycle_observed_ = false;
+  require_new_generation_ = false;
+  transition_pending_ = true;
+}
+
+void ReconnectGate::EnterRecoveryLocked(RecoveryReason reason,
+                                        bool require_new_generation,
+                                        bool force_new_snapshot) {
+  if (!recovering_ || force_new_snapshot) {
+    for (std::size_t index = 0U; index < feedback_.size(); ++index) {
+      recovery_feedback_sequence_[index] = feedback_[index].valid_sequence;
+    }
+    recovery_heartbeat_sequence_ = heartbeat_sequence_;
+    recovering_ = true;
+    recovery_cycle_observed_ = false;
+    transition_pending_ = true;
+    recovery_reason_ = reason;
+  } else if (recovery_reason_ == RecoveryReason::kInitial) {
+    recovery_reason_ = reason;
+  }
+  require_new_generation_ = require_new_generation_ || require_new_generation;
+}
+
+ReconnectStatus ReconnectGate::StatusLocked(bool transition) const {
+  return ReconnectStatus{
+      !recovering_,         transition,
+      recovery_reason_,     heartbeat_session_id_,
+      heartbeat_uptime_ms_, static_cast<std::uint32_t>(authorization_ >> 32U)};
+}
+
 bool FirstOrderLowPass::Configure(double cutoff_hz) {
   if (!std::isfinite(cutoff_hz) || cutoff_hz <= 0.0) {
     return false;
