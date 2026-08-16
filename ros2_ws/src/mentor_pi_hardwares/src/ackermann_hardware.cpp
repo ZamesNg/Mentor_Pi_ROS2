@@ -105,9 +105,9 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
   double yaw_controller_bandwidth = 0.0;
   double yaw_observer_bandwidth = 0.0;
   if (!IsValidRobotName(robot_name_) ||
-      !ParseInteger(HardwareParameter(info, "feedback_timeout_ms", "500"), 1U,
+      !ParseInteger(HardwareParameter(info, "feedback_timeout_ms", "100"), 1U,
                     10000U, &timeout_ms) ||
-      !ParseInteger(HardwareParameter(info, "imu_timeout_ms", "500"), 1U,
+      !ParseInteger(HardwareParameter(info, "imu_timeout_ms", "100"), 1U,
                     10000U, &imu_timeout_ms) ||
       !ParseInteger(HardwareParameter(info, "steering_pwm_channel", "3"),
                     static_cast<std::uint16_t>(1U),

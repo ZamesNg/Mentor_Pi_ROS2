@@ -89,8 +89,8 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
         "mentor_pi/MecanumHardware"
     )
     mecanum_parameters = parameters(mecanum)
-    assert mecanum_parameters["feedback_timeout_ms"] == "500"
-    assert mecanum_parameters["imu_timeout_ms"] == "500"
+    assert mecanum_parameters["feedback_timeout_ms"] == "100"
+    assert mecanum_parameters["imu_timeout_ms"] == "100"
     assert mecanum_parameters["wheel_radius_m"] == "0.0325"
     assert mecanum_parameters["wheel_projection_sum_m"] == "0.14"
     assert mecanum_parameters["linear_adrc_input_gain_per_second"] == "5.0"
@@ -113,8 +113,8 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert ackermann_parameters["steering_pwm_channel"] == "3"
     assert ackermann_parameters["steering_pwm_center_us"] == "1500"
     assert ackermann_parameters["steering_inverted"].lower() == "true"
-    assert ackermann_parameters["feedback_timeout_ms"] == "500"
-    assert ackermann_parameters["imu_timeout_ms"] == "500"
+    assert ackermann_parameters["feedback_timeout_ms"] == "100"
+    assert ackermann_parameters["imu_timeout_ms"] == "100"
     assert ackermann_parameters["rear_wheel_radius_m"] == "0.0325"
     assert ackermann_parameters["wheelbase_m"] == "0.135"
     assert ackermann_parameters["yaw_adrc_input_gain_per_mps"] == "30.0"

@@ -33,13 +33,15 @@ Mode-specific profiles under `config/mecanum` and `config/ackermann` own:
 - the `ros2_control` URDF and plugin selection;
 - controller parameters;
 - wheel geometry and chassis ADRC parameters;
-- `feedback_timeout_ms` and `imu_timeout_ms`, both defaulting to 500 ms;
+- `feedback_timeout_ms` and `imu_timeout_ms`, both defaulting to 100 ms;
 - Ackermann PWM channel, min/center/max pulse, inversion, angle limits, and
   command duration.
 
-The 500 ms host feedback windows tolerate ROS scheduling and discovery jitter;
-they do not extend motor authority. The firmware's independent 198 ms
-per-motor leases remain the primary motion-loss boundary.
+The host timeout does not replace transport recovery. A missing feedback stream
+must be diagnosed at the publisher, Agent, and DDS discovery path rather than
+hidden with a wider window. The firmware's independent 198 ms per-motor leases
+remain the primary motion-loss boundary.
+
 When a new supervisor authorization arrives before the first feedback samples,
 the hardware plugin sends only zero actuator commands while allowing each
 missing stream up to its configured feedback window to settle. An invalid

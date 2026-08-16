@@ -80,10 +80,10 @@ hardware_interface::CallbackReturn MecanumHardware::on_init(
   double yaw_observer_bandwidth = 0.0;
   if (!IsValidRobotName(robot_name_) ||
       !ParsePositiveMilliseconds(
-          HardwareParameter(info, "feedback_timeout_ms", "500"),
+          HardwareParameter(info, "feedback_timeout_ms", "100"),
           &feedback_timeout_) ||
       !ParsePositiveMilliseconds(
-          HardwareParameter(info, "imu_timeout_ms", "500"), &imu_timeout_) ||
+          HardwareParameter(info, "imu_timeout_ms", "100"), &imu_timeout_) ||
       !ParsePositiveDouble(HardwareParameter(info, "wheel_radius_m", "0.0325"),
                            &wheel_radius_m_) ||
       !ParsePositiveDouble(

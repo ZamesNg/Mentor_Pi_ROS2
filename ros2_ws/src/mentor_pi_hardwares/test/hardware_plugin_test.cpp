@@ -210,10 +210,6 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   EXPECT_NEAR(states[5].get_value(), 2.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[6].get_value(), -4.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[7].get_value(), -4.0 * kTwoPi, 1.0e-9);
-  std::this_thread::sleep_for(110ms);
-  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
-            ReturnType::OK);
-
   for (std::size_t index = 0U; index < commands.size(); ++index) {
     commands[index].set_value(static_cast<double>(index + 1U) * kTwoPi);
   }
@@ -306,7 +302,7 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
       &executor, [&received]() { return received.has_value(); }, []() {}));
   EXPECT_EQ(received->target_rps, (std::array<float, 4U>{}));
 
-  std::this_thread::sleep_for(510ms);
+  std::this_thread::sleep_for(110ms);
   received.reset();
   EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
             ReturnType::ERROR);
@@ -364,7 +360,7 @@ TEST_F(HardwarePluginTest, MecanumAllowsInitialFeedbackToSettle) {
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(55);
 
   const auto start = std::chrono::steady_clock::now();
-  while (std::chrono::steady_clock::now() - start < 400ms) {
+  while (std::chrono::steady_clock::now() - start < 50ms) {
     heartbeat_publisher->publish(heartbeat);
     authorization_publisher->publish(authorization);
     executor.spin_some();
@@ -432,7 +428,7 @@ TEST_F(HardwarePluginTest, AckermannAllowsInitialFeedbackToSettle) {
   authorization.data = (UINT64_C(1) << 32U) | UINT64_C(66);
 
   const auto start = std::chrono::steady_clock::now();
-  while (std::chrono::steady_clock::now() - start < 400ms) {
+  while (std::chrono::steady_clock::now() - start < 50ms) {
     heartbeat_publisher->publish(heartbeat);
     authorization_publisher->publish(authorization);
     executor.spin_some();
@@ -562,9 +558,6 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   EXPECT_NEAR(states[3].get_value(), 2.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[4].get_value(), -4.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[5].get_value(), -4.0 * kTwoPi, 1.0e-9);
-  std::this_thread::sleep_for(110ms);
-  EXPECT_EQ(hardware->read(rclcpp::Time(0), rclcpp::Duration(0, 1)),
-            ReturnType::OK);
   commands[0].set_value(0.3);
   commands[1].set_value(0.3);
   commands[2].set_value(2.0 * kTwoPi);

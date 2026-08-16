@@ -2,8 +2,8 @@ vehicle:
   robot_name: mentor_pi
   vehicle_type: ackermann
 hardware:
-  feedback_timeout_ms: 500
-  imu_timeout_ms: 500
+  feedback_timeout_ms: 100
+  imu_timeout_ms: 100
   steering_pwm_channel: 3
   steering_pwm_min_us: 500
   steering_pwm_center_us: 1500
