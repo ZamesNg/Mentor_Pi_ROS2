@@ -88,11 +88,6 @@ MotorController::MotorController(MotorControlConfiguration configuration)
       configuration_.counter_bits[index] = 16U;
       configuration_valid_ = false;
     }
-    if (configuration_.channel_wiring_sign[index] != -1 &&
-        configuration_.channel_wiring_sign[index] != 1) {
-      configuration_.channel_wiring_sign[index] = 1;
-      configuration_valid_ = false;
-    }
   }
   if (!std::isfinite(configuration_.maximum_accepted_rps) ||
       configuration_.maximum_accepted_rps <= 0.0F ||
@@ -179,9 +174,9 @@ MotorModelChange MotorController::SetModel(MotorModel model) {
     channels_[index].measured_rps = 0.0F;
     adrc_overrides_[index] = {};
   }
-  // Tick scale and direction mapping are model properties. Establish a fresh
-  // counter baseline on the next sample so changing either cannot turn the
-  // pre-change interval into a false velocity impulse.
+  // Tick scale is a model property. Establish a fresh counter baseline on the
+  // next sample so changing it cannot turn the pre-change interval into a
+  // false velocity impulse.
   encoder_initialized_ = false;
   return {OkResult(), *profile_};
 }
@@ -247,25 +242,15 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
 
   const float period_seconds = static_cast<float>(period_us) / 1000000.0F;
   for (std::size_t index = 0; index < kMotorCount; ++index) {
-    const std::int32_t raw_delta = SignedCounterDelta(
+    const std::int32_t encoder_delta = SignedCounterDelta(
         raw_encoder_counters[index], previous_counter_[index],
         configuration_.counter_bits[index]);
     previous_counter_[index] = raw_encoder_counters[index];
-    const std::int64_t signed_delta =
-        static_cast<std::int64_t>(raw_delta) *
-        configuration_.channel_wiring_sign[index] *
-        ModelEncoderPolarity(profile_->model);
-    const std::int32_t normalized_delta = static_cast<std::int32_t>(std::max(
-        static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min()),
-        std::min(
-            static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max()),
-            signed_delta)));
     MotorChannelState& channel = channels_[index];
-    channel.encoder_count =
-        SaturatingAdd(channel.encoder_count, normalized_delta);
+    channel.encoder_count = SaturatingAdd(channel.encoder_count, encoder_delta);
 
     const float instantaneous_rps =
-        static_cast<float>(normalized_delta) /
+        static_cast<float>(encoder_delta) /
         (static_cast<float>(profile_->ticks_per_revolution) * period_seconds);
     const AdrcCalibration calibration = adrc_overrides_[index].active
                                             ? adrc_overrides_[index].calibration
@@ -329,13 +314,9 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
     } else {
       channel.output_permille = static_cast<std::int16_t>(std::lround(output));
     }
-    // The observer operates in target/measurement coordinates. Convert its
-    // semantic output to the physical bridge polarity only at the hardware
-    // boundary; otherwise fixing the JGA27 encoder sign would turn the LADRC
-    // loop into positive feedback.
+    // Target, raw encoder measurement, LADRC state, and bridge duty share one
+    // MCU coordinate. The ROS hardware plugin owns chassis-direction signs.
     state.applied_output_permille = static_cast<float>(channel.output_permille);
-    channel.output_permille = static_cast<std::int16_t>(
-        channel.output_permille * ModelDrivePolarity(profile_->model));
     outputs[index] = channel.output_permille;
   }
   return outputs;
@@ -345,21 +326,6 @@ float MotorController::maximum_accepted_rps() const {
   return configuration_valid_
              ? std::min(profile_->max_rps, configuration_.maximum_accepted_rps)
              : 0.0F;
-}
-
-std::int8_t MotorController::ModelEncoderPolarity(MotorModel model) {
-  static_cast<void>(model);
-  // The legacy firmware fed raw counter deltas directly into every motor
-  // profile. Passive captures agree: chassis code, rather than the JGA27
-  // model, owns the left/right wheel inversion.
-  return 1;
-}
-
-std::int8_t MotorController::ModelDrivePolarity(MotorModel model) {
-  // JGA27's legacy negative gains represented an inverted drive plant. Keep
-  // that inversion at the bridge boundary instead of corrupting encoder state.
-  return model == MotorModel::kJga27 ? static_cast<std::int8_t>(-1)
-                                     : static_cast<std::int8_t>(1);
 }
 
 void MotorController::DisarmAll(bool record_watchdog_stop) {

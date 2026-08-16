@@ -208,8 +208,8 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
 
   mentor_pi_interfaces::msg::MotorState feedback;
   feedback.motor_model = mentor_pi_interfaces::msg::MotorState::MODEL_JGA27;
-  feedback.measured_rps = {1.0F, 2.0F, 3.0F, 4.0F};
-  feedback.encoder_count = {1040, 2080, 3120, 4160};
+  feedback.measured_rps = {-1.0F, -2.0F, 3.0F, 4.0F};
+  feedback.encoder_count = {-1040, -2080, 3120, 4160};
   mentor_pi_interfaces::msg::ImuState imu;
   imu.valid = true;
   imu.angular_velocity_rad_s.fill(0.0F);
@@ -240,19 +240,19 @@ TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   constexpr double kTwoPi = 6.28318530717958647692;
   EXPECT_NEAR(states[0].get_value(), kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[1].get_value(), kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[2].get_value(), -3.0 * kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[3].get_value(), -3.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[2].get_value(), 3.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[3].get_value(), 3.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[4].get_value(), 2.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[5].get_value(), 2.0 * kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[6].get_value(), -4.0 * kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[7].get_value(), -4.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[6].get_value(), 4.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[7].get_value(), 4.0 * kTwoPi, 1.0e-9);
   for (std::size_t index = 0U; index < commands.size(); ++index) {
     commands[index].set_value(static_cast<double>(index + 1U) * kTwoPi);
   }
   const auto received_motion_command = [&received]() {
-    return received.has_value() && received->target_rps[0] > 0.0F &&
-           received->target_rps[1] > 0.0F && received->target_rps[2] < 0.0F &&
-           received->target_rps[3] < 0.0F;
+    return received.has_value() && received->target_rps[0] < 0.0F &&
+           received->target_rps[1] < 0.0F && received->target_rps[2] > 0.0F &&
+           received->target_rps[3] > 0.0F;
   };
   const auto received_zero_command = [&received]() {
     return received.has_value() &&
@@ -581,8 +581,8 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   mentor_pi_interfaces::msg::MotorState motor_feedback;
   motor_feedback.motor_model =
       mentor_pi_interfaces::msg::MotorState::MODEL_JGA27;
-  motor_feedback.measured_rps = {0.0F, 2.0F, 0.0F, 4.0F};
-  motor_feedback.encoder_count = {0, 2080, 0, 4160};
+  motor_feedback.measured_rps = {0.0F, -2.0F, 0.0F, 4.0F};
+  motor_feedback.encoder_count = {0, -2080, 0, 4160};
   mentor_pi_interfaces::msg::PwmServoState pwm_feedback;
   pwm_feedback.output_pulse_width_us.fill(1500U);
   mentor_pi_interfaces::msg::ImuState imu;
@@ -617,8 +617,8 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
   constexpr double kTwoPi = 6.28318530717958647692;
   EXPECT_NEAR(states[2].get_value(), 2.0 * kTwoPi, 1.0e-9);
   EXPECT_NEAR(states[3].get_value(), 2.0 * kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[4].get_value(), -4.0 * kTwoPi, 1.0e-9);
-  EXPECT_NEAR(states[5].get_value(), -4.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[4].get_value(), 4.0 * kTwoPi, 1.0e-9);
+  EXPECT_NEAR(states[5].get_value(), 4.0 * kTwoPi, 1.0e-9);
   commands[0].set_value(0.3);
   commands[1].set_value(0.3);
   commands[2].set_value(2.0 * kTwoPi);
@@ -646,8 +646,8 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
       &executor,
       [&motor_received, &pwm_received]() {
         return motor_received.has_value() && pwm_received.has_value() &&
-               motor_received->target_rps[1] > 2.0F &&
-               motor_received->target_rps[3] < -4.0F &&
+               motor_received->target_rps[1] < 0.0F &&
+               motor_received->target_rps[3] > 0.0F &&
                pwm_received->pulse_width_us[2] != 1500U;
       },
       [&heartbeat_publisher, &authorization_publisher, &motor_state_publisher,
@@ -662,8 +662,8 @@ TEST_F(HardwarePluginTest, AckermannUsesRearConnectorsAndSteeringCalibration) {
             hardware->write(rclcpp::Time(0), rclcpp::Duration(0, 1)));
       }));
   EXPECT_EQ(motor_received->update_mask, 0x0aU);
-  EXPECT_GT(motor_received->target_rps[1], 2.0F);
-  EXPECT_LT(motor_received->target_rps[3], -4.0F);
+  EXPECT_NEAR(motor_received->target_rps[1], -2.0F, 1.0e-5F);
+  EXPECT_NEAR(motor_received->target_rps[3], 4.0F, 1.0e-5F);
   EXPECT_LE(std::fabs(motor_received->target_rps[1]), 6.0F);
   EXPECT_LE(std::fabs(motor_received->target_rps[3]), 6.0F);
   EXPECT_EQ(pwm_received->update_mask, 0x04U);

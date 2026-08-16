@@ -136,6 +136,14 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
             "/**/ackermann_steering_controller"
         ]["ros__parameters"]
     assert ackermann_controller["base_frame_id"] == "rear_axle_footprint"
+    assert ackermann_controller["rear_wheels_names"] == [
+        "wheel_right_rear_joint",
+        "wheel_left_rear_joint",
+    ]
+    assert ackermann_controller["front_wheels_names"] == [
+        "wheel_right_front_joint",
+        "wheel_left_front_joint",
+    ]
     assert ackermann_controller["front_wheel_track"] == 0.140
     assert ackermann_controller["rear_wheel_track"] == 0.140
     assert ackermann_controller["wheelbase"] == 0.135

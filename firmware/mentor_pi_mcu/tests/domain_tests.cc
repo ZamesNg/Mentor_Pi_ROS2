@@ -878,8 +878,8 @@ void TestMotorController() {
   CHECK(adrc_controller.AcceptCommand(adrc_drive, 0U).ok());
   std::array<std::uint32_t, kMotorCount> stationary{};
   const auto overridden_output = adrc_controller.ControlStep(stationary);
-  CHECK(overridden_output[0] == -400);
-  CHECK(overridden_output[1] == -200);
+  CHECK(overridden_output[0] == 400);
+  CHECK(overridden_output[1] == 200);
   CHECK(adrc_controller.SetAdrc(adrc_update).result.code == ResultCode::kBusy);
 
   MotorCommand adrc_stop = adrc_drive;
@@ -892,7 +892,7 @@ void TestMotorController() {
   adrc_controller.SetSessionActive(false);
   adrc_controller.SetSessionActive(true);
   CHECK(adrc_controller.AcceptCommand(adrc_drive, 2U).ok());
-  CHECK(adrc_controller.ControlStep(stationary)[0] == -400);
+  CHECK(adrc_controller.ControlStep(stationary)[0] == 400);
   CHECK(adrc_controller.AcceptCommand(adrc_stop, 3U).ok());
   CHECK(adrc_controller.SetModel(MotorModel::kJgb37).result.ok());
   CHECK(adrc_controller.AcceptCommand(adrc_drive, 4U).ok());
@@ -923,7 +923,7 @@ void TestMotorController() {
   saturation_drive.target_rps[0] = 6.0F;
   CHECK(saturated_adrc.AcceptCommand(saturation_drive, 0U).ok());
   stationary.fill(0U);
-  CHECK(saturated_adrc.ControlStep(stationary)[0] == -1000);
+  CHECK(saturated_adrc.ControlStep(stationary)[0] == 1000);
 
   constexpr std::array<float, 4> kProfileLimits{1.5F, 3.0F, 6.0F, 1.1F};
   MotorController profile_limits(FullRangeTestMotorConfiguration());
@@ -950,43 +950,27 @@ void TestMotorController() {
           ResultCode::kOutOfRange);
   }
 
-  // The legacy implementation measured every model directly from raw counter
-  // deltas. Its negative JGA27 gains inverted the drive output, not the
-  // encoder measurement. Keep those two transformations independent.
-  for (MotorModel model : kModels) {
-    CHECK(MotorController::ModelEncoderPolarity(model) == 1);
+  // Every model preserves the raw signed encoder delta. Model selection
+  // changes scale and limits only; the ROS hardware plugin owns chassis signs.
+  for (const MotorModel model : kModels) {
+    MotorController raw_encoder(FullRangeTestMotorConfiguration());
+    CHECK(raw_encoder.SetModel(model).result.ok());
+    stationary.fill(0U);
+    raw_encoder.ControlStep(stationary);
+    stationary[0] = 10U;
+    raw_encoder.ControlStep(stationary);
+    CHECK(raw_encoder.channels()[0].encoder_count == 10);
   }
-  CHECK(MotorController::ModelDrivePolarity(MotorModel::kJga27) == -1);
-  CHECK(MotorController::ModelDrivePolarity(MotorModel::kJgb520) == 1);
-  CHECK(MotorController::ModelDrivePolarity(MotorModel::kJgb37) == 1);
-  CHECK(MotorController::ModelDrivePolarity(MotorModel::kJgb528) == 1);
-  MotorController polarity(FullRangeTestMotorConfiguration());
-  polarity.ControlStep(stationary);
-  stationary[0] = 10U;
-  polarity.ControlStep(stationary);
-  CHECK(polarity.channels()[0].encoder_count == 10);
-  MotorControlConfiguration reversed_wiring = FullRangeTestMotorConfiguration();
-  reversed_wiring.channel_wiring_sign[0] = -1;
-  MotorController compensated(reversed_wiring);
+
+  // Bridge duty is the signed LADRC output without a model/output transform.
+  MotorController jga_output(FullRangeTestMotorConfiguration());
+  jga_output.SetSessionActive(true);
+  MotorCommand positive_target{};
+  positive_target.update_mask = 1U;
+  positive_target.target_rps[0] = 1.0F;
+  CHECK(jga_output.AcceptCommand(positive_target, 0U).ok());
   stationary.fill(0U);
-  compensated.ControlStep(stationary);
-  stationary[0] = 10U;
-  compensated.ControlStep(stationary);
-  CHECK(compensated.channels()[0].encoder_count == -10);
-
-  MotorController jga_drive(FullRangeTestMotorConfiguration());
-  jga_drive.SetSessionActive(true);
-  MotorCommand positive_drive{};
-  positive_drive.update_mask = 1U;
-  positive_drive.target_rps[0] = 1.0F;
-  CHECK(jga_drive.AcceptCommand(positive_drive, 0U).ok());
-  CHECK(jga_drive.ControlStep(stationary)[0] == -133);
-
-  MotorController conventional_drive(FullRangeTestMotorConfiguration());
-  CHECK(conventional_drive.SetModel(MotorModel::kJgb37).result.ok());
-  conventional_drive.SetSessionActive(true);
-  CHECK(conventional_drive.AcceptCommand(positive_drive, 0U).ok());
-  CHECK(conventional_drive.ControlStep(stationary)[0] == 133);
+  CHECK(jga_output.ControlStep(stationary)[0] == 133);
 }
 
 void TestFirstOrderAdrcController() {
@@ -994,9 +978,6 @@ void TestFirstOrderAdrcController() {
   auto configure_adrc = [](MotorController* controller, float input_gain,
                            float controller_bandwidth, float observer_bandwidth,
                            float filter_weight = 1.0F) {
-    // Exercise the LADRC math independently of JGA27's physical bridge
-    // inversion; the dedicated motor-polarity regression above covers it.
-    CHECK(controller->SetModel(MotorModel::kJgb37).result.ok());
     SetMotorAdrcCommand calibration{};
     calibration.update_mask = 1U;
     calibration.input_gain_rps_per_second_per_permille[0] = input_gain;
@@ -1027,7 +1008,7 @@ void TestFirstOrderAdrcController() {
 
   MotorController saturated(FullRangeTestMotorConfiguration());
   configure_adrc(&saturated, 0.001F, 4.0F, 12.0F);
-  command_speed(&saturated, 3.0F);
+  command_speed(&saturated, 6.0F);
   CHECK(saturated.ControlStep(stationary)[0] == kMotorOutputLimitPermille);
 
   // The ESO observes filtered encoder velocity and reduces the command as the

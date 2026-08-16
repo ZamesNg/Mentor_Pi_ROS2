@@ -10,8 +10,11 @@
 
 /**/ackermann_steering_controller:
   ros__parameters:
-    rear_wheels_names: ["wheel_left_rear_joint", "wheel_right_rear_joint"]
-    front_wheels_names: ["wheel_left_front_joint", "wheel_right_front_joint"]
+    # Humble steering_controllers_library emits traction and steering arrays
+    # in right, left order. Preserve that contract so inner/outer wheel speeds
+    # and Ackermann steering angles are assigned to the correct joints.
+    rear_wheels_names: ["wheel_right_rear_joint", "wheel_left_rear_joint"]
+    front_wheels_names: ["wheel_right_front_joint", "wheel_left_front_joint"]
     base_frame_id: rear_axle_footprint
     odom_frame_id: odom
     use_stamped_vel: true

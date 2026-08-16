@@ -16,10 +16,10 @@ TEST(HardwareCommonTest, MapsLogicalWheelsToFirmwareConnectors) {
   EXPECT_EQ(McuMotorIndex(Wheel::kRearRight), 3U);
   EXPECT_EQ(McuMotorMask(Wheel::kRearLeft), 0x02U);
   EXPECT_EQ(McuMotorMask(Wheel::kRearRight), 0x08U);
-  EXPECT_EQ(ChassisDirectionSign(Wheel::kFrontLeft), 1);
-  EXPECT_EQ(ChassisDirectionSign(Wheel::kRearLeft), 1);
-  EXPECT_EQ(ChassisDirectionSign(Wheel::kFrontRight), -1);
-  EXPECT_EQ(ChassisDirectionSign(Wheel::kRearRight), -1);
+  EXPECT_EQ(ChassisDirectionSign(Wheel::kFrontLeft), -1);
+  EXPECT_EQ(ChassisDirectionSign(Wheel::kRearLeft), -1);
+  EXPECT_EQ(ChassisDirectionSign(Wheel::kFrontRight), 1);
+  EXPECT_EQ(ChassisDirectionSign(Wheel::kRearRight), 1);
 }
 
 TEST(HardwareCommonTest, ConvertsRosVelocityAndEncoderUnits) {

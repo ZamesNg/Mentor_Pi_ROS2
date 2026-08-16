@@ -183,7 +183,8 @@ float32[4] target_rps
 ```
 
 `update_mask` bits 0 through 3 select M1 through M4. Each selected value is
-output-shaft revolutions per second. It must satisfy the absolute limit of the
+output-shaft revolutions per second in the raw-signed MCU motor coordinate,
+not the ROS chassis coordinate. It must satisfy the absolute limit of the
 active model:
 
 | Model value | Name | Encoder ticks/output revolution | Absolute RPS limit |
@@ -245,9 +246,11 @@ uint8 watchdog_stop_mask
 Encoder sampling and these state fields remain active while motor output is
 zero. They are the ROS-visible evidence for the required passive direction test
 performed by manually rotating each raised wheel before powered motion.
-Every model applies encoder factor `+1`; channel wiring signs remain the only
-firmware-side encoder correction. JGA27's legacy inversion is applied only to
-the physical drive output and therefore does not reverse ROS encoder state.
+Firmware publishes raw signed encoder state for every motor model. `target_rps`,
+`measured_rps`, accumulated count, LADRC state, and signed bridge duty share
+this MCU coordinate with no firmware sign transform. The ROS hardware layer
+owns the only map to positive wheel rotation: `{-1,+1,-1,+1}` in logical
+FL,FR,RL,RR order, applied symmetrically to commands and feedback.
 
 ### 4.3 `srv/SetMotorModel.srv`
 
@@ -283,13 +286,11 @@ All four profiles use the same hardcoded, bounded first-order LADRC defaults:
 input gain `b0=0.03 RPS/s/permille`, controller bandwidth `wc=4 rad/s`,
 observer bandwidth `wo=12 rad/s`, and velocity-filter new-sample weight `0.5`.
 They are not release-qualified. D3 HIL shall qualify or replace these values,
-output polarity, encoder polarity, filter, and the currently disabled
+physical command/encoder polarity, filter, and the currently disabled
 zero-permille minimum-drive floor for each profile and record the evidence before nonzero production motion
-is released. JGA27's drive-output polarity is `-1` because the legacy JGA27 PID
-profile used negative gains while the other retained profiles used positive
-gains; its encoder polarity remains `+1`. The defective legacy PID expression documented in the
-legacy audit is not a normative algorithm, and changing any qualified constant
-later invalidates the affected motor HIL evidence.
+is released. The defective legacy PID expression and its negative gains are not
+a normative output algorithm. Changing any qualified constant or sign later
+invalidates the affected motor HIL evidence.
 
 ### 4.4 `srv/SetMotorAdrc.srv`
 

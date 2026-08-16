@@ -118,8 +118,8 @@ the two drive-PWM outputs first and its quadrature encoder second.
 | OLED | I2C1 SCL/PB6 and SDA/PB7. |
 | Host transport | USART1 TX/PA9 and RX/PA10; RX DMA2 Stream 2 and TX DMA2 Stream 7, both Channel 4. |
 
-The measured chassis placement, encoder wiring signs, IMU transform, and RGB1
-semantics are compiled according to the
+The measured chassis placement, host chassis-direction map, IMU transform, and
+RGB1 semantics are compiled according to the
 [verified board profile](verified-hardware-profile.md).
 
 The data USB-C connector is also the supported programming path when no debug
@@ -144,23 +144,24 @@ Micro-XRCE-DDS-Agent for the same normal-boot reset on its own descriptor.
 DTR/RTS are not runtime data flow, and no second process may hold the serial
 device open as a modem-line guard.
 
-The M1–M4 order above is the public array order. Positive RPS means the drive
-polarity produced by the first-party motor driver for a positive target; the
-encoder sign shall be normalized to match that command during
-`VER-HIL-MOT-001`. Connector mechanics do not establish a universal robot
-forward direction, so chassis code on the host owns any wheel-specific sign
-inversion.
+The M1–M4 order above is the public array order. Firmware uses raw signed
+quadrature delta directly for every motor model. `target_rps`, `measured_rps`,
+accumulated count, LADRC state, and signed bridge duty share that MCU coordinate
+without a firmware sign transform. Connector mechanics do not define ROS
+forward, so the ROS hardware layer owns the only sign map:
+`{-1,+1,-1,+1}` in logical FL,FR,RL,RR order. The same map is applied to
+commands and feedback and is its own inverse.
 
-The implementation keeps encoder and drive polarity separate. All models use
-encoder factor `+1`, matching the legacy raw-counter measurement and the
-passive chassis capture. JGA27 separately uses drive-output factor `-1`, which
-preserves the plant inversion formerly encoded by its negative PID gains. A
-guarded 2,000 ms M1 run predates this separation; M1--M4 therefore require a
-new guarded drive-direction confirmation before powered use.
+An actuator-power-disconnected `ackermann_0` capture on 2026-08-17 observed
+M2 decreasing and M4 increasing when the operator rotated the rear-left and
+rear-right wheels forward. With direct raw MCU feedback and host rear-wheel
+signs `{-1,+1}`, both become positive ROS wheel rotation. An older capture on
+a different setup recorded the opposite raw signs, so no raw electrical sign
+is transferable between vehicles without the required passive check.
 The default ADRC firmware accepts bounded motor targets, but its physical
 polarity and controller performance remain unqualified. Checkout shall first
 rotate each raised wheel manually with bridge outputs disabled and record both
-raw counter direction and normalized `motors/state` direction. Powered tests
+raw MCU `motors/state` direction and converted ROS joint direction. Powered tests
 may begin only afterward with raised-wheel or equivalent guarding, a
 current-limited supply, deliberately bounded commands, and continuous stop
 monitoring.
@@ -250,8 +251,7 @@ Before actuator code is enabled, bring-up shall verify:
    connectors documented above;
 5. with the default ADRC image and all motor PWM outputs still disabled,
    manually rotate each raised motor output in the declared positive direction
-   and record raw and normalized encoder count direction; explicitly test the
-   provisional JGA27 `-1` factor rather than assuming it is correct;
+   and record raw MCU and ROS encoder count direction;
 6. UART5 remains electrically half-duplex and does not contend with the IMU or
    any excluded SBUS implementation;
 7. all motor PWM outputs are zero before and throughout the checks.

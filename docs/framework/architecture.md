@@ -106,13 +106,14 @@ guarded fixture and the board shall use a current-limited supply until the
 required HIL evidence is recorded.
 
 Before its first powered command, each channel shall pass a passive encoder
-direction test with motor PWM disabled. Every model uses encoder factor `+1`;
-JGA27 separately uses drive-output factor `-1` to preserve the plant inversion
-formerly represented by its legacy negative PID gains. All motor ADRC constants
-and model/channel direction factors remain provisional until D3 HIL records
-qualify or replace them. A later production-motion enable requires those
-records and reviewed change control; host configuration success alone cannot
-enable it.
+direction test with motor PWM disabled. Firmware uses raw signed encoder delta
+directly for every motor model and sends signed LADRC output directly to the
+bridge. The host owns the only sign conversion between the MCU coordinate and
+positive ROS wheel rotation: `{-1,+1,-1,+1}` in logical FL,FR,RL,RR order. All
+motor ADRC constants and physical model/channel mappings remain provisional
+until D3 HIL records qualify or replace them. A later production-motion enable
+requires those records and reviewed change control; host configuration success
+alone cannot enable it.
 
 `BusServoTask` implements UART5 work as a nonblocking transaction state
 machine. No poll/DMA wait slice exceeds 10 ms, and it completes a bounded step

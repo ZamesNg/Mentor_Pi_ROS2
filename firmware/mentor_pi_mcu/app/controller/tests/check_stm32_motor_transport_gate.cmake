@@ -136,9 +136,7 @@ math(EXPR motor_profile_length
      "${motor_profile_end} - ${motor_profile_start}")
 string(SUBSTRING "${target_source}" ${motor_profile_start}
        ${motor_profile_length} motor_profile_body)
-foreach(required_marker
-    "DefaultAdrcMotorControlConfiguration()"
-    "channel_wiring_sign")
+foreach(required_marker "DefaultAdrcMotorControlConfiguration()")
   string(FIND "${motor_profile_body}" "${required_marker}" marker_position)
   if(marker_position EQUAL -1)
     message(FATAL_ERROR

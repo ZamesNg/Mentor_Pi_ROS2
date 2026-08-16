@@ -158,6 +158,8 @@ direction, raise or equivalently guard every wheel, use a current-limited
 supply, and keep a physical stop reachable. A successful build, mock, passive
 capture, or software campaign does not qualify powered motion or a release;
 those claims require recorded and reviewed HIL/instrument evidence.
+The motor sign contract is defined in the
+[verified hardware profile](docs/framework/verified-hardware-profile.md).
 
 ## Repository map
 

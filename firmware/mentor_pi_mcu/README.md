@@ -11,14 +11,12 @@ the single owning task. The adapter remains responsible for immediate
 register-level emergency motor shutdown; `MotorController::DisarmAll()` is the
 matching software-state transition.
 
-The per-model ADRC values and drive-direction factors are deliberately
-release-provisional in `motor_controller.cc`. They are bounded starting values,
-not a claim that an untested motor may safely run under load. Encoder polarity
-is `+1` for every model because the legacy implementation consumed raw counter
-deltas directly and the passive chassis capture agrees with that convention.
-JGA27 alone uses drive-output factor `-1`, preserving the plant inversion that
-the legacy implementation encoded in its negative PID gains. These values
-remain subject to guarded physical verification.
+The motor sign contract is deliberately simple: MCU encoder state is the raw
+signed counter delta for every motor model, and bridge duty is the signed LADRC
+output without another transform. The host owns the only chassis-direction
+conversion between this MCU coordinate and positive ROS wheel rotation. ADRC
+values and unverified physical channel mappings remain release-provisional
+until guarded HIL records them.
 
 Closed-loop control uses first-order linear ADRC at 100 Hz. The extended-state
 observer estimates motor speed and the combined disturbance from filtered
@@ -77,7 +75,9 @@ memory class. The configuration supervisor gate, model-specific RPS limits,
 independent 198 ms per-motor leases, session-loss disarming, and
 transport-failure shutdown apply to every accepted command.
 
-Active channel wiring signs are fixed as `{1, 1, 1, 1}` in firmware. Before
+The encoder, controller-output, and ROS wheel sign contract is recorded in
+[`verified-hardware-profile.md`](../../docs/framework/verified-hardware-profile.md).
+Before
 any powered motor work, complete Tutorials 01--05 passively with actuator
 power disconnected, confirm wheel clearance, use a current-limited supply,
 keep a physical motor-power stop reachable, follow the guarded checkout in

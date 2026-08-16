@@ -656,11 +656,7 @@ platform::TaskHooks ConvertTaskEntries(
 }
 
 mentor_pi::mcu::MotorControlConfiguration BuildMotorConfiguration() {
-  auto configuration = mentor_pi::mcu::DefaultAdrcMotorControlConfiguration();
-  // Passive one-wheel-at-a-time captures establish connector order as
-  // M1/front-left, M2/rear-left, M3/front-right, M4/rear-right.
-  configuration.channel_wiring_sign = {1, 1, 1, 1};
-  return configuration;
+  return mentor_pi::mcu::DefaultAdrcMotorControlConfiguration();
 }
 
 }  // namespace

@@ -85,12 +85,13 @@ confirm the observed physical direction. These checks reduce checkout risk but
 do not replace MCU safety or HIL qualification.
 
 Before any powered command, the ADRC image shall be used for a passive manual
-encoder-direction check while all bridge outputs remain disabled. JGA27
-uses encoder factor `+1` like every other model and separately applies
-drive-output factor `-1`, corresponding to the legacy negative-gain evidence.
-That drive factor and every ADRC profile remain unqualified until motor HIL
-measures and records the physical result. Software verification of the release
-artifact is not powered-motion qualification.
+encoder-direction check while all bridge outputs remain disabled. Firmware uses
+the raw signed encoder delta and sends signed LADRC output directly to the
+bridge for every model. The host alone converts MCU motor direction to positive
+ROS wheel rotation. That physical mapping and every ADRC profile remain
+unqualified until per-vehicle motor HIL measures and records the result.
+Software verification of the release artifact is not powered-motion
+qualification.
 
 Other reset defaults are deterministic: PWM-servo GPIO is low until the frame
 generator is ready and then each channel outputs 1500 microseconds with zero

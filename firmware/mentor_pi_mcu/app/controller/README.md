@@ -112,12 +112,11 @@ so adapter vtables contain no deleting destructor and import no global
   values fail closed: nonzero selected targets return `UNSUPPORTED`, cannot
   arm, and cannot refresh a lease, while selected zero targets remain valid
   stops. There is no alternate firmware motor mode.
-- Encoder direction and all ADRC/filter/minimum-drive values are
-  release-provisional. All models retain the legacy raw-counter encoder factor
-  `+1`, multiplied by each channel's wiring sign. JGA27 separately applies
-  drive-output factor `-1`, corresponding to its legacy negative PID gains;
-  the other models use drive-output factor `+1`. These are unqualified until
-  guarded raised-wheel control tests record each profile.
+- Raw signed encoder delta is used directly for every motor model. `target_rps`,
+  `measured_rps`, accumulated count, LADRC state, and signed bridge duty share
+  that MCU coordinate with no firmware sign transform. The host owns the only
+  MCU-to-ROS chassis conversion. Physical direction and all
+  ADRC/filter/minimum-drive values remain unqualified until guarded HIL.
 - The controller uses the platform's pulse-shadow generator rather than the
   separate driver edge-plan abstraction; there must be only one PWM frame
   generator in the target.

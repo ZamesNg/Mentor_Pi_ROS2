@@ -22,17 +22,6 @@ foreach(required_imu_fragment
   endif()
 endforeach()
 
-foreach(required_board_profile_fragment
-    "configuration.channel_wiring_sign = {1, 1, 1, 1}"
-    "M1/front-left, M2/rear-left, M3/front-right, M4/rear-right")
-  string(FIND "${target_source}" "${required_board_profile_fragment}"
-         profile_position)
-  if(profile_position EQUAL -1)
-    message(FATAL_ERROR
-            "STM32 composition root lacks measured board profile: ${required_board_profile_fragment}")
-  endif()
-endforeach()
-
 function(extract_function source start_marker end_marker output)
   string(FIND "${source}" "${start_marker}" start)
   string(FIND "${source}" "${end_marker}" end)
