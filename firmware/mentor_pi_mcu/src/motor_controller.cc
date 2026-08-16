@@ -179,9 +179,9 @@ MotorModelChange MotorController::SetModel(MotorModel model) {
     channels_[index].measured_rps = 0.0F;
     adrc_overrides_[index] = {};
   }
-  // Tick scale and provisional polarity are model properties. Establish a
-  // fresh counter baseline on the next sample so changing either cannot turn
-  // the pre-change interval into a false velocity impulse.
+  // Tick scale and direction mapping are model properties. Establish a fresh
+  // counter baseline on the next sample so changing either cannot turn the
+  // pre-change interval into a false velocity impulse.
   encoder_initialized_ = false;
   return {OkResult(), *profile_};
 }
@@ -254,7 +254,7 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
     const std::int64_t signed_delta =
         static_cast<std::int64_t>(raw_delta) *
         configuration_.channel_wiring_sign[index] *
-        ProvisionalModelEncoderPolarity(profile_->model);
+        ModelEncoderPolarity(profile_->model);
     const std::int32_t normalized_delta = static_cast<std::int32_t>(std::max(
         static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min()),
         std::min(
@@ -329,7 +329,13 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
     } else {
       channel.output_permille = static_cast<std::int16_t>(std::lround(output));
     }
+    // The observer operates in target/measurement coordinates. Convert its
+    // semantic output to the physical bridge polarity only at the hardware
+    // boundary; otherwise fixing the JGA27 encoder sign would turn the LADRC
+    // loop into positive feedback.
     state.applied_output_permille = static_cast<float>(channel.output_permille);
+    channel.output_permille = static_cast<std::int16_t>(
+        channel.output_permille * ModelDrivePolarity(profile_->model));
     outputs[index] = channel.output_permille;
   }
   return outputs;
@@ -341,11 +347,17 @@ float MotorController::maximum_accepted_rps() const {
              : 0.0F;
 }
 
-std::int8_t MotorController::ProvisionalModelEncoderPolarity(MotorModel model) {
-  // The legacy JGA27 profile alone used negative PID gains while every other
-  // retained model used positive gains. The corrected controller has positive
-  // gains for all profiles, so JGA27 provisionally inverts encoder polarity.
-  // D3 HIL must confirm or replace this evidence-derived value.
+std::int8_t MotorController::ModelEncoderPolarity(MotorModel model) {
+  static_cast<void>(model);
+  // The legacy firmware fed raw counter deltas directly into every motor
+  // profile. Passive captures agree: chassis code, rather than the JGA27
+  // model, owns the left/right wheel inversion.
+  return 1;
+}
+
+std::int8_t MotorController::ModelDrivePolarity(MotorModel model) {
+  // JGA27's legacy negative gains represented an inverted drive plant. Keep
+  // that inversion at the bridge boundary instead of corrupting encoder state.
   return model == MotorModel::kJga27 ? static_cast<std::int8_t>(-1)
                                      : static_cast<std::int8_t>(1);
 }

@@ -11,12 +11,14 @@ the single owning task. The adapter remains responsible for immediate
 register-level emergency motor shutdown; `MotorController::DisarmAll()` is the
 matching software-state transition.
 
-The per-model ADRC values and direction factors are deliberately
+The per-model ADRC values and drive-direction factors are deliberately
 release-provisional in `motor_controller.cc`. They are bounded starting values,
-not a claim that an untested motor may safely run under load. The JGA27 profile
-currently uses direction factor `-1`, based on the negative PID gains in the
-legacy firmware; the other retained profiles currently use `+1`. These values
-remain hypotheses until physical evidence confirms them.
+not a claim that an untested motor may safely run under load. Encoder polarity
+is `+1` for every model because the legacy implementation consumed raw counter
+deltas directly and the passive chassis capture agrees with that convention.
+JGA27 alone uses drive-output factor `-1`, preserving the plant inversion that
+the legacy implementation encoded in its negative PID gains. These values
+remain subject to guarded physical verification.
 
 Closed-loop control uses first-order linear ADRC at 100 Hz. The extended-state
 observer estimates motor speed and the combined disturbance from filtered

@@ -61,8 +61,9 @@ struct MotorAdrcUpdate {
 struct MotorControlConfiguration {
   // RRCLite: M1/TIM5 and M2/TIM2 are 32-bit; M3/TIM4 and M4/TIM3
   // are 16-bit. A hardware adapter supplies channel wiring signs established
-  // by HIL. The controller multiplies them by the provisional per-model
-  // polarity derived from the legacy controller evidence.
+  // by HIL. Encoder normalization and model-specific drive polarity are kept
+  // separate: the legacy controller measured raw JGA27 counts without a model
+  // sign, while its negative gains inverted the drive output.
   std::array<std::uint8_t, kMotorCount> counter_bits{32, 32, 16, 16};
   std::array<std::int8_t, kMotorCount> channel_wiring_sign{1, 1, 1, 1};
   float maximum_accepted_rps{kMotorImplementationMaximumRps};
@@ -127,7 +128,8 @@ class MotorController {
   static std::int32_t SignedCounterDelta(std::uint32_t current,
                                          std::uint32_t previous,
                                          std::uint8_t counter_bits);
-  static std::int8_t ProvisionalModelEncoderPolarity(MotorModel model);
+  static std::int8_t ModelEncoderPolarity(MotorModel model);
+  static std::int8_t ModelDrivePolarity(MotorModel model);
 
  private:
   struct AdrcState {

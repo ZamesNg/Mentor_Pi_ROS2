@@ -151,11 +151,12 @@ encoder sign shall be normalized to match that command during
 forward direction, so chassis code on the host owns any wheel-specific sign
 inversion.
 
-Before that HIL result exists, the implementation uses per-channel wiring signs
-and a provisional per-model encoder factor. JGA27 alone currently uses factor
-`-1`, inferred from the legacy JGA27 profile's negative gains; this is legacy
-evidence, not a schematic fact or bench measurement. A guarded 2,000 ms M1 run
-has now confirmed its current command/encoder sign; M2--M4 remain provisional.
+The implementation keeps encoder and drive polarity separate. All models use
+encoder factor `+1`, matching the legacy raw-counter measurement and the
+passive chassis capture. JGA27 separately uses drive-output factor `-1`, which
+preserves the plant inversion formerly encoded by its negative PID gains. A
+guarded 2,000 ms M1 run predates this separation; M1--M4 therefore require a
+new guarded drive-direction confirmation before powered use.
 The default ADRC firmware accepts bounded motor targets, but its physical
 polarity and controller performance remain unqualified. Checkout shall first
 rotate each raised wheel manually with bridge outputs disabled and record both

@@ -16,23 +16,29 @@ the normal driving direction:
 | --- | --- | ---: | ---: |
 | M1 | front-left | +742 | +1 |
 | M2 | rear-left | +1915 | +1 |
-| M3 | front-right | -1370 | -1 |
-| M4 | rear-right | -1612 | -1 |
+| M3 | front-right | -1370 | +1 |
+| M4 | rear-right | -1612 | +1 |
 
-The compiled channel signs are `{+1, +1, -1, -1}` in M1--M4 order. They are
-hardware wiring corrections applied in addition to the existing per-model
-encoder polarity. With the retained JGA27 model method, manually rotating any
-wheel in the robot-forward direction therefore produces positive normalized
-encoder velocity. These captures prove channel ownership and sign only; their
-different hand-rotation distances are not ticks-per-revolution measurements.
+The compiled firmware channel signs are `{+1, +1, +1, +1}` in M1--M4 order,
+and every model uses encoder factor `+1`. Firmware therefore preserves the
+observed connector-level counter direction. The host's independent chassis map
+applies `+1` to M1/M2 and `-1` to M3/M4, so manually rotating any wheel toward
+robot-forward produces positive ROS wheel velocity. These captures prove
+channel ownership and sign only; their different hand-rotation distances are
+not ticks-per-revolution measurements.
+
+JGA27 separately applies drive-output factor `-1`. The legacy firmware used
+raw encoder deltas and encoded this same inverted plant relationship through
+negative PID gains. Keeping the drive mapping separate prevents the bridge
+conversion from reversing published encoder state.
 
 The first very short guarded M1 test requested `+0.1 RPS` for 100 ms and ended
 with only `-1` net tick, causing the fail-closed utility to report
 `MOTOR_WRONG_DIRECTION`. A subsequent observable run using `+0.25 RPS` for
 2,000 ms produced `+294` ticks, 0.452010 RPS peak magnitude, confirmed the
-final zero state, and passed every commissioning check. The longer result
-proves the current M1 sign; the one-tick result is retained as a short-window
-noise/settling observation rather than used to change firmware polarity.
+final zero state, and passed every commissioning check. That run predates the
+encoder/drive sign separation and therefore does not qualify the new mapping.
+The one-tick result remains a short-window noise/settling observation.
 
 JGA27 remains the firmware reset default and the host supervisor still applies
 the configured JGA27 model at each ROS session. The existing JGA27 reference

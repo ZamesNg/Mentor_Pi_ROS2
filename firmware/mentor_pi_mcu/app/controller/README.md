@@ -113,10 +113,11 @@ so adapter vtables contain no deleting destructor and import no global
   arm, and cannot refresh a lease, while selected zero targets remain valid
   stops. There is no alternate firmware motor mode.
 - Encoder direction and all ADRC/filter/minimum-drive values are
-  release-provisional. The legacy PID evidence supplies provisional model
-  polarity -1 for JGA27 and +1
-  for JGB520/JGB37/JGB528, multiplied by each channel's wiring sign. These are
-  unqualified until guarded raised-wheel control tests record each profile.
+  release-provisional. All models retain the legacy raw-counter encoder factor
+  `+1`, multiplied by each channel's wiring sign. JGA27 separately applies
+  drive-output factor `-1`, corresponding to its legacy negative PID gains;
+  the other models use drive-output factor `+1`. These are unqualified until
+  guarded raised-wheel control tests record each profile.
 - The controller uses the platform's pulse-shadow generator rather than the
   separate driver edge-plan abstraction; there must be only one PWM frame
   generator in the target.

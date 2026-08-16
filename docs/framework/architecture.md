@@ -106,10 +106,10 @@ guarded fixture and the board shall use a current-limited supply until the
 required HIL evidence is recorded.
 
 Before its first powered command, each channel shall pass a passive encoder
-direction test with motor PWM disabled. The current JGA27 model polarity factor
-is provisionally `-1`, inferred from the legacy JGA27 profile's negative PID
-gains; it is evidence to test, not a verified physical fact. All motor ADRC constants
-and model/channel polarity factors remain provisional until D3 HIL records
+direction test with motor PWM disabled. Every model uses encoder factor `+1`;
+JGA27 separately uses drive-output factor `-1` to preserve the plant inversion
+formerly represented by its legacy negative PID gains. All motor ADRC constants
+and model/channel direction factors remain provisional until D3 HIL records
 qualify or replace them. A later production-motion enable requires those
 records and reviewed change control; host configuration success alone cannot
 enable it.

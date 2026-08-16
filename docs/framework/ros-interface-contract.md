@@ -245,9 +245,9 @@ uint8 watchdog_stop_mask
 Encoder sampling and these state fields remain active while motor output is
 zero. They are the ROS-visible evidence for the required passive direction test
 performed by manually rotating each raised wheel before powered motion.
-For JGA27, the current normalized state applies a provisional model polarity
-factor of `-1` inferred from legacy controller evidence; that sign is not a
-release-qualified physical mapping.
+Every model applies encoder factor `+1`; channel wiring signs remain the only
+firmware-side encoder correction. JGA27's legacy inversion is applied only to
+the physical drive output and therefore does not reverse ROS encoder state.
 
 ### 4.3 `srv/SetMotorModel.srv`
 
@@ -285,9 +285,9 @@ observer bandwidth `wo=12 rad/s`, and velocity-filter new-sample weight `0.5`.
 They are not release-qualified. D3 HIL shall qualify or replace these values,
 output polarity, encoder polarity, filter, and the currently disabled
 zero-permille minimum-drive floor for each profile and record the evidence before nonzero production motion
-is released. JGA27's provisional model polarity is `-1` solely because the
-legacy JGA27 PID profile used negative gains while the other retained profiles
-used positive gains. The defective legacy PID expression documented in the
+is released. JGA27's drive-output polarity is `-1` because the legacy JGA27 PID
+profile used negative gains while the other retained profiles used positive
+gains; its encoder polarity remains `+1`. The defective legacy PID expression documented in the
 legacy audit is not a normative algorithm, and changing any qualified constant
 later invalidates the affected motor HIL evidence.
 
