@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
+#include <exception>
 #include <functional>
 #include <pluginlib/class_list_macros.hpp>
 #include <system_error>
@@ -238,6 +239,10 @@ hardware_interface::CallbackReturn MecanumHardware::on_cleanup(
 
 hardware_interface::CallbackReturn MecanumHardware::on_error(
     const rclcpp_lifecycle::State&) {
+  if (node_) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "ros2_control entered the Mecanum hardware error path");
+  }
   return Teardown();
 }
 
@@ -322,6 +327,9 @@ hardware_interface::return_type MecanumHardware::read(const rclcpp::Time&,
                                                       const rclcpp::Duration&) {
   if (active_) {
     if (executor_failed_.load(std::memory_order_acquire)) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "Mecanum read failed because the private ROS executor "
+                   "stopped unexpectedly");
       ResetChassisAdrc();
       SendZeroMotorCommand();
       return hardware_interface::return_type::ERROR;
@@ -357,6 +365,9 @@ hardware_interface::return_type MecanumHardware::write(
     return hardware_interface::return_type::OK;
   }
   if (executor_failed_.load(std::memory_order_acquire)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Mecanum write failed because the private ROS executor "
+                 "stopped unexpectedly");
     ResetChassisAdrc();
     SendZeroMotorCommand();
     return hardware_interface::return_type::ERROR;
@@ -452,14 +463,42 @@ bool MecanumHardware::StartExecutor() {
         while (!executor_stop_requested_.load(std::memory_order_acquire)) {
           executor_->spin_once(std::chrono::milliseconds(100));
         }
+      } catch (const std::exception& error) {
+        if (!executor_stop_requested_.load(std::memory_order_acquire)) {
+          RCLCPP_ERROR(node_->get_logger(),
+                       "Mecanum private ROS executor exception: %s",
+                       error.what());
+          executor_failed_.store(true, std::memory_order_release);
+          SendZeroMotorCommand();
+        }
       } catch (...) {
         if (!executor_stop_requested_.load(std::memory_order_acquire)) {
+          RCLCPP_ERROR(node_->get_logger(),
+                       "Mecanum private ROS executor failed with an unknown "
+                       "exception");
           executor_failed_.store(true, std::memory_order_release);
           SendZeroMotorCommand();
         }
       }
     });
+  } catch (const std::exception& error) {
+    if (node_) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "Mecanum private ROS executor setup failed: %s",
+                   error.what());
+    }
+    if (executor_ && node_) {
+      executor_->remove_node(node_);
+    }
+    executor_.reset();
+    executor_failed_.store(true, std::memory_order_release);
+    return false;
   } catch (...) {
+    if (node_) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "Mecanum private ROS executor setup failed with an "
+                   "unknown exception");
+    }
     if (executor_ && node_) {
       executor_->remove_node(node_);
     }
