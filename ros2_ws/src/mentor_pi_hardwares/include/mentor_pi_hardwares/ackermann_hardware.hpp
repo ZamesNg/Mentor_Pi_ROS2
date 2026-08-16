@@ -118,6 +118,8 @@ class AckermannHardware : public hardware_interface::SystemInterface {
   hardware::SteeringCalibration steering_calibration_{};
   hardware::FirstOrderLadrc linear_adrc_{};
   hardware::FirstOrderLadrc yaw_adrc_{};
+  hardware::FirstOrderLowPass linear_measurement_lpf_{};
+  hardware::FirstOrderLowPass yaw_measurement_lpf_{};
   double applied_linear_correction_m_s_{0.0};
   double applied_steering_correction_rad_{0.0};
   double rear_wheel_radius_m_{0.0325};

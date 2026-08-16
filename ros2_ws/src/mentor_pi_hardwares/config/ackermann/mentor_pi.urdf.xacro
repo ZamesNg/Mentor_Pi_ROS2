@@ -17,9 +17,11 @@
   <xacro:arg name="linear_adrc_input_gain_per_second" default="5.0"/>
   <xacro:arg name="linear_adrc_controller_bandwidth_rad_s" default="1.0"/>
   <xacro:arg name="linear_adrc_observer_bandwidth_rad_s" default="3.0"/>
+  <xacro:arg name="linear_adrc_measurement_lpf_cutoff_hz" default="5.0"/>
   <xacro:arg name="yaw_adrc_input_gain_per_mps" default="30.0"/>
   <xacro:arg name="yaw_adrc_controller_bandwidth_rad_s" default="1.0"/>
   <xacro:arg name="yaw_adrc_observer_bandwidth_rad_s" default="3.0"/>
+  <xacro:arg name="yaw_adrc_measurement_lpf_cutoff_hz" default="5.0"/>
   <xacro:arg name="yaw_adrc_minimum_speed_mps" default="0.1"/>
 
   <xacro:include filename="$(find mentor_pi_hardwares)/config/ackermann/description.urdf.xacro"/>
@@ -43,9 +45,11 @@
       linear_adrc_input_gain_per_second="$(arg linear_adrc_input_gain_per_second)"
       linear_adrc_controller_bandwidth_rad_s="$(arg linear_adrc_controller_bandwidth_rad_s)"
       linear_adrc_observer_bandwidth_rad_s="$(arg linear_adrc_observer_bandwidth_rad_s)"
+      linear_adrc_measurement_lpf_cutoff_hz="$(arg linear_adrc_measurement_lpf_cutoff_hz)"
       yaw_adrc_input_gain_per_mps="$(arg yaw_adrc_input_gain_per_mps)"
       yaw_adrc_controller_bandwidth_rad_s="$(arg yaw_adrc_controller_bandwidth_rad_s)"
       yaw_adrc_observer_bandwidth_rad_s="$(arg yaw_adrc_observer_bandwidth_rad_s)"
+      yaw_adrc_measurement_lpf_cutoff_hz="$(arg yaw_adrc_measurement_lpf_cutoff_hz)"
       yaw_adrc_minimum_speed_mps="$(arg yaw_adrc_minimum_speed_mps)"/>
 
 </robot>

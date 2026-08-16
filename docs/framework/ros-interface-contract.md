@@ -694,11 +694,13 @@ exactly `9.80665`. Angular velocity is in rad/s, with raw degrees/s multiplied
 by π/180. The MCU publishes no orientation estimate or covariance.
 
 The fixed QMI8658 configuration is accelerometer ±4 g and gyroscope
-±128 degrees/s, both at 250 Hz with the sensor low-pass filters disabled. Thus
+±128 degrees/s, both at 250 Hz with their mode-00 low-pass filters enabled.
+CTRL5 is `0x11`, selecting 2.66% of ODR, or approximately 6.65 Hz. Thus
 the nominal representable limits after conversion are ±39.2266 m/s² and
 ±2.234021 rad/s respectively. `SensorTask` consumes data-ready state without a
 FIFO backlog and publishes the newest complete accel/gyro sample at 50 Hz. The
-ROS API does not change range, ODR, or filtering at runtime.
+ROS API does not change range, ODR, or filtering at runtime. Initialization
+reads CTRL5 back and rejects the device configuration if it is not `0x11`.
 
 On a successful QMI8658 read, `valid` is true and `stamp` is the sample time.
 On failure, `valid` is false, the two arrays and stamp retain the last valid

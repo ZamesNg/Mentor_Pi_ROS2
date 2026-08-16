@@ -254,18 +254,23 @@ feed-forward/center behavior, so a slower run cannot tune yaw response.
 | Mecanum `linear_adrc_input_gain_per_second` | `5.0` | `1/s`; scales the X/Y correction model. Too small makes the calculated correction more aggressive; too large weakens it. |
 | Mecanum `linear_adrc_controller_bandwidth_rad_s` | `1.0` | `rad/s`; sets the shared X/Y response speed. |
 | Mecanum `linear_adrc_observer_bandwidth_rad_s` | `3.0` | `rad/s`; sets the shared X/Y disturbance-observer speed. |
+| Mecanum `linear_adrc_measurement_lpf_cutoff_hz` | `5.0` | `Hz`; filters encoder-derived X/Y velocity measurements before their ADRCs. |
 | Mecanum `yaw_adrc_input_gain_per_second` | `5.0` | `1/s`; scales the yaw-rate correction model. |
 | Mecanum `yaw_adrc_controller_bandwidth_rad_s` | `1.0` | `rad/s`; sets yaw response speed. |
 | Mecanum `yaw_adrc_observer_bandwidth_rad_s` | `3.0` | `rad/s`; sets yaw disturbance-observer speed. |
+| Mecanum `yaw_adrc_measurement_lpf_cutoff_hz` | `5.0` | `Hz`; filters IMU gyro-Z before yaw ADRC. |
 | Ackermann `linear_adrc_input_gain_per_second` | `5.0` | `1/s`; scales longitudinal-speed correction. |
 | Ackermann `linear_adrc_controller_bandwidth_rad_s` | `1.0` | `rad/s`; sets longitudinal response speed. |
 | Ackermann `linear_adrc_observer_bandwidth_rad_s` | `3.0` | `rad/s`; sets longitudinal disturbance-observer speed. |
+| Ackermann `linear_adrc_measurement_lpf_cutoff_hz` | `5.0` | `Hz`; filters encoder-derived longitudinal speed before ADRC. |
 | Ackermann `yaw_adrc_input_gain_per_mps` | `30.0` | Coefficient per measured `m/s`; scales steering correction into yaw-rate response. |
 | Ackermann `yaw_adrc_controller_bandwidth_rad_s` | `1.0` | `rad/s`; sets yaw response speed above the minimum-speed gate. |
 | Ackermann `yaw_adrc_observer_bandwidth_rad_s` | `3.0` | `rad/s`; sets yaw disturbance-observer speed above the gate. |
+| Ackermann `yaw_adrc_measurement_lpf_cutoff_hz` | `5.0` | `Hz`; filters IMU gyro-Z before yaw ADRC and resets below the minimum-speed gate. |
 | Ackermann `yaw_adrc_minimum_speed_mps` | `0.1` | `m/s`; below this measured speed the yaw observer resets instead of tuning steering. |
 
-All chassis ADRC gains and bandwidths must be finite and positive, with
+All chassis ADRC gains, bandwidths, and measurement-LPF cutoffs must be finite
+and positive, with
 `wo >= wc`. The same implementation rejects an update when `wo * T > 0.5`.
 Because this loop runs at 30 Hz, keep observer bandwidth well below the nominal
 approximately `15 rad/s` timing boundary. The current outer-loop bandwidth of

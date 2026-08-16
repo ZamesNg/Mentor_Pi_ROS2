@@ -21,6 +21,9 @@ constexpr std::uint8_t kAccelerationDataRegister = 53U;
 constexpr std::uint8_t kResetRegister = 96U;
 constexpr std::uint8_t kWhoAmIValue = 0x05U;
 constexpr std::uint8_t kSoftResetCommand = 0xb0U;
+// CTRL5 mode 00 enables the accelerometer and gyroscope LPFs at 2.66% of
+// their 250 Hz ODR, or approximately 6.65 Hz.
+constexpr std::uint8_t kCtrl5LpfMode00 = 0x11U;
 constexpr float kGravityMps2 = 9.80665F;
 constexpr float kDegreesToRadians = 0.017453292519943295F;
 
@@ -80,13 +83,14 @@ Result Qmi8658Driver::Initialize(std::uint32_t deadline_us) {
   // write. This matches the preserved board-reference initialization order
   // and avoids changing CTRL8 while accelerometer/gyroscope startup is active.
   // The resulting configuration is INT pins enabled, ±4 g / 250 Hz,
-  // ±128 dps / 250 Hz, sensor LPFs off, and both sensors enabled.
+  // ±128 dps / 250 Hz, 6.65 Hz mode-00 sensor LPFs, and both sensors
+  // enabled.
   constexpr std::array<std::array<std::uint8_t, 2>, 7> kConfiguration{{
       {kCtrl7Register, 0x00U},
       {kCtrl1Register, 0x78U},
       {kCtrl2Register, 0x15U},
       {kCtrl3Register, 0x35U},
-      {kCtrl5Register, 0x00U},
+      {kCtrl5Register, kCtrl5LpfMode00},
       {kCtrl8Register, 0xc0U},
       {kCtrl7Register, 0x03U},
   }};
@@ -94,6 +98,16 @@ Result Qmi8658Driver::Initialize(std::uint32_t deadline_us) {
     const Result result = WriteRegister(setting[0], setting[1], deadline_us);
     if (!result.ok()) {
       return result;
+    }
+    if (setting[0] == kCtrl5Register) {
+      std::uint8_t readback = 0U;
+      status = i2c_.Read(address_, kCtrl5Register, &readback, 1U, deadline_us);
+      if (status != IoStatus::kOk) {
+        return ToResult(status, kCtrl5Register);
+      }
+      if (readback != kCtrl5LpfMode00) {
+        return {ResultCode::kIoError, kCtrl5Register};
+      }
     }
   }
   initialized_ = true;

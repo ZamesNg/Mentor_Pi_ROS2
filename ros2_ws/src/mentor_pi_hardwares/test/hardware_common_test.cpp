@@ -43,6 +43,33 @@ TEST(HardwareCommonTest, ExposesLegacyMotorProfileLimits) {
   EXPECT_FALSE(MotorMaximumRps(4U).has_value());
 }
 
+TEST(HardwareCommonTest, FirstOrderLowPassUsesMeasuredPeriodAndResets) {
+  FirstOrderLowPass filter;
+  EXPECT_FALSE(filter.Configure(0.0));
+  EXPECT_FALSE(filter.Configure(std::numeric_limits<double>::infinity()));
+  ASSERT_TRUE(filter.Configure(5.0));
+
+  const auto first = filter.Update(2.0, 1.0 / 30.0);
+  ASSERT_TRUE(first.has_value());
+  EXPECT_DOUBLE_EQ(*first, 2.0);
+
+  constexpr double kPeriod = 0.02;
+  const double alpha = 1.0 - std::exp(-kTwoPi * 5.0 * kPeriod);
+  const auto second = filter.Update(4.0, kPeriod);
+  ASSERT_TRUE(second.has_value());
+  EXPECT_NEAR(*second, 2.0 + alpha * 2.0, 1.0e-12);
+
+  EXPECT_FALSE(filter.Update(4.0, 0.0).has_value());
+  const auto after_invalid = filter.Update(-3.0, kPeriod);
+  ASSERT_TRUE(after_invalid.has_value());
+  EXPECT_DOUBLE_EQ(*after_invalid, -3.0);
+
+  filter.Reset();
+  const auto after_reset = filter.Update(7.0, kPeriod);
+  ASSERT_TRUE(after_reset.has_value());
+  EXPECT_DOUBLE_EQ(*after_reset, 7.0);
+}
+
 TEST(HardwareCommonTest, FirstOrderLadrcRejectsInvalidTimingAndResets) {
   FirstOrderLadrc controller;
   EXPECT_FALSE(controller.Configure(0.0, 3.0));

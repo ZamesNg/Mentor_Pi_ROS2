@@ -57,6 +57,41 @@ std::optional<std::uint32_t> MotorTicksPerRevolution(std::uint8_t model) {
   return contract->ticks_per_revolution;
 }
 
+bool FirstOrderLowPass::Configure(double cutoff_hz) {
+  if (!std::isfinite(cutoff_hz) || cutoff_hz <= 0.0) {
+    return false;
+  }
+  cutoff_hz_ = cutoff_hz;
+  Reset();
+  return true;
+}
+
+void FirstOrderLowPass::Reset() {
+  output_ = 0.0;
+  initialized_ = false;
+}
+
+std::optional<double> FirstOrderLowPass::Update(double measurement,
+                                                double period_seconds) {
+  if (!std::isfinite(measurement) || !std::isfinite(period_seconds) ||
+      period_seconds <= 0.0) {
+    Reset();
+    return std::nullopt;
+  }
+  if (!initialized_) {
+    output_ = measurement;
+    initialized_ = true;
+    return output_;
+  }
+  const double alpha = -std::expm1(-kTwoPi * cutoff_hz_ * period_seconds);
+  output_ += alpha * (measurement - output_);
+  if (!std::isfinite(output_)) {
+    Reset();
+    return std::nullopt;
+  }
+  return output_;
+}
+
 bool FirstOrderLadrc::Configure(double controller_bandwidth_rad_s,
                                 double observer_bandwidth_rad_s) {
   if (!std::isfinite(controller_bandwidth_rad_s) ||

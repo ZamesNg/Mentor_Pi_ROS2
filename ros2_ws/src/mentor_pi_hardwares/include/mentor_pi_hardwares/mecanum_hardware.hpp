@@ -105,6 +105,7 @@ class MecanumHardware : public hardware_interface::SystemInterface {
   std::chrono::milliseconds feedback_timeout_{500};
   std::chrono::milliseconds imu_timeout_{500};
   std::array<hardware::FirstOrderLadrc, 3U> chassis_adrc_{};
+  std::array<hardware::FirstOrderLowPass, 3U> measurement_lpf_{};
   std::array<double, 3U> applied_correction_{};
   double wheel_radius_m_{0.0325};
   double wheel_projection_sum_m_{0.14};

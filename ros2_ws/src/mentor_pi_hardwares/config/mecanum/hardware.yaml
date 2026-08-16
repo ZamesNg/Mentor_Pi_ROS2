@@ -9,6 +9,8 @@ hardware:
   linear_adrc_input_gain_per_second: 5.0
   linear_adrc_controller_bandwidth_rad_s: 1.0
   linear_adrc_observer_bandwidth_rad_s: 3.0
+  linear_adrc_measurement_lpf_cutoff_hz: 5.0
   yaw_adrc_input_gain_per_second: 5.0
   yaw_adrc_controller_bandwidth_rad_s: 1.0
   yaw_adrc_observer_bandwidth_rad_s: 3.0
+  yaw_adrc_measurement_lpf_cutoff_hz: 5.0

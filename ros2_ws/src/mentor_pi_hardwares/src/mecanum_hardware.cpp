@@ -78,6 +78,8 @@ hardware_interface::CallbackReturn MecanumHardware::on_init(
   double linear_observer_bandwidth = 0.0;
   double yaw_controller_bandwidth = 0.0;
   double yaw_observer_bandwidth = 0.0;
+  double linear_measurement_lpf_cutoff_hz = 0.0;
+  double yaw_measurement_lpf_cutoff_hz = 0.0;
   if (!IsValidRobotName(robot_name_) ||
       !ParsePositiveMilliseconds(
           HardwareParameter(info, "feedback_timeout_ms", "100"),
@@ -101,6 +103,10 @@ hardware_interface::CallbackReturn MecanumHardware::on_init(
                             "3.0"),
           &linear_observer_bandwidth) ||
       !ParsePositiveDouble(
+          HardwareParameter(info, "linear_adrc_measurement_lpf_cutoff_hz",
+                            "5.0"),
+          &linear_measurement_lpf_cutoff_hz) ||
+      !ParsePositiveDouble(
           HardwareParameter(info, "yaw_adrc_input_gain_per_second", "5.0"),
           &yaw_adrc_input_gain_per_second_) ||
       !ParsePositiveDouble(
@@ -109,12 +115,18 @@ hardware_interface::CallbackReturn MecanumHardware::on_init(
       !ParsePositiveDouble(
           HardwareParameter(info, "yaw_adrc_observer_bandwidth_rad_s", "3.0"),
           &yaw_observer_bandwidth) ||
+      !ParsePositiveDouble(
+          HardwareParameter(info, "yaw_adrc_measurement_lpf_cutoff_hz", "5.0"),
+          &yaw_measurement_lpf_cutoff_hz) ||
       !chassis_adrc_[0].Configure(linear_controller_bandwidth,
                                   linear_observer_bandwidth) ||
       !chassis_adrc_[1].Configure(linear_controller_bandwidth,
                                   linear_observer_bandwidth) ||
       !chassis_adrc_[2].Configure(yaw_controller_bandwidth,
-                                  yaw_observer_bandwidth)) {
+                                  yaw_observer_bandwidth) ||
+      !measurement_lpf_[0].Configure(linear_measurement_lpf_cutoff_hz) ||
+      !measurement_lpf_[1].Configure(linear_measurement_lpf_cutoff_hz) ||
+      !measurement_lpf_[2].Configure(yaw_measurement_lpf_cutoff_hz)) {
     return hardware_interface::CallbackReturn::ERROR;
   }
   node_ = std::make_shared<rclcpp::Node>("mecanum_hardware", "/" + robot_name_);
@@ -305,6 +317,7 @@ hardware_interface::return_type MecanumHardware::read(const rclcpp::Time&,
     position = position_rad_;
   }
   if (active_ && !fresh) {
+    ResetChassisAdrc();
     SendZeroMotorCommand();
     if (!MotionIsAuthorized() || FeedbackCanSettle(SteadyClock::now())) {
       return hardware_interface::return_type::OK;
@@ -556,6 +569,9 @@ void MecanumHardware::ResetChassisAdrc() {
   for (auto& controller : chassis_adrc_) {
     controller.Reset();
   }
+  for (auto& filter : measurement_lpf_) {
+    filter.Reset();
+  }
   applied_correction_.fill(0.0);
 }
 
@@ -599,6 +615,14 @@ bool MecanumHardware::SendMotorCommand(double period_seconds) {
   const auto reference = inverse_kinematics(reference_wheel_velocity);
   auto measured = inverse_kinematics(measured_wheel_velocity);
   measured[2] = measured_yaw_rate;
+  for (std::size_t axis = 0U; axis < measured.size(); ++axis) {
+    const auto filtered =
+        measurement_lpf_[axis].Update(measured[axis], period_seconds);
+    if (!filtered) {
+      return false;
+    }
+    measured[axis] = *filtered;
+  }
 
   std::array<double, 3U> correction{};
   for (std::size_t axis = 0U; axis < correction.size(); ++axis) {

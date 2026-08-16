@@ -33,6 +33,7 @@ Mode-specific profiles under `config/mecanum` and `config/ackermann` own:
 - the `ros2_control` URDF and plugin selection;
 - controller parameters;
 - wheel geometry and chassis ADRC parameters;
+- chassis ADRC linear/yaw measurement-LPF cutoffs;
 - `feedback_timeout_ms` and `imu_timeout_ms`, both defaulting to 100 ms;
 - Ackermann PWM channel, min/center/max pulse, inversion, angle limits, and
   command duration.
@@ -96,15 +97,24 @@ use the same feedback path without a new node or topic.
 Mecanum reconstructs reference and measured body `vx` and `vy` from the four
 wheel velocities. It reconstructs reference yaw rate from wheel commands and
 uses `/mentor_pi/imu.angular_velocity_rad_s[2]` as measured yaw rate. Independent
-ADRC corrections are mapped back through the mecanum kinematics and uniformly
+5 Hz first-order filters process measured `vx`, `vy`, and yaw rate before the
+ADRCs. Corrections are mapped back through the mecanum kinematics and uniformly
 scaled if any wheel would exceed the active motor profile.
 
 Ackermann reconstructs longitudinal speed from the two rear wheels and applies
 one common ADRC speed correction, preserving their requested differential. Its
 yaw reference is `speed * tan(steering) / wheelbase`; gyro Z is the measured
-yaw rate. The yaw input gain is the configured coefficient times signed
-measured speed. Below `0.1 m/s` measured speed, yaw ADRC resets and steering is
-centered because steering cannot reliably control yaw at standstill.
+yaw rate. Independent 5 Hz first-order filters process longitudinal speed and
+yaw rate before the ADRCs. The yaw input gain is the configured coefficient
+times signed filtered speed. Below `0.1 m/s` measured speed, yaw ADRC and its
+measurement filter reset while clamped feedforward steering is retained,
+because steering cannot reliably close the yaw loop at standstill.
+
+Both vehicle profiles expose `linear_adrc_measurement_lpf_cutoff_hz` and
+`yaw_adrc_measurement_lpf_cutoff_hz`, defaulting to `5.0`. The filters use the
+measured control period with `alpha = 1 - exp(-2*pi*cutoff*period)`, seed from
+the first valid measurement, never filter references, and reset with the
+associated chassis ADRC safety path.
 
 The chassis defaults are provisional: linear input gain `5 s^-1`, controller
 bandwidth `1 rad/s`, and observer bandwidth `3 rad/s`; mecanum yaw uses the same

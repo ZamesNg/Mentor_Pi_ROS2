@@ -94,7 +94,9 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert mecanum_parameters["wheel_radius_m"] == "0.0325"
     assert mecanum_parameters["wheel_projection_sum_m"] == "0.14"
     assert mecanum_parameters["linear_adrc_input_gain_per_second"] == "5.0"
+    assert mecanum_parameters["linear_adrc_measurement_lpf_cutoff_hz"] == "5.0"
     assert mecanum_parameters["yaw_adrc_input_gain_per_second"] == "5.0"
+    assert mecanum_parameters["yaw_adrc_measurement_lpf_cutoff_hz"] == "5.0"
     joint_names = [
         joint.attrib["name"] for joint in mecanum.findall("./ros2_control/joint")
     ]
@@ -118,6 +120,8 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert ackermann_parameters["rear_wheel_radius_m"] == "0.0325"
     assert ackermann_parameters["wheelbase_m"] == "0.135"
     assert ackermann_parameters["yaw_adrc_input_gain_per_mps"] == "30.0"
+    assert ackermann_parameters["linear_adrc_measurement_lpf_cutoff_hz"] == "5.0"
+    assert ackermann_parameters["yaw_adrc_measurement_lpf_cutoff_hz"] == "5.0"
     assert ackermann_parameters["yaw_adrc_minimum_speed_mps"] == "0.1"
     rear_axle_joint = ackermann.find("./joint[@name='rear_axle_footprint_joint']")
     assert rear_axle_joint is not None

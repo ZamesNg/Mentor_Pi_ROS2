@@ -54,6 +54,18 @@ std::optional<float> RadiansPerSecondToRps(double radians_per_second,
 std::optional<double> MotorMaximumRps(std::uint8_t model);
 std::optional<std::uint32_t> MotorTicksPerRevolution(std::uint8_t model);
 
+class FirstOrderLowPass {
+ public:
+  bool Configure(double cutoff_hz);
+  void Reset();
+  std::optional<double> Update(double measurement, double period_seconds);
+
+ private:
+  double cutoff_hz_{5.0};
+  double output_{0.0};
+  bool initialized_{false};
+};
+
 class FirstOrderLadrc {
  public:
   bool Configure(double controller_bandwidth_rad_s,

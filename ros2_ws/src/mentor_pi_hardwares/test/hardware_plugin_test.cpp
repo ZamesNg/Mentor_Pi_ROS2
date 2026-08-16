@@ -127,6 +127,32 @@ class HardwarePluginTest : public ::testing::Test {
       "hardware_interface", "hardware_interface::SystemInterface"};
 };
 
+TEST_F(HardwarePluginTest, RejectsInvalidMeasurementFilterCutoffs) {
+  auto mecanum_info = MecanumInfo("mecanum_invalid_lpf_test");
+  mecanum_info.hardware_parameters["linear_adrc_measurement_lpf_cutoff_hz"] =
+      "0.0";
+  auto mecanum = loader_.createSharedInstance("mentor_pi/MecanumHardware");
+  EXPECT_EQ(mecanum->on_init(mecanum_info), CallbackReturn::ERROR);
+
+  mecanum_info = MecanumInfo("mecanum_invalid_yaw_lpf_test");
+  mecanum_info.hardware_parameters["yaw_adrc_measurement_lpf_cutoff_hz"] =
+      "inf";
+  mecanum = loader_.createSharedInstance("mentor_pi/MecanumHardware");
+  EXPECT_EQ(mecanum->on_init(mecanum_info), CallbackReturn::ERROR);
+
+  auto ackermann_info = AckermannInfo("ackermann_invalid_lpf_test");
+  ackermann_info.hardware_parameters["linear_adrc_measurement_lpf_cutoff_hz"] =
+      "-1.0";
+  auto ackermann = loader_.createSharedInstance("mentor_pi/AckermannHardware");
+  EXPECT_EQ(ackermann->on_init(ackermann_info), CallbackReturn::ERROR);
+
+  ackermann_info = AckermannInfo("ackermann_invalid_yaw_lpf_test");
+  ackermann_info.hardware_parameters["yaw_adrc_measurement_lpf_cutoff_hz"] =
+      "nan";
+  ackermann = loader_.createSharedInstance("mentor_pi/AckermannHardware");
+  EXPECT_EQ(ackermann->on_init(ackermann_info), CallbackReturn::ERROR);
+}
+
 TEST_F(HardwarePluginTest, MecanumMapsUnitsConnectorsAndSafetyZeros) {
   auto hardware = loader_.createSharedInstance("mentor_pi/MecanumHardware");
   ASSERT_EQ(hardware->on_init(MecanumInfo()), CallbackReturn::SUCCESS);

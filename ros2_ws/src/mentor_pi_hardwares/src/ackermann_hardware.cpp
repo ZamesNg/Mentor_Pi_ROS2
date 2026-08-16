@@ -104,6 +104,8 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
   double linear_observer_bandwidth = 0.0;
   double yaw_controller_bandwidth = 0.0;
   double yaw_observer_bandwidth = 0.0;
+  double linear_measurement_lpf_cutoff_hz = 0.0;
+  double yaw_measurement_lpf_cutoff_hz = 0.0;
   if (!IsValidRobotName(robot_name_) ||
       !ParseInteger(HardwareParameter(info, "feedback_timeout_ms", "100"), 1U,
                     10000U, &timeout_ms) ||
@@ -151,6 +153,10 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
                             "3.0"),
           &linear_observer_bandwidth) ||
       !ParsePositiveDouble(
+          HardwareParameter(info, "linear_adrc_measurement_lpf_cutoff_hz",
+                            "5.0"),
+          &linear_measurement_lpf_cutoff_hz) ||
+      !ParsePositiveDouble(
           HardwareParameter(info, "yaw_adrc_input_gain_per_mps", "30.0"),
           &yaw_adrc_input_gain_per_mps_) ||
       !ParsePositiveDouble(
@@ -160,11 +166,16 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
           HardwareParameter(info, "yaw_adrc_observer_bandwidth_rad_s", "3.0"),
           &yaw_observer_bandwidth) ||
       !ParsePositiveDouble(
+          HardwareParameter(info, "yaw_adrc_measurement_lpf_cutoff_hz", "5.0"),
+          &yaw_measurement_lpf_cutoff_hz) ||
+      !ParsePositiveDouble(
           HardwareParameter(info, "yaw_adrc_minimum_speed_mps", "0.1"),
           &yaw_adrc_minimum_speed_mps_) ||
       !linear_adrc_.Configure(linear_controller_bandwidth,
                               linear_observer_bandwidth) ||
-      !yaw_adrc_.Configure(yaw_controller_bandwidth, yaw_observer_bandwidth)) {
+      !yaw_adrc_.Configure(yaw_controller_bandwidth, yaw_observer_bandwidth) ||
+      !linear_measurement_lpf_.Configure(linear_measurement_lpf_cutoff_hz) ||
+      !yaw_measurement_lpf_.Configure(yaw_measurement_lpf_cutoff_hz)) {
     return hardware_interface::CallbackReturn::ERROR;
   }
   feedback_timeout_ = std::chrono::milliseconds(timeout_ms);
@@ -401,6 +412,7 @@ hardware_interface::return_type AckermannHardware::read(
     steering = steering_position_rad_;
   }
   if (active_ && !fresh) {
+    ResetChassisAdrc();
     SendZeroCommands();
     if (!MotionIsAuthorized() || FeedbackCanSettle(SteadyClock::now())) {
       return hardware_interface::return_type::OK;
@@ -651,6 +663,8 @@ void AckermannHardware::SendZeroCommands() {
 void AckermannHardware::ResetChassisAdrc() {
   linear_adrc_.Reset();
   yaw_adrc_.Reset();
+  linear_measurement_lpf_.Reset();
+  yaw_measurement_lpf_.Reset();
   applied_linear_correction_m_s_ = 0.0;
   applied_steering_correction_rad_ = 0.0;
 }
@@ -692,13 +706,19 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
   const double reference_speed_m_s =
       rear_wheel_radius_m_ *
       (reference_rear_velocity[0] + reference_rear_velocity[1]) * 0.5;
-  const double measured_speed_m_s =
+  const double raw_measured_speed_m_s =
       rear_wheel_radius_m_ *
       (measured_wheel_velocity[hardware::WheelIndex(
            hardware::Wheel::kRearLeft)] +
        measured_wheel_velocity[hardware::WheelIndex(
            hardware::Wheel::kRearRight)]) *
       0.5;
+  const auto measured_speed =
+      linear_measurement_lpf_.Update(raw_measured_speed_m_s, period_seconds);
+  if (!measured_speed) {
+    return false;
+  }
+  const double measured_speed_m_s = *measured_speed;
   const auto linear_correction = linear_adrc_.Update(
       reference_speed_m_s, measured_speed_m_s, applied_linear_correction_m_s_,
       linear_adrc_input_gain_per_second_, period_seconds);
@@ -731,15 +751,21 @@ bool AckermannHardware::SendDriveAndSteeringCommands(double period_seconds) {
   double steering_command = feedforward_steering;
   if (std::fabs(measured_speed_m_s) < yaw_adrc_minimum_speed_mps_) {
     yaw_adrc_.Reset();
+    yaw_measurement_lpf_.Reset();
     applied_steering_correction_rad_ = 0.0;
   } else {
     const double reference_yaw_rate =
         reference_speed_m_s * std::tan(feedforward_steering) / wheelbase_m_;
     const double yaw_input_gain =
         yaw_adrc_input_gain_per_mps_ * measured_speed_m_s;
+    const auto filtered_yaw_rate =
+        yaw_measurement_lpf_.Update(measured_yaw_rate, period_seconds);
+    if (!filtered_yaw_rate) {
+      return false;
+    }
     const auto steering_correction = yaw_adrc_.Update(
-        reference_yaw_rate, measured_yaw_rate, applied_steering_correction_rad_,
-        yaw_input_gain, period_seconds);
+        reference_yaw_rate, *filtered_yaw_rate,
+        applied_steering_correction_rad_, yaw_input_gain, period_seconds);
     if (!steering_correction) {
       return false;
     }

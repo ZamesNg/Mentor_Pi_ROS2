@@ -158,7 +158,9 @@ class FakeRegisterI2c final : public RegisterI2c {
       return write_failure_status;
     }
     for (std::size_t index = 0; index < size; ++index) {
-      registers[static_cast<std::size_t>(reg) + index] = data[index];
+      if (retain_writes) {
+        registers[static_cast<std::size_t>(reg) + index] = data[index];
+      }
       if (write_count < writes.size()) {
         writes[write_count] = {static_cast<std::uint8_t>(reg + index),
                                data[index]};
@@ -175,6 +177,7 @@ class FakeRegisterI2c final : public RegisterI2c {
   std::uint8_t write_failure_register{0xffU};
   IoStatus read_failure_status{IoStatus::kIoError};
   IoStatus write_failure_status{IoStatus::kIoError};
+  bool retain_writes{true};
   std::array<WriteOperation, 16> writes{};
   std::size_t write_count{0U};
 };
@@ -491,7 +494,7 @@ bool TestImuAndOled() {
           {2U, 0x78U},
           {3U, 0x15U},
           {4U, 0x35U},
-          {6U, 0x00U},
+          {6U, 0x11U},
           {9U, 0xc0U},
           {8U, 0x03U},
       }};
@@ -602,6 +605,25 @@ bool TestImuAndOled() {
   const auto configuration_failure = configuration_imu.Initialize(1000U);
   CHECK(configuration_failure.code == ResultCode::kBusy &&
         configuration_failure.detail == 2U);
+
+  FakeRegisterI2c filter_read_failure_i2c;
+  filter_read_failure_i2c.registers[0] = 0x05U;
+  filter_read_failure_i2c.registers[1] = 1U;
+  filter_read_failure_i2c.read_failure_register = 6U;
+  filter_read_failure_i2c.read_failure_status = IoStatus::kTimeout;
+  Qmi8658Driver filter_read_failure_imu(filter_read_failure_i2c);
+  const auto filter_read_failure = filter_read_failure_imu.Initialize(1000U);
+  CHECK(filter_read_failure.code == ResultCode::kTimeout &&
+        filter_read_failure.detail == 6U);
+
+  FakeRegisterI2c filter_mismatch_i2c;
+  filter_mismatch_i2c.registers[0] = 0x05U;
+  filter_mismatch_i2c.registers[1] = 1U;
+  filter_mismatch_i2c.retain_writes = false;
+  Qmi8658Driver filter_mismatch_imu(filter_mismatch_i2c);
+  const auto filter_mismatch = filter_mismatch_imu.Initialize(1000U);
+  CHECK(filter_mismatch.code == ResultCode::kIoError &&
+        filter_mismatch.detail == 6U);
 
   FakeRawI2c display_i2c;
   Ssd1306Driver display(display_i2c);
