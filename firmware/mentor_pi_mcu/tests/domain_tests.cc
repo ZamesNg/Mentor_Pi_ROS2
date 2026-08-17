@@ -755,8 +755,8 @@ void TestMotorController() {
   CHECK(controller.AcceptCommand(drive, 400U).ok());
   const std::array<std::uint32_t, kMotorCount> counters{};
   const auto outputs = controller.ControlStep(counters);
-  CHECK(outputs[0] == 133);
-  CHECK(outputs[0] <= kMotorOutputLimitPermille);
+  CHECK(outputs[0] == -133);
+  CHECK(std::abs(outputs[0]) <= kMotorOutputLimitPermille);
   controller.SetSessionActive(false);
   CHECK(controller.channels()[0].output_permille == 0);
   CHECK(controller.watchdog_stop_mask() == 1U);
@@ -878,8 +878,8 @@ void TestMotorController() {
   CHECK(adrc_controller.AcceptCommand(adrc_drive, 0U).ok());
   std::array<std::uint32_t, kMotorCount> stationary{};
   const auto overridden_output = adrc_controller.ControlStep(stationary);
-  CHECK(overridden_output[0] == 400);
-  CHECK(overridden_output[1] == 200);
+  CHECK(overridden_output[0] == -400);
+  CHECK(overridden_output[1] == -200);
   CHECK(adrc_controller.SetAdrc(adrc_update).result.code == ResultCode::kBusy);
 
   MotorCommand adrc_stop = adrc_drive;
@@ -892,11 +892,11 @@ void TestMotorController() {
   adrc_controller.SetSessionActive(false);
   adrc_controller.SetSessionActive(true);
   CHECK(adrc_controller.AcceptCommand(adrc_drive, 2U).ok());
-  CHECK(adrc_controller.ControlStep(stationary)[0] == 400);
+  CHECK(adrc_controller.ControlStep(stationary)[0] == -400);
   CHECK(adrc_controller.AcceptCommand(adrc_stop, 3U).ok());
   CHECK(adrc_controller.SetModel(MotorModel::kJgb37).result.ok());
   CHECK(adrc_controller.AcceptCommand(adrc_drive, 4U).ok());
-  CHECK(adrc_controller.ControlStep(stationary)[0] == 67);
+  CHECK(adrc_controller.ControlStep(stationary)[0] == -67);
 
   // Measured motion alone blocks all-channel updates, even while disarmed.
   MotorController moving_adrc(FullRangeTestMotorConfiguration());
@@ -923,7 +923,7 @@ void TestMotorController() {
   saturation_drive.target_rps[0] = 6.0F;
   CHECK(saturated_adrc.AcceptCommand(saturation_drive, 0U).ok());
   stationary.fill(0U);
-  CHECK(saturated_adrc.ControlStep(stationary)[0] == 1000);
+  CHECK(saturated_adrc.ControlStep(stationary)[0] == -1000);
 
   constexpr std::array<float, 4> kProfileLimits{1.5F, 3.0F, 6.0F, 1.1F};
   MotorController profile_limits(FullRangeTestMotorConfiguration());
@@ -962,15 +962,36 @@ void TestMotorController() {
     CHECK(raw_encoder.channels()[0].encoder_count == 10);
   }
 
-  // Bridge duty is the signed LADRC output without a model/output transform.
-  MotorController jga_output(FullRangeTestMotorConfiguration());
-  jga_output.SetSessionActive(true);
-  MotorCommand positive_target{};
-  positive_target.update_mask = 1U;
-  positive_target.target_rps[0] = 1.0F;
-  CHECK(jga_output.AcceptCommand(positive_target, 0U).ok());
-  stationary.fill(0U);
-  CHECK(jga_output.ControlStep(stationary)[0] == 133);
+  // Every model and channel uses the same physical bridge inversion while
+  // retaining the semantic LADRC output in the target/raw-encoder coordinate.
+  for (const MotorModel model : kModels) {
+    MotorController positive(FullRangeTestMotorConfiguration());
+    CHECK(positive.SetModel(model).result.ok());
+    positive.SetSessionActive(true);
+    MotorCommand positive_target{};
+    positive_target.update_mask = kAllMotorMask;
+    positive_target.target_rps.fill(1.0F);
+    CHECK(positive.AcceptCommand(positive_target, 0U).ok());
+    stationary.fill(0U);
+    const auto positive_bridge = positive.ControlStep(stationary);
+    for (std::size_t motor = 0U; motor < kMotorCount; ++motor) {
+      CHECK(positive.channels()[motor].output_permille == 133);
+      CHECK(positive_bridge[motor] == -133);
+    }
+
+    MotorController negative(FullRangeTestMotorConfiguration());
+    CHECK(negative.SetModel(model).result.ok());
+    negative.SetSessionActive(true);
+    MotorCommand negative_target{};
+    negative_target.update_mask = kAllMotorMask;
+    negative_target.target_rps.fill(-1.0F);
+    CHECK(negative.AcceptCommand(negative_target, 0U).ok());
+    const auto negative_bridge = negative.ControlStep(stationary);
+    for (std::size_t motor = 0U; motor < kMotorCount; ++motor) {
+      CHECK(negative.channels()[motor].output_permille == -133);
+      CHECK(negative_bridge[motor] == 133);
+    }
+  }
 }
 
 void TestFirstOrderAdrcController() {
@@ -998,18 +1019,19 @@ void TestFirstOrderAdrcController() {
   MotorController nominal(FullRangeTestMotorConfiguration());
   configure_adrc(&nominal, 0.01F, 4.0F, 12.0F);
   command_speed(&nominal, 1.0F);
-  CHECK(nominal.ControlStep(stationary)[0] == 400);
-  CHECK(nominal.ControlStep(stationary)[0] == 384);
+  CHECK(nominal.ControlStep(stationary)[0] == -400);
+  CHECK(nominal.ControlStep(stationary)[0] == -384);
 
   MotorController negative(FullRangeTestMotorConfiguration());
   configure_adrc(&negative, 0.01F, 4.0F, 12.0F);
   command_speed(&negative, -1.0F);
-  CHECK(negative.ControlStep(stationary)[0] == -400);
+  CHECK(negative.ControlStep(stationary)[0] == 400);
 
   MotorController saturated(FullRangeTestMotorConfiguration());
   configure_adrc(&saturated, 0.001F, 4.0F, 12.0F);
   command_speed(&saturated, 6.0F);
-  CHECK(saturated.ControlStep(stationary)[0] == kMotorOutputLimitPermille);
+  CHECK(saturated.ControlStep(stationary)[0] ==
+        -kMotorOutputLimitPermille);
 
   // The ESO observes filtered encoder velocity and reduces the command as the
   // measured speed approaches the reference.
@@ -1021,9 +1043,9 @@ void TestFirstOrderAdrcController() {
   const std::int16_t initial_output = observed.ControlStep(counters)[0];
   counters[0] = 101U;
   const std::int16_t feedback_output = observed.ControlStep(counters)[0];
-  CHECK(initial_output == 400);
-  CHECK(feedback_output > 0);
-  CHECK(feedback_output < initial_output);
+  CHECK(initial_output == -400);
+  CHECK(feedback_output < 0);
+  CHECK(std::abs(feedback_output) < std::abs(initial_output));
   CHECK(observed.channels()[0].measured_rps > 0.0F);
 
   // Zero, lease, and session-loss paths clear the observer and applied-output
@@ -1031,17 +1053,17 @@ void TestFirstOrderAdrcController() {
   MotorController reset(FullRangeTestMotorConfiguration());
   configure_adrc(&reset, 0.01F, 4.0F, 12.0F);
   command_speed(&reset, 1.0F);
-  CHECK(reset.ControlStep(stationary)[0] == 400);
+  CHECK(reset.ControlStep(stationary)[0] == -400);
   static_cast<void>(reset.ControlStep(stationary));
   command_speed(&reset, 0.0F, 10U);
   command_speed(&reset, 1.0F, 11U);
-  CHECK(reset.ControlStep(stationary)[0] == 400);
+  CHECK(reset.ControlStep(stationary)[0] == -400);
   reset.EvaluateLeases(11U + kMotorLeaseExpiryUs);
   CHECK(!reset.channels()[0].armed);
   reset.SetSessionActive(false);
   reset.SetSessionActive(true);
   command_speed(&reset, 1.0F, 12U + kMotorLeaseExpiryUs);
-  CHECK(reset.ControlStep(stationary)[0] == 400);
+  CHECK(reset.ControlStep(stationary)[0] == -400);
 
   // Forward-Euler observer timing is fail-closed outside wo * dt <= 0.5.
   MotorController invalid_period(FullRangeTestMotorConfiguration());

@@ -15,6 +15,11 @@ constexpr std::uint32_t kMotorLeaseExpiryUs = 198000U;
 constexpr std::uint32_t kMotorControlPeriodUs = 10000U;
 constexpr std::int16_t kMotorOutputLimitPermille = 1000;
 constexpr std::int16_t kMotorMinimumDrivePermille = 0;
+// The RRCLite bridge/encoder wiring has negative plant polarity: positive
+// bridge duty decreases the raw encoder count. Apply one fixed inversion for
+// every channel and motor model so the LADRC coordinate remains positive
+// target -> positive raw encoder motion.
+constexpr std::int16_t kMotorBridgeOutputPolarity = -1;
 constexpr float kMotorImplementationMaximumRps = 6.0F;
 constexpr float kMotorAdrcUpdateMaximumMeasuredRps = 0.01F;
 constexpr float kMotorDefaultAdrcInputGainRpsPerSecondPerPermille = 0.03F;

@@ -12,9 +12,11 @@ register-level emergency motor shutdown; `MotorController::DisarmAll()` is the
 matching software-state transition.
 
 The motor sign contract is deliberately simple: MCU encoder state is the raw
-signed counter delta for every motor model, and bridge duty is the signed LADRC
-output without another transform. The host owns the only chassis-direction
-conversion between this MCU coordinate and positive ROS wheel rotation. ADRC
+signed counter delta for every motor model. Targets, measured velocity, and
+LADRC state use that raw encoder coordinate. One fixed bridge inversion is
+applied for every channel and motor model because the RRCLite bridge/encoder
+plant polarity is negative. The host owns the only chassis-direction
+conversion between the MCU coordinate and positive ROS wheel rotation. ADRC
 values and unverified physical channel mappings remain release-provisional
 until guarded HIL records them.
 

@@ -29,12 +29,13 @@ MCU encoder state = raw signed counter delta
 MCU target = ROS wheel target * ROS_MCU_SIGN
 ROS wheel state = MCU state * ROS_MCU_SIGN
 
-bridge duty = LADRC output
+physical bridge duty = -semantic LADRC output
 ```
 
-There is no model sign, wiring sign, or output sign in firmware. `target_rps`,
-raw `measured_rps`, accumulated raw `encoder_count`, LADRC state, and bridge
-duty all use the same MCU coordinate.
+There is no model-specific or channel-specific sign in firmware. `target_rps`,
+raw `measured_rps`, accumulated raw `encoder_count`, LADRC state, and semantic
+controller output all use the same MCU coordinate. The physical bridge boundary
+uses one fixed `-1` polarity for all four channels and every motor model.
 
 The compiled values are:
 
@@ -42,12 +43,13 @@ The compiled values are:
 | --- | --- | --- |
 | MCU encoder transform | M1, M2, M3, M4 | none; raw delta is retained |
 | ROS↔MCU chassis sign | FL, FR, RL, RR | `{-1,+1,-1,+1}` |
-| MCU output transform | M1, M2, M3, M4 | none; bridge duty is LADRC output |
+| MCU bridge polarity | M1, M2, M3, M4; every model | `-1`; physical duty is the negative semantic LADRC output |
 
 The ROS map is applied to commands and feedback and is its own inverse.
 Positive ROS wheel rotation rolls the chassis toward +X. Consequently, a
 positive forward ROS command produces negative MCU targets on M1/M2 and
-positive MCU targets on M3/M4; the bridge receives the LADRC result directly.
+positive MCU targets on M3/M4. Feedback uses the same ROS map, while the fixed
+bridge inversion remains entirely inside the MCU controller.
 
 On 2026-08-17, with actuator and motor power disconnected, an
 `ackermann_0` passive capture using raw encoder state observed

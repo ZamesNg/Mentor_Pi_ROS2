@@ -86,9 +86,10 @@ do not replace MCU safety or HIL qualification.
 
 Before any powered command, the ADRC image shall be used for a passive manual
 encoder-direction check while all bridge outputs remain disabled. Firmware uses
-the raw signed encoder delta and sends signed LADRC output directly to the
-bridge for every model. The host alone converts MCU motor direction to positive
-ROS wheel rotation. That physical mapping and every ADRC profile remain
+the raw signed encoder delta for every model and applies the same fixed
+inversion from semantic LADRC output to physical bridge duty on all four
+channels. The host alone converts MCU motor direction to positive ROS wheel
+rotation. That physical mapping and every ADRC profile remain
 unqualified until per-vehicle motor HIL measures and records the result.
 Software verification of the release artifact is not powered-motion
 qualification.

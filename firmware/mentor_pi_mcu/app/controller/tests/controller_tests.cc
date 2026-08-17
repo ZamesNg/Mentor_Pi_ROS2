@@ -1312,7 +1312,7 @@ bool TestControllerIntegration() {
     platform.SetTimeMs(millisecond);
     runtime.RunMotorControlOnce();
   }
-  CHECK(platform.motor_duty[0] > 0);
+  CHECK(platform.motor_duty[0] < 0);
   CHECK(platform.arm_observed_inside_critical);
   CHECK(platform.apply_observed_inside_critical);
   for (std::uint32_t millisecond = 11U; millisecond <= 198U; ++millisecond) {
@@ -1882,7 +1882,7 @@ bool TestStartupMotorInhibit() {
     runtime.RunMotorControlOnce();
   }
   CHECK(platform.motor_apply_calls > 0U);
-  CHECK(platform.motor_duty[0] > 0);
+  CHECK(platform.motor_duty[0] < 0);
   CHECK(platform.critical_depth == 0U);
   return true;
 }
@@ -1919,7 +1919,7 @@ bool TestCrossSessionMergedFieldOwnership() {
     motor_runtime.RunMotorControlOnce();
   }
   CHECK(motor_platform.motor_duty[0] == 0);
-  CHECK(motor_platform.motor_duty[1] > 0);
+  CHECK(motor_platform.motor_duty[1] < 0);
 
   // The analogous unconsumed gen-1 PWM field must not be applied when gen 2
   // first selects another channel. Channel 1 remains at its held reset target.
@@ -2178,7 +2178,7 @@ bool TestSafetySupervisorRevokesMotorAuthority() {
     runtime.RunMotorControlOnce();
   }
   CHECK(platform.motor_armed[0]);
-  CHECK(platform.motor_duty[0] > 0);
+  CHECK(platform.motor_duty[0] < 0);
 
   // Keep a fresh command pending so the next MotorTask iteration is an
   // adversarial re-arm attempt after the supervisor stop.
@@ -2491,7 +2491,7 @@ bool TestMotorControlUsesElapsedPeriod() {
     run_release_at(&runtime, &platform,
                    release == 8U ? 10000U : release * 1000U);
   }
-  CHECK(platform.motor_duty[0] == 400);
+  CHECK(platform.motor_duty[0] == -400);
 
   // The motor task passes actual elapsed time into ADRC. Refresh the command
   // after a long scheduler gap so the observer-timing guard, rather than the

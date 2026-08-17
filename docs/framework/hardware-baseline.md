@@ -146,9 +146,10 @@ device open as a modem-line guard.
 
 The M1–M4 order above is the public array order. Firmware uses raw signed
 quadrature delta directly for every motor model. `target_rps`, `measured_rps`,
-accumulated count, LADRC state, and signed bridge duty share that MCU coordinate
-without a firmware sign transform. Connector mechanics do not define ROS
-forward, so the ROS hardware layer owns the only sign map:
+accumulated count, LADRC state, and semantic controller output share that MCU
+coordinate. One fixed inversion converts semantic output to physical bridge
+duty for all channels and models. Connector mechanics do not define ROS
+forward, so the ROS hardware layer owns the only chassis sign map:
 `{-1,+1,-1,+1}` in logical FL,FR,RL,RR order. The same map is applied to
 commands and feedback and is its own inverse.
 

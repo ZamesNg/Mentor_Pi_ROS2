@@ -107,9 +107,11 @@ required HIL evidence is recorded.
 
 Before its first powered command, each channel shall pass a passive encoder
 direction test with motor PWM disabled. Firmware uses raw signed encoder delta
-directly for every motor model and sends signed LADRC output directly to the
-bridge. The host owns the only sign conversion between the MCU coordinate and
-positive ROS wheel rotation: `{-1,+1,-1,+1}` in logical FL,FR,RL,RR order. All
+directly for every motor model. Targets, measurements, and LADRC state use that
+coordinate, while one fixed inversion converts the semantic LADRC output to
+physical bridge duty for every channel and model. The host owns the only sign
+conversion between the MCU coordinate and positive ROS wheel rotation:
+`{-1,+1,-1,+1}` in logical FL,FR,RL,RR order. All
 motor ADRC constants and physical model/channel mappings remain provisional
 until D3 HIL records qualify or replace them. A later production-motion enable
 requires those records and reviewed change control; host configuration success

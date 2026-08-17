@@ -314,10 +314,14 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
     } else {
       channel.output_permille = static_cast<std::int16_t>(std::lround(output));
     }
-    // Target, raw encoder measurement, LADRC state, and bridge duty share one
-    // MCU coordinate. The ROS hardware plugin owns chassis-direction signs.
+    // Target, raw encoder measurement, and LADRC state share one semantic MCU
+    // coordinate. The fixed bridge inversion closes the negative-polarity
+    // physical plant; it is identical for every channel and motor model. Keep
+    // the pre-inversion value in the observer because that is the input whose
+    // effect on the raw encoder coordinate is positive.
     state.applied_output_permille = static_cast<float>(channel.output_permille);
-    outputs[index] = channel.output_permille;
+    outputs[index] = static_cast<std::int16_t>(
+        kMotorBridgeOutputPolarity * channel.output_permille);
   }
   return outputs;
 }

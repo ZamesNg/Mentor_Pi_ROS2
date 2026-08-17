@@ -247,10 +247,11 @@ Encoder sampling and these state fields remain active while motor output is
 zero. They are the ROS-visible evidence for the required passive direction test
 performed by manually rotating each raised wheel before powered motion.
 Firmware publishes raw signed encoder state for every motor model. `target_rps`,
-`measured_rps`, accumulated count, LADRC state, and signed bridge duty share
-this MCU coordinate with no firmware sign transform. The ROS hardware layer
-owns the only map to positive wheel rotation: `{-1,+1,-1,+1}` in logical
-FL,FR,RL,RR order, applied symmetrically to commands and feedback.
+`measured_rps`, accumulated count, LADRC state, and semantic controller output
+share this MCU coordinate. The physical bridge duty is the negative semantic
+output for every channel and motor model. The ROS hardware layer owns the only
+map to positive wheel rotation: `{-1,+1,-1,+1}` in logical FL,FR,RL,RR order,
+applied symmetrically to commands and feedback.
 
 ### 4.3 `srv/SetMotorModel.srv`
 

@@ -83,16 +83,16 @@ position/velocity feedback:
 
 | MCU connector | ros2_control joint | Chassis-direction sign |
 | --- | --- | ---: |
-| M1 | front-left | +1 |
-| M2 | rear-left | +1 |
-| M3 | front-right | -1 |
-| M4 | rear-right | -1 |
+| M1 | front-left | -1 |
+| M2 | rear-left | -1 |
+| M3 | front-right | +1 |
+| M4 | rear-right | +1 |
 
 Positive ROS wheel rotation rolls the chassis toward `+X`. Right-side motors
-are mechanically mirrored, so positive ROS commands become negative firmware
-targets for M3/M4, and negative M3/M4 firmware feedback becomes positive ROS
-wheel state. This chassis conversion is independent of firmware encoder A/B
-wiring normalization.
+are mechanically mirrored. Under the qualified connector/encoder convention,
+positive ROS commands become negative firmware targets for M1/M2 and positive
+targets for M3/M4. The same map converts feedback in the opposite direction.
+This chassis conversion is independent of the fixed MCU bridge inversion.
 
 Ackermann drive commands select only M2 and M4. Steering uses the configured
 PWM channel.

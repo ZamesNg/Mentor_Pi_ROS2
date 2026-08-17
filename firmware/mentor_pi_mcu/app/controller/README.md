@@ -113,9 +113,10 @@ so adapter vtables contain no deleting destructor and import no global
   arm, and cannot refresh a lease, while selected zero targets remain valid
   stops. There is no alternate firmware motor mode.
 - Raw signed encoder delta is used directly for every motor model. `target_rps`,
-  `measured_rps`, accumulated count, LADRC state, and signed bridge duty share
-  that MCU coordinate with no firmware sign transform. The host owns the only
-  MCU-to-ROS chassis conversion. Physical direction and all
+  `measured_rps`, accumulated count, LADRC state, and the semantic controller
+  output share that MCU coordinate. One fixed inversion converts the semantic
+  output to physical bridge duty for every channel and motor model. The host
+  owns the only MCU-to-ROS chassis conversion. Physical direction and all
   ADRC/filter/minimum-drive values remain unqualified until guarded HIL.
 - The controller uses the platform's pulse-shadow generator rather than the
   separate driver edge-plan abstraction; there must be only one PWM frame
