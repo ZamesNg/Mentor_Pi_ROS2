@@ -37,6 +37,25 @@ grep -Fqx '    base_frame_id: fleet/robot_two/base_footprint' \
   "${package}/config/generated/controllers.yaml"
 grep -Fqx '    odom_frame_id: fleet/robot_two/odom' \
   "${package}/config/generated/controllers.yaml"
+grep -Fqx '    vehicle:' "${package}/config/generated/controllers.yaml"
+grep -Fqx '/**/vehicle:' "${package}/config/generated/controllers.yaml"
+! grep -Eq 'ackermann_steering_controller:|mecanum_drive_controller:' \
+  "${package}/config/generated/controllers.yaml"
+
+"${SCRIPT_DIR}/generate_vehicle_config.py" --type ackermann \
+  --name fleet/robot_three --package-root "${package}" >/dev/null
+grep -Fqx '  robot_name: fleet/robot_three' \
+  "${package}/config/generated/vehicle.yaml"
+grep -Fqx '  vehicle_type: ackermann' \
+  "${package}/config/generated/vehicle.yaml"
+grep -Fqx '    base_frame_id: fleet/robot_three/rear_axle_footprint' \
+  "${package}/config/generated/controllers.yaml"
+grep -Fqx '    odom_frame_id: fleet/robot_three/odom' \
+  "${package}/config/generated/controllers.yaml"
+grep -Fqx '    vehicle:' "${package}/config/generated/controllers.yaml"
+grep -Fqx '/**/vehicle:' "${package}/config/generated/controllers.yaml"
+! grep -Eq 'ackermann_steering_controller:|mecanum_drive_controller:' \
+  "${package}/config/generated/controllers.yaml"
 
 zshrc="${TEST_ROOT}/operator/.zshrc"
 mkdir -p "$(dirname "${zshrc}")"

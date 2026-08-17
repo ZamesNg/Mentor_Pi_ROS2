@@ -132,9 +132,13 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     with open(
         share / "config" / "ackermann" / "controllers.yaml", encoding="utf-8"
     ) as stream:
-        ackermann_controller = yaml.safe_load(stream)[
-            "/**/ackermann_steering_controller"
-        ]["ros__parameters"]
+        ackermann_controllers = yaml.safe_load(stream)
+    ackermann_controller = ackermann_controllers["/**/vehicle"][
+        "ros__parameters"
+    ]
+    assert ackermann_controllers["/**/controller_manager"]["ros__parameters"][
+        "vehicle"
+    ]["type"] == "ackermann_steering_controller/AckermannSteeringController"
     assert ackermann_controller["base_frame_id"] == "rear_axle_footprint"
     assert ackermann_controller["rear_wheels_names"] == [
         "wheel_right_rear_joint",
@@ -149,6 +153,17 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert ackermann_controller["wheelbase"] == 0.135
     assert ackermann_controller["front_wheels_radius"] == 0.0325
     assert ackermann_controller["rear_wheels_radius"] == 0.0325
+
+    with open(
+        share / "config" / "mecanum" / "controllers.yaml", encoding="utf-8"
+    ) as stream:
+        mecanum_controllers = yaml.safe_load(stream)
+    assert mecanum_controllers["/**/controller_manager"]["ros__parameters"][
+        "vehicle"
+    ]["type"] == "mecanum_drive_controller/MecanumDriveController"
+    assert "/**/vehicle" in mecanum_controllers
+    assert "/**/ackermann_steering_controller" not in ackermann_controllers
+    assert "/**/mecanum_drive_controller" not in mecanum_controllers
 
 
 def test_default_and_custom_profiles_are_yaml_authoritative(tmp_path):
@@ -251,6 +266,7 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
     ]
     for name in ("vehicle.launch.py",):
         module = load_launch(launch_directory / name)
+        assert module._VEHICLE_CONTROLLER_NAME == "vehicle"
         description = module.generate_launch_description()
         arguments = {
             entity.name
@@ -278,6 +294,8 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
         'LaunchConfiguration("vehicle_type")',
         'LaunchConfiguration("start_bringup")',
         'name="controller_manager"',
+        '"mecanum_drive_controller"',
+        '"ackermann_steering_controller"',
     ):
         assert forbidden not in launch_sources
 

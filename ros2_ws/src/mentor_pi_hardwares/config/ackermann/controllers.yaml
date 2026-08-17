@@ -5,10 +5,10 @@
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-    ackermann_steering_controller:
+    vehicle:
       type: ackermann_steering_controller/AckermannSteeringController
 
-/**/ackermann_steering_controller:
+/**/vehicle:
   ros__parameters:
     # Humble steering_controllers_library emits traction and steering arrays
     # in right, left order. Preserve that contract so inner/outer wheel speeds

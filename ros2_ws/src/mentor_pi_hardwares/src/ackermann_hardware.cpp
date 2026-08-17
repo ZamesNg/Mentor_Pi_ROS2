@@ -195,8 +195,8 @@ hardware_interface::CallbackReturn AckermannHardware::on_init(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  node_ =
-      std::make_shared<rclcpp::Node>("ackermann_hardware", "/" + robot_name_);
+  node_ = std::make_shared<rclcpp::Node>(hardware::kVehicleHardwareNodeName,
+                                        "/" + robot_name_);
   if (info.joints.size() != hardware::kWheelCount) {
     RCLCPP_FATAL(node_->get_logger(), "Expected four Ackermann joints");
     return hardware_interface::CallbackReturn::ERROR;

@@ -12,6 +12,7 @@ namespace mentor_pi::hardware {
 
 inline constexpr std::size_t kWheelCount = 4U;
 inline constexpr double kTwoPi = 6.28318530717958647692;
+inline constexpr char kVehicleHardwareNodeName[] = "vehicle_hardware";
 
 enum class Wheel : std::size_t {
   kFrontLeft = 0U,

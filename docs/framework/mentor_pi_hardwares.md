@@ -21,6 +21,16 @@ and host APIs, controller nodes, tracking interfaces, and TF frame IDs. An
 absolute `vehicle_config` override is retained for development; its sibling
 `controllers.yaml` is used automatically.
 
+Both vehicle types use the same graph names. The selected drive controller is
+`/<robot_name>/vehicle`; its standard endpoints are `vehicle/reference`,
+`vehicle/reference_unstamped`, `vehicle/odometry`, `vehicle/tf_odometry`, and
+`vehicle/controller_state`. Both hardware adapters use the private node
+`/<robot_name>/vehicle_hardware`.
+Ackermann and Mecanum retain their different upstream controller plugin types;
+consequently `vehicle/controller_state` has the plugin's native
+`SteeringControllerStatus` or `MecanumDriveControllerState` type. Physical
+joint names and TF reference frames remain vehicle-specific.
+
 ## Configuration ownership
 
 The selected absolute `vehicle_config` YAML is the sole authority for

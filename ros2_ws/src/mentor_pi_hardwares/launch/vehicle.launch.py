@@ -27,6 +27,7 @@ _ROBOT_NAME_PATTERN = re.compile(
 )
 _VEHICLE_TYPES = frozenset(("mecanum", "ackermann"))
 _TRACKING_ALGORITHMS = frozenset(("mpc", "adrc"))
+_VEHICLE_CONTROLLER_NAME = "vehicle"
 _CONTROLLER_PLUGINS = {
     ("mecanum", "mpc"): "mentor_pi_tracking/MecanumMpc",
     ("ackermann", "mpc"): "mentor_pi_tracking/AckermannMpc",
@@ -237,12 +238,6 @@ def _launch_vehicle(context):
             ]
         )
     }
-    controller_name = (
-        "mecanum_drive_controller"
-        if vehicle_type == "mecanum"
-        else "ackermann_steering_controller"
-    )
-
     robot_state_publisher = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
@@ -273,11 +268,11 @@ def _launch_vehicle(context):
     drive_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
-        name=f"spawner_{controller_name}",
+        name=f"spawner_{_VEHICLE_CONTROLLER_NAME}",
         namespace=robot_name,
         output="screen",
         arguments=[
-            controller_name,
+            _VEHICLE_CONTROLLER_NAME,
             "--controller-manager",
             f"/{robot_name}/controller_manager",
         ],
@@ -288,7 +283,7 @@ def _launch_vehicle(context):
         ),
         joint_state_spawner,
         _shutdown_on_failure(
-            drive_controller_spawner, f"{controller_name} spawner"
+            drive_controller_spawner, f"{_VEHICLE_CONTROLLER_NAME} spawner"
         ),
         drive_controller_spawner,
     ]

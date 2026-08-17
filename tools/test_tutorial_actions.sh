@@ -36,6 +36,7 @@ for marker in \
     'tracking_controller:=mecanum tracking_algorithm:=adrc' \
     '/mentor_pi/trajectory_tracker/reference_trajectory' \
     '/mentor_pi/trajectory_tracker/cancel' \
+    '/mentor_pi/vehicle/reference' \
     'post-bound'; do
   grep -Fq "${marker}" "${ONBOARD_ADRC_TUTORIAL}" || \
     Fail "onboard ADRC tutorial omits trajectory-tracker marker ${marker}"
@@ -46,6 +47,12 @@ done
 ! rg -Fq '/mentor_pi/ackermann_mpc_tracker' \
   "${PROJECT_ROOT}/README.md" "${PROJECT_ROOT}/docs" || \
   Fail "retired Ackermann MPC tracker endpoint remains documented"
+! rg -Fq '/mentor_pi/mecanum_drive_controller' \
+  "${PROJECT_ROOT}/README.md" "${PROJECT_ROOT}/docs" || \
+  Fail "retired Mecanum controller endpoint remains documented"
+! rg -Fq '/mentor_pi/ackermann_steering_controller' \
+  "${PROJECT_ROOT}/README.md" "${PROJECT_ROOT}/docs" || \
+  Fail "retired Ackermann controller endpoint remains documented"
 
 grep -Fq 'DEFAULT_EVIDENCE_ROOT="/var/log/mentor-pi/actions"' \
   "${SCRIPT_DIR}/run_runtime_action.sh" || \

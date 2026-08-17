@@ -148,7 +148,10 @@ TEST(TrackerNodeContractTest, GenericNodeUsesOnlyGenericEndpoints) {
   const auto topics = tracker->get_topic_names_and_types();
   EXPECT_EQ(topics.count("/mentor_pi/trajectory_tracker/reference_trajectory"),
             1U);
-  EXPECT_EQ(topics.count("/mentor_pi/mecanum_drive_controller/reference"), 1U);
+  EXPECT_EQ(topics.count("/mentor_pi/vehicle/reference"), 1U);
+  EXPECT_EQ(topics.count("/mentor_pi/mecanum_drive_controller/reference"), 0U);
+  EXPECT_EQ(topics.count("/mentor_pi/ackermann_steering_controller/reference"),
+            0U);
   EXPECT_EQ(topics.count("/mentor_pi/mecanum_mpc_tracker/reference_trajectory"),
             0U);
   const auto services = tracker->get_service_names_and_types();
@@ -164,10 +167,10 @@ TEST(TrackerNodeContractTest, OutputFramesFollowVehicleContract) {
   EXPECT_STREQ(mecanum->get_name(), "trajectory_tracker");
   EXPECT_STREQ(ackermann->get_name(), "trajectory_tracker");
   EXPECT_EQ(mecanum->get_topic_names_and_types().count(
-                "/mentor_pi/mecanum_drive_controller/reference"),
+                "/mentor_pi/vehicle/reference"),
             1U);
   EXPECT_EQ(ackermann->get_topic_names_and_types().count(
-                "/mentor_pi/ackermann_steering_controller/reference"),
+                "/mentor_pi/vehicle/reference"),
             1U);
 }
 
@@ -205,7 +208,7 @@ TEST(TrackerNodeContractTest, StaleHeartbeatInhibitsOutput) {
   geometry_msgs::msg::TwistStamped::SharedPtr command;
   const auto command_subscription =
       peer->create_subscription<geometry_msgs::msg::TwistStamped>(
-          "/mentor_pi/mecanum_drive_controller/reference",
+          "/mentor_pi/vehicle/reference",
           rclcpp::QoS(10).reliable(),
           [&command](geometry_msgs::msg::TwistStamped::SharedPtr message) {
             command = std::move(message);
@@ -216,7 +219,7 @@ TEST(TrackerNodeContractTest, StaleHeartbeatInhibitsOutput) {
       rclcpp::QoS(1).reliable());
   const auto odometry_publisher =
       peer->create_publisher<nav_msgs::msg::Odometry>(
-          "/mentor_pi/mecanum_drive_controller/odometry",
+          "/mentor_pi/vehicle/odometry",
           rclcpp::SensorDataQoS());
   const auto motor_publisher =
       peer->create_publisher<mentor_pi_interfaces::msg::MotorState>(

@@ -60,9 +60,7 @@ def main():
         controllers = yaml.safe_load(stream)
     if not isinstance(controllers, dict):
         parser.error("controller profile has an invalid schema")
-    controller_key = f"/**/{args.type}_drive_controller"
-    if args.type == "ackermann":
-        controller_key = "/**/ackermann_steering_controller"
+    controller_key = "/**/vehicle"
     try:
         controller_parameters = controllers[controller_key]["ros__parameters"]
         base_frame = controller_parameters["base_frame_id"]

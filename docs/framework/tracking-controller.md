@@ -36,8 +36,8 @@ ROS start time.
 | --- | --- |
 | Trajectory input | `/mentor_pi/trajectory_tracker/reference_trajectory` |
 | Cancel service | `/mentor_pi/trajectory_tracker/cancel` |
-| Mecanum odometry/output | configured Mecanum-controller odometry and `base_footprint` command on `/mentor_pi/mecanum_drive_controller/reference` |
-| Ackermann odometry/output | rear-axle odometry and `rear_axle_footprint` command on `/mentor_pi/ackermann_steering_controller/reference` |
+| Mecanum odometry/output | `/mentor_pi/vehicle/odometry` and `base_footprint` command on `/mentor_pi/vehicle/reference` |
+| Ackermann odometry/output | rear-axle `/mentor_pi/vehicle/odometry` and `rear_axle_footprint` command on `/mentor_pi/vehicle/reference` |
 | Diagnostics | `diagnostic_msgs/msg/DiagnosticArray` on `/diagnostics` |
 
 Trajectory input uses reliable, volatile QoS. Commands use

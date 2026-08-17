@@ -9,6 +9,10 @@
 namespace mentor_pi::hardware {
 namespace {
 
+TEST(HardwareCommonTest, UsesOneVehicleHardwareNodeName) {
+  EXPECT_STREQ(kVehicleHardwareNodeName, "vehicle_hardware");
+}
+
 TEST(HardwareCommonTest, MapsLogicalWheelsToFirmwareConnectors) {
   EXPECT_EQ(McuMotorIndex(Wheel::kFrontLeft), 0U);
   EXPECT_EQ(McuMotorIndex(Wheel::kRearLeft), 1U);

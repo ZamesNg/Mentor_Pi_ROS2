@@ -319,12 +319,12 @@ In another sourced terminal:
 ```zsh
 timeout --signal=INT --kill-after=1s 3s \
   ros2 topic pub --rate 20 \
-  /mentor_pi/mecanum_drive_controller/reference \
+  /mentor_pi/vehicle/reference \
   geometry_msgs/msg/TwistStamped \
   '{twist: {linear: {x: 0.05, y: 0.0}, angular: {z: 0.0}}}'
 
 timeout 5s ros2 topic pub --once \
-  /mentor_pi/mecanum_drive_controller/reference \
+  /mentor_pi/vehicle/reference \
   geometry_msgs/msg/TwistStamped \
   '{twist: {linear: {x: 0.0, y: 0.0}, angular: {z: 0.0}}}'
 ```
@@ -334,7 +334,7 @@ corresponding `linear_*` or `yaw_*` group between runs. Because X and Y share
 the linear gains, retain the most conservative values that meet both axes.
 
 For Ackermann, first test straight longitudinal response with `angular.z=0` on
-`/mentor_pi/ackermann_steering_controller/reference`. Tune yaw only after
+`/mentor_pi/vehicle/reference`. Tune yaw only after
 straight-speed response passes, at a guarded measured speed above `0.1 m/s`.
 Use positive and negative curvature and then repeat in reverse; the yaw input
 gain coefficient remains positive, while its effective gain changes sign with
@@ -418,12 +418,12 @@ motor-command publisher:
 
 ```zsh
 ros2 topic info /mentor_pi/trajectory_tracker/reference_trajectory --verbose
-ros2 topic info /mentor_pi/mecanum_drive_controller/reference --verbose
+ros2 topic info /mentor_pi/vehicle/reference --verbose
 ros2 topic info /mentor_pi/motors/command --verbose
 ```
 
-Use the Ackermann controller-reference topic for the Ackermann check. Stop if
-the counts or publisher identities do not match the launched processes. Start a
+Use the same vehicle-controller reference topic for the Ackermann check. Stop
+if the counts or publisher identities do not match the launched processes. Start a
 plainly named recording before the reviewed, time-bounded trajectory:
 
 ```zsh

@@ -137,7 +137,8 @@ hardware_interface::CallbackReturn MecanumHardware::on_init(
           feedback_timeout_, imu_timeout_, feedback_timeout_)) {
     return hardware_interface::CallbackReturn::ERROR;
   }
-  node_ = std::make_shared<rclcpp::Node>("mecanum_hardware", "/" + robot_name_);
+  node_ = std::make_shared<rclcpp::Node>(hardware::kVehicleHardwareNodeName,
+                                        "/" + robot_name_);
 
   if (info.joints.size() != hardware::kWheelCount) {
     RCLCPP_FATAL(node_->get_logger(), "Expected four mecanum wheel joints");

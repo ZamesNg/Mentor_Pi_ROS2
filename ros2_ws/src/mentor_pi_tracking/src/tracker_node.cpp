@@ -147,9 +147,7 @@ class TrackerNode final : public rclcpp::Node {
       plugin_->Configure(configuration_);
     }
 
-    controller_ = vehicle_ == VehicleType::kMecanum
-                      ? "mecanum_drive_controller"
-                      : "ackermann_steering_controller";
+    controller_ = "vehicle";
     command_publisher_ = create_publisher<geometry_msgs::msg::TwistStamped>(
         controller_ + "/reference", rclcpp::QoS(1).reliable());
     diagnostics_publisher_ =
