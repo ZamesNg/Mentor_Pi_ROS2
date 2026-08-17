@@ -19,9 +19,9 @@ GPL-2.0-or-later `https://github.com/ZamesNg/altro-cpp` fork at commit
 compatibility patch in a disposable build tree and carries the required source
 and license provenance.
 
-High-level planning and arbitrary frame transforms remain offboard. The only
-reference-point conversion performed onboard is the fixed, configured
-Ackermann rear-axle-to-geometry-center conversion described below.
+High-level planning and arbitrary frame transforms remain offboard. The
+hardware launch publishes geometry-center odometry for both vehicle types, so
+the tracker performs no odometry reference-point conversion.
 
 ## Interfaces and trajectory meaning
 
@@ -37,7 +37,7 @@ ROS start time.
 | Trajectory input | `/mentor_pi/trajectory_tracker/reference_trajectory` |
 | Cancel service | `/mentor_pi/trajectory_tracker/cancel` |
 | Mecanum odometry/output | `/mentor_pi/vehicle/odometry` and `base_footprint` command on `/mentor_pi/vehicle/reference` |
-| Ackermann odometry/output | rear-axle `/mentor_pi/vehicle/odometry` and `rear_axle_footprint` command on `/mentor_pi/vehicle/reference` |
+| Ackermann odometry/output | geometry-center `/mentor_pi/vehicle/odometry` and `rear_axle_footprint` command on `/mentor_pi/vehicle/reference` |
 | Diagnostics | `diagnostic_msgs/msg/DiagnosticArray` on `/diagnostics` |
 
 Trajectory input uses reliable, volatile QoS. Commands use
@@ -53,10 +53,10 @@ but neither Ackermann plugin uses it as a cost or reference-control target.
 
 The measured runtime geometry is wheelbase `L=0.135 m`, rear-axle-to-center
 offset `l=0.0675 m`, wheel track `0.140 m`, wheel radius `0.0325 m`, and
-steering limit `+/-0.6 rad`. Ackermann odometry publishes the rear-axle midpoint
-as `rear_axle_footprint`. The fixed URDF transform places `base_footprint`
-`0.0675 m` forward of it. The tracker converts each accepted rear-axle sample
-to geometry-center state before either plugin sees it.
+steering limit `+/-0.6 rad`. Public Ackermann odometry already describes
+`base_footprint` at the geometry center. The tracker copies its pose directly
+into the three-state vector `(x_center, y_center, theta)`. The fixed URDF
+transform places `rear_axle_footprint` `0.0675 m` behind `base_footprint`.
 Vehicle launch validates the selected hardware profile against these measured
 tracking dimensions and fails closed rather than running mismatched kinematics.
 

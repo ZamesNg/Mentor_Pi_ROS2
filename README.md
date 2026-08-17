@@ -128,6 +128,21 @@ by default. Select MPC with `tracking_algorithm:=mpc`, or use
 `tracking_controller:=none` when intentionally publishing direct
 `vehicle/reference` commands without a trajectory tracker.
 
+For a deterministic ros2_control simulation without an Agent, MCU, or physics
+engine, use the separate simulation entry point. It runs in the Dev Container
+or on native Ubuntu and keeps the physical launch path unchanged:
+
+```sh
+source /opt/ros/humble/setup.bash
+source ros2_ws/install/setup.bash
+ros2 launch mentor_pi_hardwares simulation.launch.py \
+  vehicle_type:=ackermann robot_name:=ackermann_sim
+```
+
+Start the separately owned Foxglove bridge with
+`ros2 launch mentor_pi_hardwares foxglove.launch.py`, then connect to
+`ws://localhost:8765`. See [docs/simulation.md](docs/simulation.md).
+
 Run `make help` for the onboarding, integration, and qualification interface.
 
 ## Tutorials

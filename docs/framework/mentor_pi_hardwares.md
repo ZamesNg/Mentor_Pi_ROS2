@@ -7,13 +7,14 @@ manual application launch owns the supervisor and ROS application processes.
 
 ## Runtime topology
 
-The unified top-level launch contains three independently managed
+The unified top-level launch contains four independently managed
 application processes:
 
 1. the configuration supervisor from `controller.launch.py`;
 2. `robot_state_publisher`;
 3. `controller_manager`, which loads one `SystemInterface` plugin and spawns
    the selected drive controller plus `joint_state_broadcaster`.
+4. the hidden geometry-center odometry adapter.
 
 Use `vehicle.launch.py`; onboarding installs its generated `vehicle.yaml` and
 matching controller profile. The profile's `robot_name` namespaces firmware
@@ -25,7 +26,12 @@ Both vehicle types use the same graph names. The selected drive controller is
 `/<robot_name>/vehicle`; its standard endpoints are `vehicle/reference`,
 `vehicle/reference_unstamped`, `vehicle/odometry`, `vehicle/tf_odometry`, and
 `vehicle/controller_state`. Both hardware adapters use the private node
-`/<robot_name>/vehicle_hardware`.
+`/<robot_name>/vehicle_hardware`; both vehicles also use the hidden node
+`/<robot_name>/_vehicle_odometry`. The upstream controller odometry topics are
+hidden adapter inputs. Public odometry and its `odom -> base_footprint`
+transform always describe the geometry center. The transform is published on
+standard `/tf` and retained on `vehicle/tf_odometry` for the controller graph
+contract.
 Ackermann and Mecanum retain their different upstream controller plugin types;
 consequently `vehicle/controller_state` has the plugin's native
 `SteeringControllerStatus` or `MecanumDriveControllerState` type. Physical
@@ -35,6 +41,14 @@ joint names and TF reference frames remain vehicle-specific.
 default. MPC uses the identical `trajectory_tracker` node and endpoints when
 selected with `tracking_algorithm:=mpc`. Pass `tracking_controller:=none` only
 when the tracker must be absent, including direct `vehicle/reference` tests.
+
+`simulation.launch.py` is a separate, development-only topology. It starts
+`robot_state_publisher`, `controller_manager`, the same `vehicle` controller,
+`joint_state_broadcaster`, and the same geometry-center odometry adapter over a
+deterministic numerical hardware plugin. It does not start the trajectory
+tracker, configuration supervisor, micro-ROS Agent, or any firmware-facing
+endpoint. `foxglove.launch.py` is also separate so one bridge can visualize
+multiple namespaced simulated vehicles.
 
 ## Configuration ownership
 
@@ -75,15 +89,37 @@ feedback or a transient-local authorization from the previous session from
 rearming motion.
 
 The measured Ackermann runtime geometry is a `0.135 m` wheelbase, `0.140 m`
-wheel track, `0.0325 m` wheel radius, and `+/-0.6 rad` steering limit. Its
-odometry reference is the rear-axle midpoint `rear_axle_footprint`; a fixed
-`0.0675 m` transform places the existing `base_footprint` at the geometry
-center. The retained visual/collision wheel coordinates and visual radius are
-illustrative and are not the controller's kinematic authority.
+wheel track, `0.0325 m` wheel radius, and `+/-0.6 rad` steering limit. The
+upstream Humble controller internally integrates the rear-axle midpoint. The
+odometry adapter shifts that source forward by `0.0675 m`, including the
+rigid-body twist and covariance transformations, before publishing public
+geometry-center odometry as `base_footprint`. In the URDF,
+`rear_axle_footprint` is a fixed child `0.0675 m` behind `base_footprint`.
+Mecanum uses the same adapter with a zero offset. The retained visual/collision
+wheel coordinates and visual radius are illustrative and are not the
+controller's kinematic authority.
 
 `make onboard-configure` regenerates both profiles after a type or namespace
 change and flashes firmware with the same namespace. Multiple robots may share
 domain 42 because their ROS entity and TF names are distinct.
+
+## Numerical plant
+
+The simulation plugins preserve the logical ROS joint order and do not apply
+MCU connector signs. Both vehicle types clamp driven-wheel velocity to
+`+/-37.699112 rad/s`, rate-limit it to `+/-188.495559 rad/s^2`, and integrate
+wheel position trapezoidally at the existing 30 Hz controller-manager period.
+Ackermann averages the two commanded front steering positions into one
+physical steering state, clamps it to `+/-0.6 rad`, rate-limits it to
+`60 rad/s`, and reports that state through both steering joints.
+
+The upstream controllers derive odometry from those joint states. The common
+adapter then applies the requested initial SE(2) pose and, for Ackermann, the
+rear-axle-to-center offset, so the first public pose is exactly the requested
+geometry-center pose. Simulation publishes no `/clock` and models no noise,
+slip, collisions, terrain, IMU, or identified actuator lag. It is a numerical
+control and kinematics test, not HIL or qualification evidence. See
+[simulation.md](../simulation.md).
 
 ## Units and connector mapping
 
@@ -199,6 +235,13 @@ source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 : "${ROS_DOMAIN_ID:?export the deployment ROS_DOMAIN_ID first}"
 ros2 launch mentor_pi_hardwares vehicle.launch.py
+
+# Development-only numerical plant; vehicle_type is required.
+ros2 launch mentor_pi_hardwares simulation.launch.py \
+  vehicle_type:=ackermann robot_name:=ackermann_sim
+
+# Optional shared visualization bridge.
+ros2 launch mentor_pi_hardwares foxglove.launch.py
 ```
 
 The default ADRC firmware accepts bounded nonzero commands only after its normal

@@ -142,6 +142,33 @@ TEST(TrackerNodeContractTest, AckermannLadrcIgnoresCommonYawPolynomial) {
   EXPECT_DOUBLE_EQ(first.angular_z, second.angular_z);
 }
 
+TEST(TrackerNodeContractTest, AckermannLadrcUsesMeasuredYawAsKinematicState) {
+  pluginlib::ClassLoader<TrackerPlugin> loader(
+      "mentor_pi_tracking", "mentor_pi::tracking::TrackerPlugin");
+  const auto first_plugin =
+      loader.createSharedInstance("mentor_pi_tracking/AckermannAdrc");
+  const auto second_plugin =
+      loader.createSharedInstance("mentor_pi_tracking/AckermannAdrc");
+  const auto configuration = AdrcConfiguration(VehicleType::kAckermann);
+  first_plugin->Configure(configuration);
+  second_plugin->Configure(configuration);
+  const auto trajectory = StraightTrajectory();
+  auto aligned = AdrcRequest(trajectory, 1.0 / 30.0);
+  auto quarter_turn = aligned;
+  aligned.live_configuration = configuration.mpc;
+  quarter_turn.live_configuration = configuration.mpc;
+  quarter_turn.mpc.state[2] = std::acos(-1.0) / 2.0;
+
+  const MpcCommand aligned_command = first_plugin->Compute(aligned);
+  const MpcCommand quarter_turn_command = second_plugin->Compute(quarter_turn);
+  ASSERT_TRUE(aligned_command.solved);
+  ASSERT_TRUE(quarter_turn_command.solved);
+  EXPECT_GT(aligned_command.linear_x, 0.09);
+  EXPECT_NEAR(aligned_command.angular_z, 0.0, 1.0e-12);
+  EXPECT_NEAR(quarter_turn_command.linear_x, 0.0, 1.0e-12);
+  EXPECT_LT(quarter_turn_command.angular_z, -1.0);
+}
+
 TEST(TrackerNodeContractTest, GenericNodeUsesOnlyGenericEndpoints) {
   const auto tracker = MakeTrackerNode(
       OptionsFor("mecanum", "mpc", "mentor_pi_tracking/MecanumMpc"));
@@ -166,6 +193,26 @@ TEST(TrackerNodeContractTest, DefaultsToAdrc) {
             "mentor_pi_tracking/MecanumAdrc");
 }
 
+TEST(TrackerNodeContractTest, OdometryPoseIsAlreadyTheGeometryCenterState) {
+  nav_msgs::msg::Odometry odometry;
+  odometry.pose.pose.position.x = 1.25;
+  odometry.pose.pose.position.y = -0.75;
+  odometry.pose.pose.orientation.z = std::sin(0.3);
+  odometry.pose.pose.orientation.w = std::cos(0.3);
+
+  const auto state = GeometryCenterPoseState(odometry);
+  ASSERT_TRUE(state.has_value());
+  EXPECT_DOUBLE_EQ((*state)[0], 1.25);
+  EXPECT_DOUBLE_EQ((*state)[1], -0.75);
+  EXPECT_NEAR((*state)[2], 0.6, 1.0e-12);
+
+  odometry.pose.pose.orientation.x = 0.0;
+  odometry.pose.pose.orientation.y = 0.0;
+  odometry.pose.pose.orientation.z = 0.0;
+  odometry.pose.pose.orientation.w = 0.0;
+  EXPECT_FALSE(GeometryCenterPoseState(odometry).has_value());
+}
+
 TEST(TrackerNodeContractTest, AllPluginsUseTheSameNodeAndEndpoints) {
   struct TrackerSpec {
     const char* vehicle;
@@ -186,8 +233,8 @@ TEST(TrackerNodeContractTest, AllPluginsUseTheSameNodeAndEndpoints) {
   baseline.reset();
 
   for (const auto& spec : specs) {
-    const auto tracker = MakeTrackerNode(
-        OptionsFor(spec.vehicle, spec.algorithm, spec.plugin));
+    const auto tracker =
+        MakeTrackerNode(OptionsFor(spec.vehicle, spec.algorithm, spec.plugin));
     EXPECT_STREQ(tracker->get_name(), "trajectory_tracker");
     EXPECT_STREQ(tracker->get_namespace(), "/mentor_pi");
     EXPECT_EQ(tracker->get_topic_names_and_types(), expected_topics);
@@ -236,8 +283,7 @@ TEST(TrackerNodeContractTest, StaleHeartbeatInhibitsOutput) {
   geometry_msgs::msg::TwistStamped::SharedPtr command;
   const auto command_subscription =
       peer->create_subscription<geometry_msgs::msg::TwistStamped>(
-          "/mentor_pi/vehicle/reference",
-          rclcpp::QoS(10).reliable(),
+          "/mentor_pi/vehicle/reference", rclcpp::QoS(10).reliable(),
           [&command](geometry_msgs::msg::TwistStamped::SharedPtr message) {
             command = std::move(message);
           });
@@ -247,8 +293,7 @@ TEST(TrackerNodeContractTest, StaleHeartbeatInhibitsOutput) {
       rclcpp::QoS(1).reliable());
   const auto odometry_publisher =
       peer->create_publisher<nav_msgs::msg::Odometry>(
-          "/mentor_pi/vehicle/odometry",
-          rclcpp::SensorDataQoS());
+          "/mentor_pi/vehicle/odometry", rclcpp::SensorDataQoS());
   const auto motor_publisher =
       peer->create_publisher<mentor_pi_interfaces::msg::MotorState>(
           "/mentor_pi/motors/state", rclcpp::SensorDataQoS());

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import math
 from pathlib import Path
 import subprocess
 from types import SimpleNamespace
@@ -72,6 +73,17 @@ def render_description(share, mode):
     return ET.fromstring(result.stdout)
 
 
+def render_simulation_description(share, mode, robot_name="mentor_pi_sim"):
+    description = share / "config" / mode / "simulation.urdf.xacro"
+    result = subprocess.run(
+        ["xacro", str(description), f"robot_name:={robot_name}"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return ET.fromstring(result.stdout)
+
+
 def parameters(root):
     hardware = root.find("./ros2_control/hardware")
     assert hardware is not None
@@ -125,9 +137,9 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert ackermann_parameters["yaw_adrc_minimum_speed_mps"] == "0.1"
     rear_axle_joint = ackermann.find("./joint[@name='rear_axle_footprint_joint']")
     assert rear_axle_joint is not None
-    assert rear_axle_joint.find("parent").attrib["link"] == "rear_axle_footprint"
-    assert rear_axle_joint.find("child").attrib["link"] == "base_footprint"
-    assert rear_axle_joint.find("origin").attrib["xyz"] == "0.0675 0 0"
+    assert rear_axle_joint.find("parent").attrib["link"] == "base_footprint"
+    assert rear_axle_joint.find("child").attrib["link"] == "rear_axle_footprint"
+    assert rear_axle_joint.find("origin").attrib["xyz"] == "-0.0675 0 0"
 
     with open(
         share / "config" / "ackermann" / "controllers.yaml", encoding="utf-8"
@@ -164,6 +176,41 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert "/**/vehicle" in mecanum_controllers
     assert "/**/ackermann_steering_controller" not in ackermann_controllers
     assert "/**/mecanum_drive_controller" not in mecanum_controllers
+
+
+def test_simulation_xacros_use_only_actuator_limited_plugins():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    expected = {
+        "ackermann": "mentor_pi/AckermannSimulationHardware",
+        "mecanum": "mentor_pi/MecanumSimulationHardware",
+    }
+    for mode, plugin in expected.items():
+        root = render_simulation_description(share, mode, f"{mode}_sim")
+        assert root.findtext("./ros2_control/hardware/plugin") == plugin
+        simulation_parameters = parameters(root)
+        assert simulation_parameters["robot_name"] == f"{mode}_sim"
+        assert math.isclose(
+            float(simulation_parameters["wheel_angular_speed_limit_rad_s"]),
+            37.699112,
+            rel_tol=0.0,
+            abs_tol=1.0e-6,
+        )
+        assert math.isclose(
+            float(
+                simulation_parameters[
+                    "wheel_angular_acceleration_limit_rad_s2"
+                ]
+            ),
+            188.495559,
+            rel_tol=0.0,
+            abs_tol=1.0e-6,
+        )
+        assert "feedback_timeout_ms" not in simulation_parameters
+        assert "imu_timeout_ms" not in simulation_parameters
+    ackermann = parameters(render_simulation_description(share, "ackermann"))
+    assert ackermann["steering_angle_min_rad"] == "-0.6"
+    assert ackermann["steering_angle_max_rad"] == "0.6"
+    assert ackermann["steering_rate_limit_rad_s"] == "60.0"
 
 
 def test_default_and_custom_profiles_are_yaml_authoritative(tmp_path):
@@ -258,35 +305,35 @@ def test_missing_relative_and_malformed_profiles_fail_closed(tmp_path):
         module.load_vehicle_profile(str(malformed))
 
 
-def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
+def test_physical_launch_accepts_only_a_vehicle_profile_for_name_and_type():
     share = Path(get_package_share_directory("mentor_pi_hardwares"))
     launch_directory = share / "launch"
     assert sorted(path.name for path in launch_directory.glob("*.py")) == [
-        "vehicle.launch.py"
+        "foxglove.launch.py",
+        "simulation.launch.py",
+        "vehicle.launch.py",
     ]
-    for name in ("vehicle.launch.py",):
-        module = load_launch(launch_directory / name)
-        assert module._VEHICLE_CONTROLLER_NAME == "vehicle"
-        assert module._DEFAULT_TRACKING_CONTROLLER == "auto"
-        assert module._DEFAULT_TRACKING_ALGORITHM == "adrc"
-        description = module.generate_launch_description()
-        arguments = {
-            entity.name
-            for entity in description.entities
-            if isinstance(entity, DeclareLaunchArgument)
-        }
-        assert {
-            "vehicle_config",
-            "tracking_controller",
-            "tracking_algorithm",
-        } <= arguments
-        assert "start_bringup" not in arguments
-        assert "robot_name" not in arguments
-        assert "vehicle_type" not in arguments
+    module = load_launch(launch_directory / "vehicle.launch.py")
+    assert module._VEHICLE_CONTROLLER_NAME == "vehicle"
+    assert module._DEFAULT_TRACKING_CONTROLLER == "auto"
+    assert module._DEFAULT_TRACKING_ALGORITHM == "adrc"
+    description = module.generate_launch_description()
+    arguments = {
+        entity.name
+        for entity in description.entities
+        if isinstance(entity, DeclareLaunchArgument)
+    }
+    assert {
+        "vehicle_config",
+        "tracking_controller",
+        "tracking_algorithm",
+    } <= arguments
+    assert "start_bringup" not in arguments
+    assert "robot_name" not in arguments
+    assert "vehicle_type" not in arguments
 
-    launch_sources = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in launch_directory.glob("*.py")
+    launch_source = (launch_directory / "vehicle.launch.py").read_text(
+        encoding="utf-8"
     )
     for forbidden in (
         "MENTOR_PI_NAME",
@@ -299,7 +346,102 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
         '"mecanum_drive_controller"',
         '"ackermann_steering_controller"',
     ):
-        assert forbidden not in launch_sources
+        assert forbidden not in launch_source
+
+
+def test_simulation_launch_is_separate_and_has_no_physical_dependencies():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    path = share / "launch" / "simulation.launch.py"
+    module = load_launch(path)
+    description = module.generate_launch_description()
+    arguments = {
+        entity.name
+        for entity in description.entities
+        if isinstance(entity, DeclareLaunchArgument)
+    }
+    assert arguments == {
+        "vehicle_type",
+        "robot_name",
+        "initial_x_m",
+        "initial_y_m",
+        "initial_yaw_rad",
+    }
+    source = path.read_text(encoding="utf-8")
+    assert 'executable="ros2_control_node"' in source
+    assert 'executable="vehicle_odometry"' in source
+    assert 'name="spawner_vehicle"' in source
+    for forbidden in (
+        "mentor_pi_bringup",
+        "configuration_supervisor",
+        "trajectory_tracker",
+        "tracking_controller",
+        "heartbeat",
+        "motors/state",
+        '"imu"',
+        "/imu",
+    ):
+        assert forbidden not in source
+
+
+def test_simulation_initial_pose_is_geometry_center_pose():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    module = load_launch(share / "launch" / "simulation.launch.py")
+    ackermann = module.simulation_odometry_parameters(
+        "ackermann_sim", "ackermann", 2.0, -3.0, math.pi / 2.0
+    )
+    assert ackermann.pop("geometry_center_frame_id") == (
+        "ackermann_sim/base_footprint"
+    )
+    assert ackermann.pop("output_odom_frame_id") == "ackermann_sim/odom"
+    assert ackermann == pytest.approx(
+        {
+            "source_to_geometry_center_m": 0.0675,
+            "output_odom_origin_x_m": 2.0,
+            "output_odom_origin_y_m": -3.0675,
+            "output_odom_origin_yaw_rad": math.pi / 2.0,
+        }
+    )
+    mecanum = module.simulation_odometry_parameters(
+        "mecanum_sim", "mecanum", -1.0, 4.0, -0.5
+    )
+    assert mecanum.pop("geometry_center_frame_id") == (
+        "mecanum_sim/base_footprint"
+    )
+    assert mecanum.pop("output_odom_frame_id") == "mecanum_sim/odom"
+    assert mecanum == pytest.approx(
+        {
+            "source_to_geometry_center_m": 0.0,
+            "output_odom_origin_x_m": -1.0,
+            "output_odom_origin_y_m": 4.0,
+            "output_odom_origin_yaw_rad": -0.5,
+        }
+    )
+    with pytest.raises(ValueError, match="finite"):
+        module.simulation_odometry_parameters(
+            "ackermann_sim", "ackermann", float("nan"), 0.0, 0.0
+        )
+    with pytest.raises(ValueError, match="relative ROS namespace"):
+        module.simulation_odometry_parameters(
+            "/ackermann_sim", "ackermann", 0.0, 0.0, 0.0
+        )
+
+
+def test_foxglove_is_a_separate_loopback_bridge_launch():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    path = share / "launch" / "foxglove.launch.py"
+    module = load_launch(path)
+    description = module.generate_launch_description()
+    defaults = {
+        entity.name: "".join(
+            getattr(value, "text", str(value)) for value in entity.default_value
+        )
+        for entity in description.entities
+        if isinstance(entity, DeclareLaunchArgument)
+    }
+    assert defaults == {"address": "127.0.0.1", "port": "8765"}
+    source = path.read_text(encoding="utf-8")
+    assert "foxglove_bridge_launch.xml" in source
+    assert "rviz" not in source.lower()
 
 
 @pytest.mark.parametrize(
@@ -319,6 +461,37 @@ def test_tracking_selection_defaults_to_the_profile_vehicle_type(
     share = Path(get_package_share_directory("mentor_pi_hardwares"))
     module = vehicle_launch_module(share)
     assert module.resolve_tracking_controller(selection, vehicle_type) == expected
+
+
+def test_controller_odometry_is_hidden_behind_common_geometry_center_adapter():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    module = vehicle_launch_module(share)
+    assert module.controller_odometry_remappings("fleet/robot_two") == [
+        (
+            "/fleet/robot_two/vehicle/odometry",
+            "/fleet/robot_two/vehicle/_controller_odometry",
+        ),
+        (
+            "/fleet/robot_two/vehicle/tf_odometry",
+            "/fleet/robot_two/vehicle/_controller_tf_odometry",
+        ),
+    ]
+    assert module.odometry_adapter_parameters("ackermann_1", "ackermann") == {
+        "source_to_geometry_center_m": 0.0675,
+        "geometry_center_frame_id": "ackermann_1/base_footprint",
+        "output_odom_frame_id": "ackermann_1/odom",
+    }
+    assert module.odometry_adapter_parameters("mecanum_2", "mecanum") == {
+        "source_to_geometry_center_m": 0.0,
+        "geometry_center_frame_id": "mecanum_2/base_footprint",
+        "output_odom_frame_id": "mecanum_2/odom",
+    }
+
+    launch_source = (share / "launch" / "vehicle.launch.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'executable="vehicle_odometry"' in launch_source
+    assert '"vehicle odometry adapter"' in launch_source
 
 
 @pytest.mark.parametrize(

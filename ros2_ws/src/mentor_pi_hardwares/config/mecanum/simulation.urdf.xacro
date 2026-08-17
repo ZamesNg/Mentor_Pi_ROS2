@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<robot name="mentor_pi_hardwares_mecanum_simulation" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="robot_name" default="mentor_pi_sim"/>
+
+  <xacro:include filename="$(find mentor_pi_hardwares)/config/mecanum/description.urdf.xacro"/>
+  <xacro:include filename="$(find mentor_pi_hardwares)/config/mecanum/simulation_ros2_control.xacro"/>
+
+  <xacro:mecanum_car/>
+  <xacro:mecanum_simulation_control robot_name="$(arg robot_name)"/>
+
+</robot>

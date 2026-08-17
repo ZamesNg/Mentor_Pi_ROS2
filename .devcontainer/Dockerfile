@@ -32,6 +32,7 @@ RUN test "$(. /etc/os-release && printf '%s:%s' "${ID}" "${VERSION_ID}")" = \
       python3-vcstool \
       python3-yaml \
       ros-humble-ackermann-steering-controller \
+      ros-humble-foxglove-bridge \
       ros-humble-mecanum-drive-controller \
       ros-humble-ros2-control \
       ros-humble-ros2-controllers \

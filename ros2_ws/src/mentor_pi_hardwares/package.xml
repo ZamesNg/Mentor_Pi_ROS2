@@ -9,15 +9,20 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>controller_manager</depend>
+  <depend>geometry_msgs</depend>
   <depend>hardware_interface</depend>
   <depend>mentor_pi_interfaces</depend>
+  <depend>nav_msgs</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>std_msgs</depend>
+  <depend>tf2_msgs</depend>
+  <depend>tf2_ros</depend>
 
   <exec_depend>ackermann_steering_controller</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>mecanum_drive_controller</exec_depend>
   <exec_depend>mentor_pi_bringup</exec_depend>
@@ -33,6 +38,8 @@
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_cmake_lint_cmake</test_depend>
   <test_depend>ament_cmake_xmllint</test_depend>
+  <test_depend>controller_manager_msgs</test_depend>
+  <test_depend>rclpy</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

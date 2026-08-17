@@ -30,6 +30,29 @@
 #include "std_srvs/srv/trigger.hpp"
 
 namespace mentor_pi::tracking {
+
+std::optional<std::array<double, 3>> GeometryCenterPoseState(
+    const nav_msgs::msg::Odometry& odometry) {
+  const auto& position = odometry.pose.pose.position;
+  const auto& orientation = odometry.pose.pose.orientation;
+  const double norm = std::hypot(std::hypot(orientation.x, orientation.y),
+                                 std::hypot(orientation.z, orientation.w));
+  if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
+      !std::isfinite(norm) || norm < 1.0e-9) {
+    return std::nullopt;
+  }
+  const double qx = orientation.x / norm;
+  const double qy = orientation.y / norm;
+  const double qz = orientation.z / norm;
+  const double qw = orientation.w / norm;
+  const double yaw =
+      std::atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz));
+  if (!std::isfinite(yaw)) {
+    return std::nullopt;
+  }
+  return std::array<double, 3>{{position.x, position.y, yaw}};
+}
+
 namespace {
 
 using SteadyClock = std::chrono::steady_clock;
@@ -313,12 +336,8 @@ class TrackerNode final : public rclcpp::Node {
   }
 
   void AcceptOdometry(const nav_msgs::msg::Odometry& message) {
-    const auto& position = message.pose.pose.position;
-    const auto& orientation = message.pose.pose.orientation;
-    const double norm = std::hypot(std::hypot(orientation.x, orientation.y),
-                                   std::hypot(orientation.z, orientation.w));
-    if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
-        !std::isfinite(norm) || norm < 1.0e-9) {
+    const auto geometry_center_state = GeometryCenterPoseState(message);
+    if (!geometry_center_state.has_value()) {
       {
         std::lock_guard<std::mutex> lock(state_mutex_);
         has_odometry_ = false;
@@ -328,12 +347,7 @@ class TrackerNode final : public rclcpp::Node {
                         "non-finite or invalid odometry rejected");
       return;
     }
-    const double qx = orientation.x / norm;
-    const double qy = orientation.y / norm;
-    const double qz = orientation.z / norm;
-    const double qw = orientation.w / norm;
-    const double raw_yaw =
-        std::atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz));
+    const double raw_yaw = (*geometry_center_state)[2];
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
       if (vehicle_ == VehicleType::kMecanum && has_raw_yaw_) {
@@ -345,15 +359,11 @@ class TrackerNode final : public rclcpp::Node {
       has_raw_yaw_ = true;
       const double yaw =
           vehicle_ == VehicleType::kMecanum ? yaw_unwrapped_ : raw_yaw;
-      state_ = {{position.x +
-                     (vehicle_ == VehicleType::kAckermann
-                          ? configured_.geometry_center_offset * std::cos(yaw)
-                          : 0.0),
-                 position.y +
-                     (vehicle_ == VehicleType::kAckermann
-                          ? configured_.geometry_center_offset * std::sin(yaw)
-                          : 0.0),
-                 yaw}};
+      // Public vehicle odometry is defined at the chassis geometry center for
+      // both vehicle types.  The Ackermann rear-axle offset remains part of
+      // its dynamics, not an additional measurement-frame conversion here.
+      state_ = {
+          {(*geometry_center_state)[0], (*geometry_center_state)[1], yaw}};
       odometry_time_ = SteadyClock::now();
       has_odometry_ = true;
     }

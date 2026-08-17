@@ -10,5 +10,16 @@
       ros2_control hardware adapter for mecanum command/state bridging to /mentor_pi.
     </description>
   </class>
-</library>
 
+  <class name="mentor_pi/AckermannSimulationHardware" type="mentor_pi::simulation::AckermannSimulationHardware" base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Deterministic actuator-limited Ackermann numerical plant.
+    </description>
+  </class>
+
+  <class name="mentor_pi/MecanumSimulationHardware" type="mentor_pi::simulation::MecanumSimulationHardware" base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Deterministic actuator-limited Mecanum numerical plant.
+    </description>
+  </class>
+</library>

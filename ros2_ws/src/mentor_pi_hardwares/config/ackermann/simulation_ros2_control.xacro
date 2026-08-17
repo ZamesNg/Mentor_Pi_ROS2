@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="ackermann_simulation_control"
+               params="robot_name:=mentor_pi_sim wheel_angular_speed_limit_rad_s:=37.69911184307752 wheel_angular_acceleration_limit_rad_s2:=188.4955592153876 steering_angle_min_rad:=-0.6 steering_angle_max_rad:=0.6 steering_rate_limit_rad_s:=60.0">
+    <ros2_control name="mentor_pi_simulation" type="system">
+      <hardware>
+        <plugin>mentor_pi/AckermannSimulationHardware</plugin>
+        <param name="robot_name">${robot_name}</param>
+        <param name="wheel_angular_speed_limit_rad_s">${wheel_angular_speed_limit_rad_s}</param>
+        <param name="wheel_angular_acceleration_limit_rad_s2">${wheel_angular_acceleration_limit_rad_s2}</param>
+        <param name="steering_angle_min_rad">${steering_angle_min_rad}</param>
+        <param name="steering_angle_max_rad">${steering_angle_max_rad}</param>
+        <param name="steering_rate_limit_rad_s">${steering_rate_limit_rad_s}</param>
+      </hardware>
+
+      <joint name="wheel_left_front_joint">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+      </joint>
+      <joint name="wheel_right_front_joint">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+      </joint>
+      <joint name="wheel_left_rear_joint">
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="wheel_right_rear_joint">
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </ros2_control>
+  </xacro:macro>
+
+</robot>

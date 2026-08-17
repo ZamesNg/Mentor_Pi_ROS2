@@ -10,6 +10,12 @@
     "ROS_DISTRO": "humble",
     "ROS_DOMAIN_ID": "0"
   },
+  "forwardPorts": [8765],
+  "portsAttributes": {
+    "8765": {
+      "label": "Foxglove Bridge"
+    }
+  },
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
