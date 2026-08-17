@@ -81,7 +81,12 @@ The node runs at 30 Hz. It validates and stages a trajectory only when its ROS
 start is 0.25 through 60 seconds in the future, then converts that time to a
 steady-clock deadline. Duplicate IDs are ignored. A replacement switches
 atomically at its scheduled start; planner or network loss after acceptance
-does not cancel it.
+does not cancel it. The execution horizon is the sum of all segment durations.
+At the first control tick at or beyond that horizon, the tracker freezes the
+exact terminal pose, sets every reference derivative to zero, and actively
+holds that pose until a replacement starts or cancellation is requested. A
+replacement scheduled after the current horizon therefore leaves the current
+terminal hold active during the gap.
 
 Every selected plugin executes on the single controller worker and has a 25 ms
 result deadline. MPC uses a ten-step, 0.1-second ALTO horizon. After an MPC miss
@@ -156,21 +161,26 @@ The configurable trajectory parameters and defaults are:
 | `yaw_adrc_observer_bandwidth_rad_s` | `3.0` | Mecanum yaw ESO bandwidth. |
 
 All values must be finite and positive, `wo >= wc`, and `wo*T <= 0.5`. ADRC
-state resets on a new or replaced trajectory, cancel, completion, stale
-odometry, time discontinuity, invalid computation, or recovery from inhibition.
+state resets on a new or replaced trajectory, cancel, stale odometry, time
+discontinuity, invalid computation, or recovery from inhibition. Entering
+terminal hold does not reset the observer because it is a continuation of the
+accepted trajectory.
 
 ## Safety and qualification boundary
 
 Bounds derive from configured geometry and the static driven-wheel speed limit,
 which cannot exceed the 6 RPS implementation ceiling. The output is zero before
-start, after completion/cancel, with missing or older-than-100-ms odometry, or
-after a local fault. The tracker has no MCU motor-state, heartbeat,
-authorization, Agent, or configuration-supervisor dependency. Physical motion
-remains independently gated by the hardware adapter, supervisor, firmware
-session checks, and motor leases.
+start, after cancellation, with missing or older-than-100-ms odometry, or after
+a local fault. Terminal hold has zero feedforward velocity but may publish a
+bounded corrective command when the measured pose differs from the endpoint;
+it is station-keeping rather than a mechanical brake. The tracker has no MCU
+motor-state, heartbeat, authorization, Agent, or configuration-supervisor
+dependency. Physical motion remains independently gated by the hardware
+adapter, supervisor, firmware session checks, and motor leases.
 
 Software tests cover plugin discovery, validation, scheduling, both vehicle
 models and algorithms, bounds, applied-command observer feedback, fallback,
-cancellation, and safe zero. They do not qualify tracking performance. Native
-RDK X5 deadline measurements and recorded, reviewed guarded HIL are required
+cancellation, stationary terminal references, active endpoint hold, and safe
+zero. They do not qualify tracking performance. Native RDK X5 deadline
+measurements and recorded, reviewed guarded HIL are required
 before powered-motion, ADRC-performance, or release claims.

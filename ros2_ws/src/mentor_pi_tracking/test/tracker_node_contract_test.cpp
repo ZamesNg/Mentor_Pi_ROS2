@@ -3,12 +3,14 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <future>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
 
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "gtest/gtest.h"
 #include "mentor_pi_tracking/tracker_node.hpp"
@@ -17,6 +19,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "pluginlib/class_loader.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 namespace mentor_pi::tracking {
 namespace {
@@ -115,6 +118,48 @@ TEST(TrackerNodeContractTest, LadrcUsesReferenceDerivativeAndRejectsActualDt) {
 
   request.measured_period_seconds = 0.2;  // wo * dt = 0.6 > 0.5.
   EXPECT_FALSE(plugin->Compute(request).solved);
+}
+
+TEST(TrackerNodeContractTest, LadrcHoldsTerminalPoseForBothVehicles) {
+  pluginlib::ClassLoader<TrackerPlugin> loader(
+      "mentor_pi_tracking", "mentor_pi::tracking::TrackerPlugin");
+  const auto trajectory = StraightTrajectory(0.25, 0.2);
+
+  const auto mecanum =
+      loader.createSharedInstance("mentor_pi_tracking/MecanumAdrc");
+  mecanum->Configure(AdrcConfiguration(VehicleType::kMecanum));
+  auto mecanum_request = AdrcRequest(trajectory, 1.0 / 30.0);
+  mecanum_request.mpc.elapsed_seconds = trajectory->duration();
+  mecanum_request.mpc.state = {{0.2, 0.0, 0.65}};
+  const MpcCommand mecanum_at_endpoint = mecanum->Compute(mecanum_request);
+  ASSERT_TRUE(mecanum_at_endpoint.solved);
+  EXPECT_NEAR(mecanum_at_endpoint.linear_x, 0.0, 1.0e-12);
+  EXPECT_NEAR(mecanum_at_endpoint.linear_y, 0.0, 1.0e-12);
+  EXPECT_NEAR(mecanum_at_endpoint.angular_z, 0.0, 1.0e-12);
+
+  const auto mecanum_behind =
+      loader.createSharedInstance("mentor_pi_tracking/MecanumAdrc");
+  mecanum_behind->Configure(AdrcConfiguration(VehicleType::kMecanum));
+  mecanum_request.mpc.state = {{0.0, 0.0, 0.65}};
+  const MpcCommand correction = mecanum_behind->Compute(mecanum_request);
+  ASSERT_TRUE(correction.solved);
+  EXPECT_GT(correction.linear_x, 0.0);
+
+  const auto ackermann =
+      loader.createSharedInstance("mentor_pi_tracking/AckermannAdrc");
+  const auto ackermann_configuration =
+      AdrcConfiguration(VehicleType::kAckermann);
+  ackermann->Configure(ackermann_configuration);
+  auto ackermann_request = AdrcRequest(trajectory, 1.0 / 30.0);
+  ackermann_request.bounded_configuration = ackermann_configuration.mpc;
+  ackermann_request.mpc.elapsed_seconds = trajectory->duration();
+  ackermann_request.mpc.state = {{0.2, 0.0, -2.0}};
+  const MpcCommand ackermann_at_endpoint =
+      ackermann->Compute(ackermann_request);
+  ASSERT_TRUE(ackermann_at_endpoint.solved);
+  EXPECT_NEAR(ackermann_at_endpoint.linear_x, 0.0, 1.0e-12);
+  EXPECT_NEAR(ackermann_at_endpoint.linear_y, 0.0, 1.0e-12);
+  EXPECT_NEAR(ackermann_at_endpoint.angular_z, 0.0, 1.0e-12);
 }
 
 TEST(TrackerNodeContractTest, AckermannLadrcIgnoresCommonYawPolynomial) {
@@ -360,6 +405,151 @@ TEST(TrackerNodeContractTest,
     std::this_thread::sleep_for(10ms);
   }
   EXPECT_TRUE(zero);
+}
+
+TEST(TrackerNodeContractTest,
+     TerminalHoldSurvivesStaleOdometryUntilReplacementOrCancel) {
+  using namespace std::chrono_literals;
+  const auto tracker = MakeTrackerNode(
+      OptionsFor("mecanum", "adrc", "mentor_pi_tracking/MecanumAdrc"));
+  const auto peer = std::make_shared<rclcpp::Node>("terminal_hold_peer");
+  geometry_msgs::msg::TwistStamped::SharedPtr command;
+  std::size_t terminal_hold_diagnostics = 0U;
+  const auto command_subscription =
+      peer->create_subscription<geometry_msgs::msg::TwistStamped>(
+          "/mentor_pi/vehicle/reference", rclcpp::QoS(10).reliable(),
+          [&command](geometry_msgs::msg::TwistStamped::SharedPtr message) {
+            command = std::move(message);
+          });
+  const auto diagnostic_subscription =
+      peer->create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
+          "/mentor_pi/trajectory_tracker/diagnostics",
+          rclcpp::QoS(10).reliable(),
+          [&terminal_hold_diagnostics](
+              const diagnostic_msgs::msg::DiagnosticArray::SharedPtr message) {
+            for (const auto& status : message->status) {
+              if (status.message.find("terminal hold active") !=
+                  std::string::npos) {
+                ++terminal_hold_diagnostics;
+              }
+            }
+          });
+  const auto trajectory_publisher = peer->create_publisher<
+      mentor_pi_tracking_interfaces::msg::PolynomialTrajectory>(
+      "/mentor_pi/trajectory_tracker/reference_trajectory",
+      rclcpp::QoS(1).reliable());
+  const auto odometry_publisher =
+      peer->create_publisher<nav_msgs::msg::Odometry>(
+          "/mentor_pi/vehicle/odometry", rclcpp::SensorDataQoS());
+  const auto cancel_client = peer->create_client<std_srvs::srv::Trigger>(
+      "/mentor_pi/trajectory_tracker/cancel");
+  (void)command_subscription;
+  (void)diagnostic_subscription;
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(tracker);
+  executor.add_node(peer);
+  const auto discovery_deadline = std::chrono::steady_clock::now() + 1s;
+  while ((trajectory_publisher->get_subscription_count() == 0U ||
+          !cancel_client->service_is_ready()) &&
+         std::chrono::steady_clock::now() < discovery_deadline) {
+    executor.spin_some();
+    std::this_thread::sleep_for(5ms);
+  }
+  ASSERT_GT(trajectory_publisher->get_subscription_count(), 0U);
+  ASSERT_TRUE(cancel_client->service_is_ready());
+
+  auto make_trajectory = [&peer](const std::string& id, double terminal_x) {
+    mentor_pi_tracking_interfaces::msg::PolynomialTrajectory trajectory;
+    trajectory.header.frame_id = "odom";
+    trajectory.header.stamp = peer->now() + rclcpp::Duration::from_seconds(0.3);
+    trajectory.trajectory_id = id;
+    mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
+    segment.duration.nanosec = 200'000'000U;
+    segment.x_coefficients[0] = terminal_x < 0.0 ? terminal_x : 0.0;
+    segment.x_coefficients[1] = terminal_x < 0.0 ? 0.0 : terminal_x / 0.2;
+    trajectory.segments.push_back(segment);
+    return trajectory;
+  };
+  nav_msgs::msg::Odometry odometry;
+  odometry.pose.pose.orientation.w = 1.0;
+
+  trajectory_publisher->publish(make_trajectory("first-hold", 0.2));
+  bool correcting_first_endpoint = false;
+  const auto first_hold_deadline = std::chrono::steady_clock::now() + 2s;
+  while (!correcting_first_endpoint &&
+         std::chrono::steady_clock::now() < first_hold_deadline) {
+    odometry_publisher->publish(odometry);
+    executor.spin_some();
+    correcting_first_endpoint = terminal_hold_diagnostics == 1U &&
+                                command != nullptr &&
+                                command->twist.linear.x > 0.01;
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_TRUE(correcting_first_endpoint);
+
+  command.reset();
+  bool stale_zero = false;
+  const auto stale_deadline = std::chrono::steady_clock::now() + 1s;
+  while (!stale_zero && std::chrono::steady_clock::now() < stale_deadline) {
+    executor.spin_some();
+    stale_zero = command != nullptr && command->twist.linear.x == 0.0 &&
+                 command->twist.linear.y == 0.0 &&
+                 command->twist.angular.z == 0.0;
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_TRUE(stale_zero);
+
+  command.reset();
+  bool resumed_hold = false;
+  const auto resume_deadline = std::chrono::steady_clock::now() + 1s;
+  while (!resumed_hold && std::chrono::steady_clock::now() < resume_deadline) {
+    odometry_publisher->publish(odometry);
+    executor.spin_some();
+    resumed_hold = command != nullptr && command->twist.linear.x > 0.01;
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_TRUE(resumed_hold);
+  EXPECT_EQ(terminal_hold_diagnostics, 1U);
+
+  trajectory_publisher->publish(make_trajectory("replacement-hold", -0.2));
+  command.reset();
+  bool replacement_active = false;
+  const auto replacement_deadline = std::chrono::steady_clock::now() + 2s;
+  while (!replacement_active &&
+         std::chrono::steady_clock::now() < replacement_deadline) {
+    odometry_publisher->publish(odometry);
+    executor.spin_some();
+    replacement_active = terminal_hold_diagnostics == 2U &&
+                         command != nullptr && command->twist.linear.x < -0.01;
+    std::this_thread::sleep_for(10ms);
+  }
+  ASSERT_TRUE(replacement_active);
+
+  command.reset();
+  auto cancel_future = cancel_client->async_send_request(
+      std::make_shared<std_srvs::srv::Trigger::Request>());
+  const auto cancel_deadline = std::chrono::steady_clock::now() + 1s;
+  while (cancel_future.wait_for(0ms) != std::future_status::ready &&
+         std::chrono::steady_clock::now() < cancel_deadline) {
+    odometry_publisher->publish(odometry);
+    executor.spin_some();
+    std::this_thread::sleep_for(5ms);
+  }
+  ASSERT_EQ(cancel_future.wait_for(0ms), std::future_status::ready);
+  ASSERT_TRUE(cancel_future.get()->success);
+
+  bool cancelled_zero = false;
+  const auto zero_deadline = std::chrono::steady_clock::now() + 500ms;
+  while (!cancelled_zero && std::chrono::steady_clock::now() < zero_deadline) {
+    odometry_publisher->publish(odometry);
+    executor.spin_some();
+    cancelled_zero = command != nullptr && command->twist.linear.x == 0.0 &&
+                     command->twist.linear.y == 0.0 &&
+                     command->twist.angular.z == 0.0;
+    std::this_thread::sleep_for(5ms);
+  }
+  EXPECT_TRUE(cancelled_zero);
 }
 
 }  // namespace

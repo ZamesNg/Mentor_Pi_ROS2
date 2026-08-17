@@ -92,6 +92,32 @@ TEST(MpcSolverTest, AckermannFeedbackIgnoresCommonYawPolynomial) {
   EXPECT_DOUBLE_EQ(first_command.angular_z, second_command.angular_z);
 }
 
+TEST(MpcSolverTest, TerminalFeedbackHoldsEndpointForBothVehicles) {
+  const PolynomialTrajectory trajectory = StraightTrajectoryWithYaw(0.25, 0.2);
+
+  MpcConfiguration mecanum;
+  mecanum.vehicle = VehicleType::kMecanum;
+  const MpcCommand mecanum_at_endpoint = FeedbackCommand(
+      mecanum, {{0.5, 0.0, 1.25}, &trajectory, trajectory.duration()});
+  ASSERT_TRUE(mecanum_at_endpoint.solved);
+  EXPECT_NEAR(mecanum_at_endpoint.linear_x, 0.0, 1.0e-12);
+  EXPECT_NEAR(mecanum_at_endpoint.linear_y, 0.0, 1.0e-12);
+  EXPECT_NEAR(mecanum_at_endpoint.angular_z, 0.0, 1.0e-12);
+  const MpcCommand mecanum_behind = FeedbackCommand(
+      mecanum, {{0.4, 0.0, 1.25}, &trajectory, trajectory.duration()});
+  ASSERT_TRUE(mecanum_behind.solved);
+  EXPECT_GT(mecanum_behind.linear_x, 0.0);
+
+  MpcConfiguration ackermann;
+  ackermann.vehicle = VehicleType::kAckermann;
+  const MpcCommand ackermann_at_endpoint = FeedbackCommand(
+      ackermann, {{0.5, 0.0, -2.0}, &trajectory, trajectory.duration()});
+  ASSERT_TRUE(ackermann_at_endpoint.solved);
+  EXPECT_NEAR(ackermann_at_endpoint.linear_x, 0.0, 1.0e-12);
+  EXPECT_NEAR(ackermann_at_endpoint.linear_y, 0.0, 1.0e-12);
+  EXPECT_NEAR(ackermann_at_endpoint.angular_z, 0.0, 1.0e-12);
+}
+
 TEST(MpcSolverTest, AckermannAltoSolveIgnoresCommonYawPolynomial) {
   const PolynomialTrajectory first = StraightTrajectoryWithYaw(0.0, 0.0);
   const PolynomialTrajectory second = StraightTrajectoryWithYaw(-2.5, 6.0);
@@ -168,6 +194,19 @@ TEST(MpcSolverTest, SolvesStationaryMecanumProblemWithAlto) {
   const MpcCommand command =
       MpcSolver(configuration).Solve({{0.0, 0.0, 0.0}, &*trajectory, 0.0});
   EXPECT_TRUE(command.solved) << command.detail;
+  EXPECT_NEAR(command.linear_x, 0.0, 1.0e-6);
+  EXPECT_NEAR(command.linear_y, 0.0, 1.0e-6);
+  EXPECT_NEAR(command.angular_z, 0.0, 1.0e-6);
+}
+
+TEST(MpcSolverTest, PredictionBeyondExecutionHorizonIsStationary) {
+  const PolynomialTrajectory trajectory = StraightTrajectory();
+  MpcConfiguration configuration;
+  configuration.vehicle = VehicleType::kMecanum;
+  const MpcCommand command =
+      MpcSolver(configuration)
+          .Solve({{0.5, 0.0, 0.0}, &trajectory, trajectory.duration()});
+  ASSERT_TRUE(command.solved) << command.detail;
   EXPECT_NEAR(command.linear_x, 0.0, 1.0e-6);
   EXPECT_NEAR(command.linear_y, 0.0, 1.0e-6);
   EXPECT_NEAR(command.angular_z, 0.0, 1.0e-6);

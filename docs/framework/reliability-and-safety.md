@@ -2,8 +2,11 @@
 
 The optional lower-level tracker is an additional host safety boundary. It
 publishes zero when it has no active scheduled trajectory or fresh odometry;
-after completion or cancellation; and after its bounded solver/fallback
-window. Invalid or duplicate trajectory messages never disturb the accepted
+after cancellation; and after its bounded solver/fallback window. At the sum of
+the accepted segment durations it retains the terminal pose, forces reference
+derivatives to zero, and actively holds that endpoint until replacement or
+cancellation. Endpoint corrections remain subject to the normal command
+bounds. Invalid or duplicate trajectory messages never disturb the accepted
 trajectory. It is independent of MCU and supervisor topics. These rules do not
 weaken the lower-layer hardware adapter, firmware leases, supervisor
 authorization, model limits, the 6 RPS ceiling, or the guarded-motion

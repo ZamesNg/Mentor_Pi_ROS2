@@ -46,6 +46,35 @@ TEST(PolynomialTrajectoryTest, EvaluatesSegmentsAndDerivatives) {
   EXPECT_DOUBLE_EQ(second.vx_world, 2.0);
 }
 
+TEST(PolynomialTrajectoryTest, HoldsTerminalPoseWithZeroDerivatives) {
+  auto message = ValidMessage();
+  message.segments[1].y_coefficients[1] = -1.0;
+  message.segments[1].yaw_coefficients[1] = 0.25;
+  std::string error;
+  const auto trajectory = PolynomialTrajectory::FromMessage(message, &error);
+  ASSERT_TRUE(trajectory.has_value()) << error;
+
+  const ReferenceState before = trajectory->Evaluate(2.999);
+  EXPECT_DOUBLE_EQ(before.vx_world, 2.0);
+  EXPECT_DOUBLE_EQ(before.vy_world, -1.0);
+  EXPECT_DOUBLE_EQ(before.yaw_rate, 0.25);
+
+  const ReferenceState terminal = trajectory->Evaluate(3.0);
+  const ReferenceState held = trajectory->Evaluate(30.0);
+  EXPECT_DOUBLE_EQ(terminal.x, 4.0);
+  EXPECT_DOUBLE_EQ(terminal.y, -1.0);
+  EXPECT_DOUBLE_EQ(terminal.yaw, 1.25);
+  EXPECT_DOUBLE_EQ(terminal.vx_world, 0.0);
+  EXPECT_DOUBLE_EQ(terminal.vy_world, 0.0);
+  EXPECT_DOUBLE_EQ(terminal.yaw_rate, 0.0);
+  EXPECT_DOUBLE_EQ(held.x, terminal.x);
+  EXPECT_DOUBLE_EQ(held.y, terminal.y);
+  EXPECT_DOUBLE_EQ(held.yaw, terminal.yaw);
+  EXPECT_DOUBLE_EQ(held.vx_world, 0.0);
+  EXPECT_DOUBLE_EQ(held.vy_world, 0.0);
+  EXPECT_DOUBLE_EQ(held.yaw_rate, 0.0);
+}
+
 TEST(PolynomialTrajectoryTest, RejectsWrongFrameNonFiniteAndDiscontinuity) {
   std::string error;
   auto message = ValidMessage();

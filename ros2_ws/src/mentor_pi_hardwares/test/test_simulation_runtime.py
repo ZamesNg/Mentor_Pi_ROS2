@@ -433,3 +433,78 @@ def test_default_tracker_drives_simulation_without_low_level_topics(
                 pytest.fail(
                     f"simulation launch exited {process.returncode}:\n{log.read()}"
                 )
+
+
+def test_tracker_continues_correcting_after_execution_horizon():
+    robot_name = "mecanum_terminal_hold_test"
+    with tempfile.TemporaryFile(mode="w+") as log:
+        process = launch_simulation(
+            "mecanum",
+            robot_name,
+            log,
+            initial_x_m=0.0,
+            initial_y_m=0.0,
+            tracking_algorithm="adrc",
+        )
+        if not rclpy.ok():
+            rclpy.init()
+        client = SimulationClient(robot_name)
+        trajectory_publisher = client.node.create_publisher(
+            PolynomialTrajectory,
+            f"/{robot_name}/trajectory_tracker/reference_trajectory",
+            10,
+        )
+        try:
+            assert client.spin_until(
+                lambda: process.poll() is not None
+                or (
+                    client.latest_odometry is not None
+                    and client.controller_is_active()
+                    and trajectory_publisher.get_subscription_count() == 1
+                ),
+                timeout=15.0,
+            )
+            assert process.poll() is None
+
+            trajectory = PolynomialTrajectory()
+            trajectory.header.frame_id = "odom"
+            trajectory.header.stamp = (
+                client.node.get_clock().now() + Duration(seconds=0.5)
+            ).to_msg()
+            trajectory.trajectory_id = "terminal-hold-runtime"
+            segment = PolynomialSegment()
+            segment.duration.nanosec = 200_000_000
+            segment.x_coefficients[0] = 0.15
+            trajectory.segments.append(segment)
+            trajectory_publisher.publish(trajectory)
+
+            assert client.spin_until(
+                lambda: client.latest_odometry is not None
+                and client.latest_odometry.pose.pose.position.x > 0.08,
+                timeout=4.0,
+            )
+            assert client.spin_until(
+                lambda: client.latest_odometry is not None
+                and abs(client.latest_odometry.pose.pose.position.x - 0.15)
+                < 0.04
+                and abs(client.latest_odometry.twist.twist.linear.x) < 0.02,
+                timeout=4.0,
+            )
+            held_x = client.latest_odometry.pose.pose.position.x
+            hold_deadline = time.monotonic() + 0.5
+            while time.monotonic() < hold_deadline:
+                rclpy.spin_once(client.node, timeout_sec=0.02)
+            assert (
+                abs(client.latest_odometry.pose.pose.position.x - held_x)
+                < 0.02
+            )
+        finally:
+            stop_process(process)
+            client.destroy()
+            if rclpy.ok():
+                rclpy.shutdown()
+            if process.returncode not in (0, -signal.SIGINT):
+                log.seek(0)
+                pytest.fail(
+                    f"simulation launch exited {process.returncode}:\n{log.read()}"
+                )

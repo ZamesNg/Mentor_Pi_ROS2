@@ -159,8 +159,8 @@ if(BUILD_TESTING)
     target_compile_options(tracker_node_contract_test PRIVATE
       ${MENTOR_PI_WARNING_FLAGS})
     ament_target_dependencies(tracker_node_contract_test
-      geometry_msgs mentor_pi_tracking_interfaces nav_msgs pluginlib rclcpp
-      std_srvs)
+      diagnostic_msgs geometry_msgs mentor_pi_tracking_interfaces nav_msgs
+      pluginlib rclcpp std_srvs)
     target_link_libraries(tracker_node_contract_test mentor_pi_tracker_node)
     set_tests_properties(tracker_node_contract_test PROPERTIES
       ENVIRONMENT "ROS_DOMAIN_ID=152"

@@ -115,6 +115,7 @@ std::optional<PolynomialTrajectory> PolynomialTrajectory::FromMessage(
 }
 
 ReferenceState PolynomialTrajectory::Evaluate(double elapsed_seconds) const {
+  const bool terminal_hold = elapsed_seconds >= duration_;
   double remaining = std::clamp(elapsed_seconds, 0.0, duration_);
   const PolynomialSegment* selected = &segments_.back();
   for (const auto& segment : segments_) {
@@ -125,12 +126,18 @@ ReferenceState PolynomialTrajectory::Evaluate(double elapsed_seconds) const {
     remaining -= segment.duration;
   }
   remaining = std::min(remaining, selected->duration);
+  const double vx_world =
+      terminal_hold ? 0.0 : EvaluateDerivative(selected->x, remaining);
+  const double vy_world =
+      terminal_hold ? 0.0 : EvaluateDerivative(selected->y, remaining);
+  const double yaw_rate =
+      terminal_hold ? 0.0 : EvaluateDerivative(selected->yaw, remaining);
   return ReferenceState{EvaluatePolynomial(selected->x, remaining),
                         EvaluatePolynomial(selected->y, remaining),
                         EvaluatePolynomial(selected->yaw, remaining),
-                        EvaluateDerivative(selected->x, remaining),
-                        EvaluateDerivative(selected->y, remaining),
-                        EvaluateDerivative(selected->yaw, remaining)};
+                        vx_world,
+                        vy_world,
+                        yaw_rate};
 }
 
 double PolynomialTrajectory::EvaluatePolynomial(

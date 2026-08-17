@@ -65,6 +65,7 @@ constexpr double kMaximumDrivenWheelAngularSpeedRadS = 37.69911184307752;
 struct ScheduledTrajectory {
   std::shared_ptr<const PolynomialTrajectory> trajectory;
   SteadyClock::time_point start;
+  bool terminal_hold{};
 };
 
 struct WorkItem {
@@ -388,32 +389,44 @@ class TrackerNode final : public rclcpp::Node {
       ResetPlugin();
     }
 
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    if (!active_ || now < active_->start || !FreshLocked(now)) {
-      return std::nullopt;
+    bool terminal_hold_started = false;
+    std::string terminal_hold_id;
+    std::optional<ControlSnapshot> snapshot;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      if (!active_ || now < active_->start || !FreshLocked(now)) {
+        return std::nullopt;
+      }
+      double elapsed =
+          std::chrono::duration<double>(now - active_->start).count();
+      if (elapsed >= active_->trajectory->duration()) {
+        elapsed = active_->trajectory->duration();
+        if (!active_->terminal_hold) {
+          active_->terminal_hold = true;
+          terminal_hold_started = true;
+          terminal_hold_id = active_->trajectory->id();
+          ++generation_;
+        }
+      }
+      const double period =
+          last_control_time_.has_value()
+              ? std::chrono::duration<double>(now - *last_control_time_).count()
+              : std::chrono::duration<double>(kControlPeriod).count();
+      last_control_time_ = now;
+      inhibited_ = false;
+      TrackerRequest request;
+      request.trajectory = active_->trajectory;
+      request.mpc = {state_, request.trajectory.get(), elapsed};
+      request.bounded_configuration = configured_;
+      request.measured_period_seconds = period;
+      snapshot = ControlSnapshot{generation_, active_->trajectory,
+                                 active_->start, std::move(request)};
     }
-    const double elapsed =
-        std::chrono::duration<double>(now - active_->start).count();
-    if (elapsed >= active_->trajectory->duration()) {
-      active_.reset();
-      fallback_deadline_.reset();
-      ++generation_;
-      last_control_time_.reset();
-      return std::nullopt;
+    if (terminal_hold_started) {
+      PublishDiagnostic(diagnostic_msgs::msg::DiagnosticStatus::OK,
+                        "trajectory terminal hold active: " + terminal_hold_id);
     }
-    const double period =
-        last_control_time_.has_value()
-            ? std::chrono::duration<double>(now - *last_control_time_).count()
-            : std::chrono::duration<double>(kControlPeriod).count();
-    last_control_time_ = now;
-    inhibited_ = false;
-    TrackerRequest request;
-    request.trajectory = active_->trajectory;
-    request.mpc = {state_, request.trajectory.get(), elapsed};
-    request.bounded_configuration = configured_;
-    request.measured_period_seconds = period;
-    return ControlSnapshot{generation_, active_->trajectory, active_->start,
-                           std::move(request)};
+    return snapshot;
   }
 
   bool CandidateStillValidLocked(const ControlSnapshot& snapshot,
@@ -421,11 +434,6 @@ class TrackerNode final : public rclcpp::Node {
                                  MpcConfiguration* configuration) const {
     if (inhibited_ || !active_ || active_->trajectory != snapshot.trajectory ||
         generation_ != snapshot.generation || !FreshLocked(now)) {
-      return false;
-    }
-    const double elapsed =
-        std::chrono::duration<double>(now - active_->start).count();
-    if (elapsed >= active_->trajectory->duration()) {
       return false;
     }
     *configuration = configured_;

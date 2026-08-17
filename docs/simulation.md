@@ -56,7 +56,9 @@ ros2 topic pub --rate 20 \
 The public outputs are `/ackermann_sim/vehicle/odometry`,
 `/ackermann_sim/vehicle/tf_odometry`, `/joint_states`, `/tf`, `/tf_static`, and
 `/ackermann_sim/robot_description`. The standard controller reference timeout
-still applies. The default tracker also exposes
+still applies. The tracker uses the sum of trajectory segment durations as its
+execution horizon, then actively holds the terminal pose with zero reference
+derivatives until replacement or cancellation. The default tracker also exposes
 `/ackermann_sim/trajectory_tracker/cancel` and publishes
 `diagnostic_msgs/msg/DiagnosticArray` on
 `/ackermann_sim/trajectory_tracker/diagnostics`.
