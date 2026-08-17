@@ -77,11 +77,14 @@ selects speed and steering subject to the center dynamics and actuator bounds.
 
 ## Runtime and plugin selection
 
-The node runs at 30 Hz. It validates and stages a trajectory only when its ROS
-start is 0.25 through 60 seconds in the future, then converts that time to a
-steady-clock deadline. Duplicate IDs are ignored. A replacement switches
-atomically at its scheduled start; planner or network loss after acceptance
-does not cancel it. The execution horizon is the sum of all segment durations.
+The node runs at 30 Hz. It accepts a trajectory whose ROS start is no more than
+60 seconds in the future, then converts that time to a steady-clock deadline.
+A future trajectory switches atomically at its scheduled start. A trajectory
+that arrives after its start activates on the next control tick and is
+evaluated at the elapsed offset, preserving its absolute-time synchronization
+instead of rejecting ordinary transport delay. Duplicate IDs are ignored.
+Planner or network loss after acceptance does not cancel it. The execution
+horizon is the sum of all segment durations.
 At the first control tick at or beyond that horizon, the tracker freezes the
 exact terminal pose, sets every reference derivative to zero, and actively
 holds that pose until a replacement starts or cancellation is requested. A

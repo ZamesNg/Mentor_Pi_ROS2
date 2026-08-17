@@ -341,7 +341,7 @@ TEST(TrackerNodeContractTest,
 }
 
 TEST(TrackerNodeContractTest,
-     FreshOdometryAloneEnablesTrackingAndStaleOdometryInhibitsOutput) {
+     LateTrajectoryActivatesImmediatelyAndStaleOdometryInhibitsOutput) {
   using namespace std::chrono_literals;
   const auto tracker = MakeTrackerNode(
       OptionsFor("mecanum", "adrc", "mentor_pi_tracking/MecanumAdrc"));
@@ -375,7 +375,9 @@ TEST(TrackerNodeContractTest,
 
   mentor_pi_tracking_interfaces::msg::PolynomialTrajectory trajectory;
   trajectory.header.frame_id = "odom";
-  trajectory.header.stamp = peer->now() + rclcpp::Duration::from_seconds(0.3);
+  // Transport delay must not reject a synchronized absolute-time command.
+  // A start in the recent past activates on the next tracker control tick.
+  trajectory.header.stamp = peer->now() - rclcpp::Duration::from_seconds(0.1);
   trajectory.trajectory_id = "odometry-expiry";
   mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
   segment.duration.sec = 5;

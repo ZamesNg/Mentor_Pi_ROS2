@@ -57,7 +57,6 @@ constexpr auto kControlPeriod = std::chrono::nanoseconds(33'333'333);
 constexpr auto kFeedbackTimeout = std::chrono::milliseconds(100);
 constexpr auto kControllerDeadline = std::chrono::milliseconds(25);
 constexpr auto kMpcFallbackLimit = std::chrono::milliseconds(100);
-constexpr auto kMinimumStartLead = std::chrono::milliseconds(250);
 constexpr auto kMaximumStartLead = std::chrono::seconds(60);
 constexpr double kTwoPi = 6.28318530717958647692;
 constexpr double kMaximumDrivenWheelAngularSpeedRadS = 37.69911184307752;
@@ -303,10 +302,10 @@ class TrackerNode final : public rclcpp::Node {
     }
     const auto lead = std::chrono::nanoseconds(
         (rclcpp::Time(message.header.stamp) - now()).nanoseconds());
-    if (lead < kMinimumStartLead || lead > kMaximumStartLead) {
+    if (lead > kMaximumStartLead) {
       PublishDiagnostic(
           diagnostic_msgs::msg::DiagnosticStatus::ERROR,
-          "trajectory start must be 0.25..60 seconds in the future");
+          "trajectory start must be no more than 60 seconds in the future");
       return;
     }
     auto trajectory =
