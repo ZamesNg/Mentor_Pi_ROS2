@@ -6,7 +6,7 @@
   <xacro:include filename="$(find mentor_pi_hardwares)/config/mecanum/description.urdf.xacro"/>
   <xacro:include filename="$(find mentor_pi_hardwares)/config/mecanum/simulation_ros2_control.xacro"/>
 
-  <xacro:mecanum_car/>
+  <xacro:mecanum_car frame_prefix="$(arg robot_name)/"/>
   <xacro:mecanum_simulation_control robot_name="$(arg robot_name)"/>
 
 </robot>

@@ -7,6 +7,7 @@ import socket
 import subprocess
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 
 from controller_manager_msgs.srv import ListControllers
 from geometry_msgs.msg import TwistStamped
@@ -18,6 +19,14 @@ from nav_msgs.msg import Odometry
 import pytest
 import rclpy
 from rclpy.duration import Duration
+from rclpy.qos import (
+    DurabilityPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
+from std_msgs.msg import String
+from tf2_msgs.msg import TFMessage
 
 
 def yaw(orientation):
@@ -39,6 +48,8 @@ class SimulationClient:
         self.robot_name = robot_name
         self.node = rclpy.create_node(f"{robot_name}_runtime_probe")
         self.latest_odometry = None
+        self.robot_description = None
+        self.transforms = {}
         self.publisher = self.node.create_publisher(
             TwistStamped, f"/{robot_name}/vehicle/reference", 10
         )
@@ -47,6 +58,29 @@ class SimulationClient:
             f"/{robot_name}/vehicle/odometry",
             self._accept_odometry,
             10,
+        )
+        transient_local_qos = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
+        self.description_subscription = self.node.create_subscription(
+            String,
+            f"/{robot_name}/robot_description",
+            self._accept_robot_description,
+            transient_local_qos,
+        )
+        self.tf_subscription = self.node.create_subscription(
+            TFMessage,
+            "/tf",
+            self._accept_transforms,
+            qos_profile_sensor_data,
+        )
+        self.tf_static_subscription = self.node.create_subscription(
+            TFMessage,
+            "/tf_static",
+            self._accept_transforms,
+            transient_local_qos,
         )
         self.controllers = self.node.create_client(
             ListControllers, f"/{robot_name}/controller_manager/list_controllers"
@@ -57,6 +91,13 @@ class SimulationClient:
 
     def _accept_odometry(self, message):
         self.latest_odometry = message
+
+    def _accept_robot_description(self, message):
+        self.robot_description = message.data
+
+    def _accept_transforms(self, message):
+        for transform in message.transforms:
+            self.transforms[transform.child_frame_id] = transform
 
     def spin_until(self, predicate, timeout=10.0):
         deadline = time.monotonic() + timeout
@@ -187,6 +228,9 @@ def test_simulation_controller_and_odometry_runtime(vehicle_type):
                 or (
                     client.latest_odometry is not None
                     and client.controller_is_active()
+                    and client.robot_description is not None
+                    and f"{robot_name}/wheel_left_rear_link"
+                    in client.transforms
                 ),
                 timeout=15.0,
             )
@@ -219,11 +263,64 @@ def test_simulation_controller_and_odometry_runtime(vehicle_type):
             assert f"/{robot_name}/heartbeat" not in topics
             assert f"/{robot_name}/motors/state" not in topics
 
+            description = ET.fromstring(client.robot_description)
+            link_names = {
+                link.attrib["name"] for link in description.findall("./link")
+            }
+            assert link_names
+            assert all(name.startswith(f"{robot_name}/") for name in link_names)
+            assert all(
+                not name.startswith(f"{robot_name}/{robot_name}/")
+                for name in link_names
+            )
+            assert f"{robot_name}/base_footprint" in link_names
+            expected_tf_children = link_names - {
+                f"{robot_name}/base_footprint"
+            }
+            assert client.spin_until(
+                lambda: expected_tf_children <= client.transforms.keys(),
+                timeout=2.0,
+            )
+            for child_frame in expected_tf_children:
+                assert client.transforms[child_frame].header.frame_id in link_names
+            if vehicle_type == "ackermann":
+                rear_axle = client.transforms[
+                    f"{robot_name}/rear_axle_footprint"
+                ]
+                assert rear_axle.header.frame_id == (
+                    f"{robot_name}/base_footprint"
+                )
+                assert rear_axle.transform.translation.x == pytest.approx(
+                    -0.0675
+                )
+            wheel_frame = f"{robot_name}/wheel_left_rear_link"
+            initial_wheel_rotation = client.transforms[
+                wheel_frame
+            ].transform.rotation
+            initial_wheel_quaternion = (
+                initial_wheel_rotation.x,
+                initial_wheel_rotation.y,
+                initial_wheel_rotation.z,
+                initial_wheel_rotation.w,
+            )
+
             if vehicle_type == "ackermann":
                 client.publish_for(0.12, 0.0, 0.25, 1.0)
             else:
                 client.publish_for(0.12, 0.08, 0.25, 1.0)
             positive = client.latest_odometry
+            positive_wheel_rotation = client.transforms[
+                wheel_frame
+            ].transform.rotation
+            positive_wheel_quaternion = (
+                positive_wheel_rotation.x,
+                positive_wheel_rotation.y,
+                positive_wheel_rotation.z,
+                positive_wheel_rotation.w,
+            )
+            assert positive_wheel_quaternion != pytest.approx(
+                initial_wheel_quaternion, abs=1.0e-3
+            )
             assert positive.pose.pose.position.x > initial.pose.pose.position.x + 0.03
             assert yaw(positive.pose.pose.orientation) > 0.03
             if vehicle_type == "mecanum":

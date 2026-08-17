@@ -75,8 +75,11 @@ ros2 launch mentor_pi_hardwares foxglove.launch.py
 Connect Foxglove to `ws://localhost:8765`. In a 3D panel, select
 `ackermann_sim/odom` as the display frame and add a URDF layer sourced from the
 `/ackermann_sim/robot_description` topic. Select `/tf` and `/tf_static` for
-transforms. The bridge defaults to loopback; override `address` only when
-deliberate network access is required. The Dev Container forwards port 8765.
+transforms. Leave the URDF layer's **Frame prefix** empty: the generated
+description already uses `robot_name` in every link frame, exactly matching the
+published TF tree. The bridge defaults to loopback; override `address` only
+when deliberate network access is required. The Dev Container forwards port
+8765.
 
 ## Model boundary
 

@@ -51,15 +51,16 @@ def test_controller_spawner_exit_only_shuts_down_on_failure():
     assert actions[0].event.reason == "controller spawner failed with exit code 7"
 
 
-def render_description(share, mode):
+def render_description(share, mode, robot_name=None):
     profile = vehicle_launch_module(share).load_vehicle_profile(
         str(share / "config" / mode / "hardware.yaml")
     )
+    resolved_robot_name = robot_name or profile["robot_name"]
     description = share / "config" / mode / "mentor_pi.urdf.xacro"
     arguments = [
         "xacro",
         str(description),
-        f"robot_name:={profile['robot_name']}",
+        f"robot_name:={resolved_robot_name}",
     ]
     for name, value in profile["hardware"].items():
         rendered = str(value).lower() if isinstance(value, bool) else str(value)
@@ -91,6 +92,93 @@ def parameters(root):
         parameter.attrib["name"]: parameter.text
         for parameter in hardware.findall("param")
     }
+
+
+_LINK_SUFFIXES = {
+    "ackermann": {
+        "rear_axle_footprint",
+        "base_footprint",
+        "base_link",
+        "wheel_left_front_link",
+        "wheel_right_front_link",
+        "wheel_left_rear_link",
+        "wheel_right_rear_link",
+        "imu_link",
+    },
+    "mecanum": {
+        "base_footprint",
+        "base_link",
+        "wheel_left_front_link",
+        "wheel_right_front_link",
+        "wheel_left_rear_link",
+        "wheel_right_rear_link",
+        "imu_link",
+    },
+}
+
+_JOINT_NAMES = {
+    "ackermann": [
+        "rear_axle_footprint_joint",
+        "base_footprint_joint",
+        "wheel_left_front_joint",
+        "wheel_right_front_joint",
+        "wheel_left_rear_joint",
+        "wheel_right_rear_joint",
+        "imu_joint",
+    ],
+    "mecanum": [
+        "base_footprint_joint",
+        "wheel_left_front_joint",
+        "wheel_right_front_joint",
+        "wheel_left_rear_joint",
+        "wheel_right_rear_joint",
+        "imu_joint",
+    ],
+}
+
+_CONTROL_JOINT_NAMES = [
+    "wheel_left_front_joint",
+    "wheel_right_front_joint",
+    "wheel_left_rear_joint",
+    "wheel_right_rear_joint",
+]
+
+
+def assert_description_uses_one_robot_prefix(root, mode, robot_name):
+    prefix = f"{robot_name}/"
+    expected_links = {
+        f"{prefix}{suffix}" for suffix in _LINK_SUFFIXES[mode]
+    }
+    links = {link.attrib["name"] for link in root.findall("./link")}
+    assert links == expected_links
+    assert all(not name.startswith(f"{prefix}{prefix}") for name in links)
+
+    joints = root.findall("./joint")
+    assert [joint.attrib["name"] for joint in joints] == _JOINT_NAMES[mode]
+    for joint in joints:
+        assert joint.find("parent").attrib["link"] in expected_links
+        assert joint.find("child").attrib["link"] in expected_links
+
+    control_joint_names = [
+        joint.attrib["name"] for joint in root.findall("./ros2_control/joint")
+    ]
+    assert control_joint_names == _CONTROL_JOINT_NAMES
+
+
+@pytest.mark.parametrize("mode", ["ackermann", "mecanum"])
+@pytest.mark.parametrize("robot_name", ["robot_one", "fleet/robot_two"])
+def test_real_and_simulated_descriptions_bake_robot_name_into_links(
+    mode, robot_name
+):
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    assert_description_uses_one_robot_prefix(
+        render_description(share, mode, robot_name), mode, robot_name
+    )
+    assert_description_uses_one_robot_prefix(
+        render_simulation_description(share, mode, robot_name),
+        mode,
+        robot_name,
+    )
 
 
 def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
@@ -137,8 +225,12 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert ackermann_parameters["yaw_adrc_minimum_speed_mps"] == "0.1"
     rear_axle_joint = ackermann.find("./joint[@name='rear_axle_footprint_joint']")
     assert rear_axle_joint is not None
-    assert rear_axle_joint.find("parent").attrib["link"] == "base_footprint"
-    assert rear_axle_joint.find("child").attrib["link"] == "rear_axle_footprint"
+    assert rear_axle_joint.find("parent").attrib["link"] == (
+        "mentor_pi/base_footprint"
+    )
+    assert rear_axle_joint.find("child").attrib["link"] == (
+        "mentor_pi/rear_axle_footprint"
+    )
     assert rear_axle_joint.find("origin").attrib["xyz"] == "-0.0675 0 0"
 
     with open(
@@ -343,6 +435,7 @@ def test_physical_launch_accepts_only_a_vehicle_profile_for_name_and_type():
         'LaunchConfiguration("vehicle_type")',
         'LaunchConfiguration("start_bringup")',
         'name="controller_manager"',
+        '"frame_prefix"',
         '"mecanum_drive_controller"',
         '"ackermann_steering_controller"',
     ):
@@ -383,6 +476,7 @@ def test_simulation_launch_is_separate_and_has_no_physical_dependencies():
         "motion_authorization",
         '"imu"',
         "/imu",
+        '"frame_prefix"',
     ):
         assert forbidden not in source
 

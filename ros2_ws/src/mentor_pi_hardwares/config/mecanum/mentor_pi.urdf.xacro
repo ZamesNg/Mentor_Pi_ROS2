@@ -18,7 +18,7 @@
   <xacro:include filename="$(find mentor_pi_hardwares)/config/mecanum/description.urdf.xacro"/>
   <xacro:include filename="$(find mentor_pi_hardwares)/config/mecanum/ros2_control.xacro"/>
 
-  <xacro:mecanum_car/>
+  <xacro:mecanum_car frame_prefix="$(arg robot_name)/"/>
   <xacro:mecanum_control robot_name="$(arg robot_name)"
                          feedback_timeout_ms="$(arg feedback_timeout_ms)"
                          imu_timeout_ms="$(arg imu_timeout_ms)"

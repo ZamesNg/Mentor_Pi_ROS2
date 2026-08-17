@@ -291,7 +291,7 @@ def _launch_vehicle(context):
         name="robot_state_publisher",
         namespace=robot_name,
         output="screen",
-        parameters=[robot_description, {"frame_prefix": f"{robot_name}/"}],
+        parameters=[robot_description],
     )
     controller_manager = Node(
         package="controller_manager",
