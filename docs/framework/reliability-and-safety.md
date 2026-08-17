@@ -1,13 +1,14 @@
 # RRCLite v2 Reliability and Safety Contract
 
 The optional lower-level tracker is an additional host safety boundary. It
-publishes zero when it has no active scheduled trajectory, current
-authorization and motor-profile state, or fresh odometry; after completion or
-cancellation; and after its bounded solver/fallback window. Invalid or
-duplicate trajectory messages never disturb the accepted trajectory. Exact
-requirements are in [tracking-controller.md](tracking-controller.md). These
-rules do not weaken firmware leases, supervisor authorization, model limits,
-the 6 RPS ceiling, or the guarded-motion prerequisites in this document.
+publishes zero when it has no active scheduled trajectory or fresh odometry;
+after completion or cancellation; and after its bounded solver/fallback
+window. Invalid or duplicate trajectory messages never disturb the accepted
+trajectory. It is independent of MCU and supervisor topics. These rules do not
+weaken the lower-layer hardware adapter, firmware leases, supervisor
+authorization, model limits, the 6 RPS ceiling, or the guarded-motion
+prerequisites in this document. Exact requirements are in
+[tracking-controller.md](tracking-controller.md).
 
 Status: normative failure behavior  
 Scope: firmware, micro-ROS session, host Agent, and retained actuators

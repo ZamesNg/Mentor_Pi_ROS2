@@ -10,12 +10,10 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
-find_package(mentor_pi_interfaces REQUIRED)
 find_package(mentor_pi_tracking_interfaces REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(pluginlib REQUIRED)
-find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 
 set(ALTRO_CHECKOUT "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/altro-cpp")
@@ -97,8 +95,8 @@ target_include_directories(mentor_pi_tracker_node PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(mentor_pi_tracker_node
-  diagnostic_msgs geometry_msgs mentor_pi_interfaces
-  mentor_pi_tracking_interfaces nav_msgs rclcpp std_msgs std_srvs
+  diagnostic_msgs geometry_msgs mentor_pi_tracking_interfaces
+  nav_msgs rclcpp std_srvs
   pluginlib
 )
 target_link_libraries(mentor_pi_tracker_node mentor_pi_tracking_common)
@@ -161,8 +159,8 @@ if(BUILD_TESTING)
     target_compile_options(tracker_node_contract_test PRIVATE
       ${MENTOR_PI_WARNING_FLAGS})
     ament_target_dependencies(tracker_node_contract_test
-      geometry_msgs mentor_pi_interfaces mentor_pi_tracking_interfaces nav_msgs
-      pluginlib rclcpp std_msgs std_srvs)
+      geometry_msgs mentor_pi_tracking_interfaces nav_msgs pluginlib rclcpp
+      std_srvs)
     target_link_libraries(tracker_node_contract_test mentor_pi_tracker_node)
     set_tests_properties(tracker_node_contract_test PROPERTIES
       ENVIRONMENT "ROS_DOMAIN_ID=152"

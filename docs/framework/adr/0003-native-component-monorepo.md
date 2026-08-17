@@ -36,8 +36,9 @@ remaining Docker definition. Firmware flashing stays on the physical host.
 Onboard, the Agent is installed below a versioned `/opt/mentor_pi/agent/`
 prefix and runs as a hardened non-root boot service. It owns the stable
 `/dev/mentor_pi_mcu` serial device and restarts on loss. It never starts ROS
-applications. Applications start manually; the supervisor, adapters, and
-optional tracker retain their fail-closed launch and authorization behavior.
+applications. Applications start manually; the supervisor and adapters retain
+their fail-closed authorization behavior, while the optional hardware-
+independent tracker fails closed on stale odometry and local control faults.
 
 The root Makefile contains only integration, passive-check,
 characterization/evidence, and qualification actions. Production Docker,

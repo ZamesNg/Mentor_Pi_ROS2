@@ -45,10 +45,12 @@ when the tracker must be absent, including direct `vehicle/reference` tests.
 `simulation.launch.py` is a separate, development-only topology. It starts
 `robot_state_publisher`, `controller_manager`, the same `vehicle` controller,
 `joint_state_broadcaster`, and the same geometry-center odometry adapter over a
-deterministic numerical hardware plugin. It does not start the trajectory
-tracker, configuration supervisor, micro-ROS Agent, or any firmware-facing
+deterministic numerical hardware plugin. It uses the same tracker selection as
+physical launch, defaulting to the vehicle-matched ADRC tracker. It does not
+start the configuration supervisor, micro-ROS Agent, or any firmware-facing
 endpoint. `foxglove.launch.py` is also separate so one bridge can visualize
-multiple namespaced simulated vehicles.
+multiple namespaced simulated vehicles. Direct reference tests must pass
+`tracking_controller:=none`.
 
 ## Configuration ownership
 

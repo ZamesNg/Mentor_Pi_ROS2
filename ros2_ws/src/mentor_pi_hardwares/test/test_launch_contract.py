@@ -365,18 +365,22 @@ def test_simulation_launch_is_separate_and_has_no_physical_dependencies():
         "initial_x_m",
         "initial_y_m",
         "initial_yaw_rad",
+        "tracking_controller",
+        "tracking_algorithm",
     }
+    assert module._DEFAULT_TRACKING_CONTROLLER == "auto"
+    assert module._DEFAULT_TRACKING_ALGORITHM == "adrc"
     source = path.read_text(encoding="utf-8")
     assert 'executable="ros2_control_node"' in source
     assert 'executable="vehicle_odometry"' in source
+    assert 'executable="trajectory_tracker"' in source
     assert 'name="spawner_vehicle"' in source
     for forbidden in (
         "mentor_pi_bringup",
         "configuration_supervisor",
-        "trajectory_tracker",
-        "tracking_controller",
         "heartbeat",
         "motors/state",
+        "motion_authorization",
         '"imu"',
         "/imu",
     ):
@@ -524,6 +528,7 @@ def test_tracking_parameters_select_generic_tracker_plugin_and_geometry():
         "rear_axle_to_geometry_center": 0.0,
         "mecanum_radius_sum": 0.14,
         "max_steering_angle": 0.5,
+        "driven_wheel_angular_speed_limit_rad_s": 37.69911184307752,
     }
     assert module.tracking_parameters("ackermann", "adrc") == {
         "vehicle_type": "ackermann",
@@ -535,7 +540,38 @@ def test_tracking_parameters_select_generic_tracker_plugin_and_geometry():
         "rear_axle_to_geometry_center": 0.0675,
         "mecanum_radius_sum": 0.14,
         "max_steering_angle": 0.6,
+        "driven_wheel_angular_speed_limit_rad_s": 37.69911184307752,
     }
+
+
+def test_simulation_and_physical_launches_share_tracker_selection_contract():
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    physical = vehicle_launch_module(share)
+    simulation = load_launch(share / "launch" / "simulation.launch.py")
+
+    for vehicle_type in ("ackermann", "mecanum"):
+        for algorithm in ("adrc", "mpc"):
+            assert simulation.tracking_parameters(
+                vehicle_type, algorithm
+            ) == physical.tracking_parameters(vehicle_type, algorithm)
+        for selection in ("auto", "none", vehicle_type):
+            assert simulation.resolve_tracking_controller(
+                selection, vehicle_type
+            ) == physical.resolve_tracking_controller(selection, vehicle_type)
+    with pytest.raises(ValueError, match="must be auto, none, or match"):
+        simulation.resolve_tracking_controller("mecanum", "ackermann")
+
+    tracking_share = Path(get_package_share_directory("mentor_pi_tracking"))
+    for algorithm in ("adrc", "mpc"):
+        with open(
+            tracking_share / "config" / f"{algorithm}.yaml",
+            encoding="utf-8",
+        ) as stream:
+            parameters = yaml.safe_load(stream)["/**"]["ros__parameters"]
+        assert (
+            parameters["driven_wheel_angular_speed_limit_rad_s"]
+            == 37.69911184307752
+        )
 
 
 @pytest.mark.parametrize(

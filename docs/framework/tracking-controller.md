@@ -2,10 +2,11 @@
 
 ## Scope and licensing
 
-`mentor_pi_tracking` is a C++17 trajectory tracker for the Mecanum and
-Ackermann `ros2_control` adapters. One `/mentor_pi/trajectory_tracker` node owns
-the ROS interfaces, safety gates, scheduling, and command bounds and loads
-exactly one controller through pluginlib:
+`mentor_pi_tracking` is a hardware-independent C++17 trajectory tracker for the
+Mecanum and Ackermann `ros2_control` vehicles. One
+`/mentor_pi/trajectory_tracker` node owns the ROS interfaces, odometry
+freshness gate, scheduling, and command bounds and loads exactly one controller
+through pluginlib:
 
 - `mentor_pi_tracking/MecanumMpc`;
 - `mentor_pi_tracking/AckermannMpc`;
@@ -38,7 +39,7 @@ ROS start time.
 | Cancel service | `/mentor_pi/trajectory_tracker/cancel` |
 | Mecanum odometry/output | `/mentor_pi/vehicle/odometry` and `base_footprint` command on `/mentor_pi/vehicle/reference` |
 | Ackermann odometry/output | geometry-center `/mentor_pi/vehicle/odometry` and `rear_axle_footprint` command on `/mentor_pi/vehicle/reference` |
-| Diagnostics | `diagnostic_msgs/msg/DiagnosticArray` on `/diagnostics` |
+| Diagnostics | `diagnostic_msgs/msg/DiagnosticArray` on `/mentor_pi/trajectory_tracker/diagnostics` |
 
 Trajectory input uses reliable, volatile QoS. Commands use
 `geometry_msgs/msg/TwistStamped`; cancel uses `std_srvs/srv/Trigger`.
@@ -96,14 +97,16 @@ tracking_algorithm:=adrc|mpc
 ```
 
 The defaults are `auto` and `adrc`: `auto` selects the tracker plugin matching
-the generated vehicle profile. The explicit `mecanum` and `ackermann` values
-remain accepted only when they match that profile, and `none` disables the
-tracker for direct `vehicle/reference` testing. MPC and ADRC always use the
-same `/<robot_name>/trajectory_tracker` node,
+the selected physical or simulated vehicle. The explicit `mecanum` and
+`ackermann` values remain accepted only when they match that vehicle, and
+`none` disables the tracker for direct `vehicle/reference` testing. MPC and
+ADRC always use the same `/<robot_name>/trajectory_tracker` node,
 `trajectory_tracker/reference_trajectory` input,
 `trajectory_tracker/cancel` service, `vehicle/odometry` input, and
-`vehicle/reference` output. No vehicle- or algorithm-specific topic, service,
-node, or executable alias exists.
+`vehicle/reference` output. Diagnostics use
+`trajectory_tracker/diagnostics`. No vehicle- or algorithm-specific topic,
+service, node, or executable alias exists. Both `vehicle.launch.py` and
+`simulation.launch.py` implement this selection contract and default to ADRC.
 
 ## Trajectory LADRC
 
@@ -129,10 +132,11 @@ v = cos(theta) * ux + sin(theta) * uy
 omega = (-sin(theta) * ux + cos(theta) * uy) / l
 ```
 
-The common bounder applies the live motor-profile speed ceiling, Mecanum wheel
-envelope, and Ackermann speed/steering curvature plus left/right rear-wheel
-envelopes using the measured track. It then reconstructs the center velocity
-achievable by that final command and supplies that value as
+The common bounder converts the configured driven-wheel angular-speed ceiling
+through the wheel radius, then applies the Mecanum wheel envelope or Ackermann
+speed/steering curvature plus left/right rear-wheel envelopes using the
+measured track. It reconstructs the center velocity achievable by that final
+command and supplies that value as
 `u_applied` on the next ESO update. This is deliberately layered: the trajectory
 ESO sees the bounded published twist, chassis ESOs see their bounded corrections,
 and MCU ESOs see the final rounded and clamped PWM. Knowledge of an applied
@@ -143,6 +147,7 @@ The configurable trajectory parameters and defaults are:
 
 | Parameter | Default | Meaning |
 | --- | ---: | --- |
+| `driven_wheel_angular_speed_limit_rad_s` | `37.69911184307752` | Static driven-wheel ceiling used for tracker command bounds; must be finite, positive, and no greater than the 6 RPS implementation ceiling. |
 | `position_adrc_input_gain` | `1.0` | Dimensionless nominal gain from commanded center velocity to position derivative; shared by X/Y. |
 | `position_adrc_controller_bandwidth_rad_s` | `1.0` | Shared X/Y response bandwidth. |
 | `position_adrc_observer_bandwidth_rad_s` | `3.0` | Shared X/Y ESO bandwidth. |
@@ -152,17 +157,17 @@ The configurable trajectory parameters and defaults are:
 
 All values must be finite and positive, `wo >= wc`, and `wo*T <= 0.5`. ADRC
 state resets on a new or replaced trajectory, cancel, completion, stale
-feedback, authorization/session loss, time discontinuity, invalid computation,
-or recovery from inhibition.
+odometry, time discontinuity, invalid computation, or recovery from inhibition.
 
 ## Safety and qualification boundary
 
-Bounds derive from the configured geometry and fresh live motor profile and
-never exceed its model limit or the 6 RPS implementation ceiling. The output is
-zero before start, after completion/cancel, with stale odometry/profile state,
-without the single expected configuration-supervisor authorization publisher,
-without a matching READY/DEGRADED heartbeat session received within 1.5 seconds,
-or after a local fault.
+Bounds derive from configured geometry and the static driven-wheel speed limit,
+which cannot exceed the 6 RPS implementation ceiling. The output is zero before
+start, after completion/cancel, with missing or older-than-100-ms odometry, or
+after a local fault. The tracker has no MCU motor-state, heartbeat,
+authorization, Agent, or configuration-supervisor dependency. Physical motion
+remains independently gated by the hardware adapter, supervisor, firmware
+session checks, and motor leases.
 
 Software tests cover plugin discovery, validation, scheduling, both vehicle
 models and algorithms, bounds, applied-command observer feedback, fallback,

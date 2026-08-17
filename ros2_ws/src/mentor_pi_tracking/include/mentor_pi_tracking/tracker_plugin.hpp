@@ -21,9 +21,9 @@ struct TrackerConfiguration {
 
 struct TrackerRequest {
   MpcRequest mpc{};
-  // Fresh motor-profile limits are part of every work item.  MPC must solve
-  // against these constraints, not only rely on the node's output clamp.
-  MpcConfiguration live_configuration{};
+  // Static vehicle geometry and actuator bounds are part of every work item.
+  // MPC must solve against them, not only rely on the node's output clamp.
+  MpcConfiguration bounded_configuration{};
   // Keep the accepted trajectory alive while a controller worker is using it.
   std::shared_ptr<const PolynomialTrajectory> trajectory;
   // The node measures this with its steady clock for every controller update.

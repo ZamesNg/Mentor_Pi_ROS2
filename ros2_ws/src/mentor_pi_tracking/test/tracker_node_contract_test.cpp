@@ -3,6 +3,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -10,15 +11,12 @@
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "gtest/gtest.h"
-#include "mentor_pi_interfaces/msg/heartbeat.hpp"
-#include "mentor_pi_interfaces/msg/motor_state.hpp"
 #include "mentor_pi_tracking/tracker_node.hpp"
 #include "mentor_pi_tracking/tracker_plugin.hpp"
 #include "mentor_pi_tracking_interfaces/msg/polynomial_trajectory.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "pluginlib/class_loader.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/u_int64.hpp"
 
 namespace mentor_pi::tracking {
 namespace {
@@ -81,7 +79,7 @@ TrackerRequest AdrcRequest(
   TrackerRequest request;
   request.trajectory = trajectory;
   request.mpc = {{0.0, 0.0, 0.0}, trajectory.get(), 0.0};
-  request.live_configuration = AdrcConfiguration(VehicleType::kMecanum).mpc;
+  request.bounded_configuration = AdrcConfiguration(VehicleType::kMecanum).mpc;
   request.measured_period_seconds = period;
   return request;
 }
@@ -131,8 +129,8 @@ TEST(TrackerNodeContractTest, AckermannLadrcIgnoresCommonYawPolynomial) {
   second_plugin->Configure(configuration);
   auto first_request = AdrcRequest(StraightTrajectory(0.0, 0.0), 1.0 / 30.0);
   auto second_request = AdrcRequest(StraightTrajectory(2.0, -3.0), 1.0 / 30.0);
-  first_request.live_configuration = configuration.mpc;
-  second_request.live_configuration = configuration.mpc;
+  first_request.bounded_configuration = configuration.mpc;
+  second_request.bounded_configuration = configuration.mpc;
   const MpcCommand first = first_plugin->Compute(first_request);
   const MpcCommand second = second_plugin->Compute(second_request);
   ASSERT_TRUE(first.solved);
@@ -155,8 +153,8 @@ TEST(TrackerNodeContractTest, AckermannLadrcUsesMeasuredYawAsKinematicState) {
   const auto trajectory = StraightTrajectory();
   auto aligned = AdrcRequest(trajectory, 1.0 / 30.0);
   auto quarter_turn = aligned;
-  aligned.live_configuration = configuration.mpc;
-  quarter_turn.live_configuration = configuration.mpc;
+  aligned.bounded_configuration = configuration.mpc;
+  quarter_turn.bounded_configuration = configuration.mpc;
   quarter_turn.mpc.state[2] = std::acos(-1.0) / 2.0;
 
   const MpcCommand aligned_command = first_plugin->Compute(aligned);
@@ -175,7 +173,12 @@ TEST(TrackerNodeContractTest, GenericNodeUsesOnlyGenericEndpoints) {
   const auto topics = tracker->get_topic_names_and_types();
   EXPECT_EQ(topics.count("/mentor_pi/trajectory_tracker/reference_trajectory"),
             1U);
+  EXPECT_EQ(topics.count("/mentor_pi/trajectory_tracker/diagnostics"), 1U);
   EXPECT_EQ(topics.count("/mentor_pi/vehicle/reference"), 1U);
+  EXPECT_EQ(topics.count("/mentor_pi/motors/state"), 0U);
+  EXPECT_EQ(topics.count("/mentor_pi/heartbeat"), 0U);
+  EXPECT_EQ(topics.count("/mentor_pi/configuration/motion_authorization"), 0U);
+  EXPECT_EQ(topics.count("/mentor_pi/diagnostics"), 0U);
   EXPECT_EQ(topics.count("/mentor_pi/mecanum_drive_controller/reference"), 0U);
   EXPECT_EQ(topics.count("/mentor_pi/ackermann_steering_controller/reference"),
             0U);
@@ -191,6 +194,10 @@ TEST(TrackerNodeContractTest, DefaultsToAdrc) {
   EXPECT_EQ(tracker->get_parameter("tracking_algorithm").as_string(), "adrc");
   EXPECT_EQ(tracker->get_parameter("controller_plugin").as_string(),
             "mentor_pi_tracking/MecanumAdrc");
+  EXPECT_DOUBLE_EQ(
+      tracker->get_parameter("driven_wheel_angular_speed_limit_rad_s")
+          .as_double(),
+      37.69911184307752);
 }
 
 TEST(TrackerNodeContractTest, OdometryPoseIsAlreadyTheGeometryCenterState) {
@@ -244,6 +251,13 @@ TEST(TrackerNodeContractTest, AllPluginsUseTheSameNodeAndEndpoints) {
               1U);
     EXPECT_EQ(expected_topics.count("/mentor_pi/vehicle/reference"), 1U);
     EXPECT_EQ(expected_topics.count("/mentor_pi/vehicle/odometry"), 1U);
+    EXPECT_EQ(
+        expected_topics.count("/mentor_pi/trajectory_tracker/diagnostics"), 1U);
+    EXPECT_EQ(expected_topics.count("/mentor_pi/motors/state"), 0U);
+    EXPECT_EQ(expected_topics.count("/mentor_pi/heartbeat"), 0U);
+    EXPECT_EQ(
+        expected_topics.count("/mentor_pi/configuration/motion_authorization"),
+        0U);
     EXPECT_EQ(expected_services.count("/mentor_pi/trajectory_tracker/cancel"),
               1U);
   }
@@ -271,15 +285,22 @@ TEST(TrackerNodeContractTest,
   options.append_parameter_override("position_adrc_observer_bandwidth_rad_s",
                                     16.0);
   EXPECT_THROW(MakeTrackerNode(options), std::invalid_argument);
+
+  for (const double limit : {0.0, 37.69911184307752 + 1.0e-9,
+                             std::numeric_limits<double>::quiet_NaN()}) {
+    options = OptionsFor("mecanum", "adrc", "mentor_pi_tracking/MecanumAdrc");
+    options.append_parameter_override("driven_wheel_angular_speed_limit_rad_s",
+                                      limit);
+    EXPECT_THROW(MakeTrackerNode(options), std::invalid_argument);
+  }
 }
 
-TEST(TrackerNodeContractTest, StaleHeartbeatInhibitsOutput) {
+TEST(TrackerNodeContractTest,
+     FreshOdometryAloneEnablesTrackingAndStaleOdometryInhibitsOutput) {
   using namespace std::chrono_literals;
   const auto tracker = MakeTrackerNode(
       OptionsFor("mecanum", "adrc", "mentor_pi_tracking/MecanumAdrc"));
-  const auto peer = std::make_shared<rclcpp::Node>("heartbeat_expiry_peer");
-  const auto supervisor =
-      std::make_shared<rclcpp::Node>("configuration_supervisor", "/mentor_pi");
+  const auto peer = std::make_shared<rclcpp::Node>("odometry_expiry_peer");
   geometry_msgs::msg::TwistStamped::SharedPtr command;
   const auto command_subscription =
       peer->create_subscription<geometry_msgs::msg::TwistStamped>(
@@ -294,22 +315,11 @@ TEST(TrackerNodeContractTest, StaleHeartbeatInhibitsOutput) {
   const auto odometry_publisher =
       peer->create_publisher<nav_msgs::msg::Odometry>(
           "/mentor_pi/vehicle/odometry", rclcpp::SensorDataQoS());
-  const auto motor_publisher =
-      peer->create_publisher<mentor_pi_interfaces::msg::MotorState>(
-          "/mentor_pi/motors/state", rclcpp::SensorDataQoS());
-  const auto authorization_publisher =
-      supervisor->create_publisher<std_msgs::msg::UInt64>(
-          "/mentor_pi/configuration/motion_authorization",
-          rclcpp::QoS(1).reliable().transient_local());
-  const auto heartbeat_publisher =
-      supervisor->create_publisher<mentor_pi_interfaces::msg::Heartbeat>(
-          "/mentor_pi/heartbeat", rclcpp::QoS(1).reliable());
   (void)command_subscription;
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(tracker);
   executor.add_node(peer);
-  executor.add_node(supervisor);
   const auto discovery_deadline = std::chrono::steady_clock::now() + 1s;
   while (trajectory_publisher->get_subscription_count() == 0U &&
          std::chrono::steady_clock::now() < discovery_deadline) {
@@ -321,28 +331,18 @@ TEST(TrackerNodeContractTest, StaleHeartbeatInhibitsOutput) {
   mentor_pi_tracking_interfaces::msg::PolynomialTrajectory trajectory;
   trajectory.header.frame_id = "odom";
   trajectory.header.stamp = peer->now() + rclcpp::Duration::from_seconds(0.3);
-  trajectory.trajectory_id = "heartbeat-expiry";
+  trajectory.trajectory_id = "odometry-expiry";
   mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
   segment.duration.sec = 5;
   segment.x_coefficients[1] = 0.1;
   trajectory.segments.push_back(segment);
   trajectory_publisher->publish(trajectory);
-  std_msgs::msg::UInt64 authorization;
-  authorization.data = (std::uint64_t{1} << 32U) | std::uint64_t{42};
-  mentor_pi_interfaces::msg::Heartbeat heartbeat;
-  heartbeat.agent_session_id = 42U;
-  heartbeat.state = mentor_pi_interfaces::msg::Heartbeat::READY;
-  mentor_pi_interfaces::msg::MotorState motor;
-  motor.motor_model = mentor_pi_interfaces::msg::MotorState::MODEL_JGA27;
   nav_msgs::msg::Odometry odometry;
   odometry.pose.pose.orientation.w = 1.0;
 
   bool nonzero = false;
   const auto active_deadline = std::chrono::steady_clock::now() + 2s;
   while (!nonzero && std::chrono::steady_clock::now() < active_deadline) {
-    authorization_publisher->publish(authorization);
-    heartbeat_publisher->publish(heartbeat);
-    motor_publisher->publish(motor);
     odometry_publisher->publish(odometry);
     executor.spin_some();
     nonzero = command != nullptr && command->twist.linear.x > 0.01;
@@ -352,11 +352,8 @@ TEST(TrackerNodeContractTest, StaleHeartbeatInhibitsOutput) {
 
   command.reset();
   bool zero = false;
-  const auto stale_deadline = std::chrono::steady_clock::now() + 1800ms;
+  const auto stale_deadline = std::chrono::steady_clock::now() + 1s;
   while (!zero && std::chrono::steady_clock::now() < stale_deadline) {
-    authorization_publisher->publish(authorization);
-    motor_publisher->publish(motor);
-    odometry_publisher->publish(odometry);
     executor.spin_some();
     zero = command != nullptr && command->twist.linear.x == 0.0 &&
            command->twist.linear.y == 0.0 && command->twist.angular.z == 0.0;

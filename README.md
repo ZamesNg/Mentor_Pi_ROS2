@@ -129,8 +129,9 @@ by default. Select MPC with `tracking_algorithm:=mpc`, or use
 `vehicle/reference` commands without a trajectory tracker.
 
 For a deterministic ros2_control simulation without an Agent, MCU, or physics
-engine, use the separate simulation entry point. It runs in the Dev Container
-or on native Ubuntu and keeps the physical launch path unchanged:
+engine, use the separate simulation entry point. It runs the same default ADRC
+tracker in the Dev Container or on native Ubuntu and keeps the physical launch
+path unchanged:
 
 ```sh
 source /opt/ros/humble/setup.bash
@@ -168,10 +169,11 @@ atomic validation without lease refresh on invalid commands, session-loss
 disarming, and transport-failure shutdown.
 
 The configuration supervisor publishes a generation/session authorization.
-Hardware adapters and trackers require the single expected supervisor
-publisher and a matching live heartbeat session. Missing or invalid
-configuration, stale feedback, supervisor loss, Agent restart, or serial loss
-leaves motion disarmed.
+The physical hardware adapters require the single expected supervisor publisher
+and a matching live heartbeat session. Missing or invalid configuration, stale
+feedback, supervisor loss, Agent restart, or serial loss leaves physical motion
+disarmed. The vehicle-level tracker is hardware-independent; it requires fresh
+geometry-center odometry and relies on the lower layer for physical safety.
 
 Before powered motor work, complete Tutorials 01–05 passively, verify encoder
 direction, raise or equivalently guard every wheel, use a current-limited

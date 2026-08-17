@@ -39,6 +39,7 @@
   <test_depend>ament_cmake_lint_cmake</test_depend>
   <test_depend>ament_cmake_xmllint</test_depend>
   <test_depend>controller_manager_msgs</test_depend>
+  <test_depend>mentor_pi_tracking_interfaces</test_depend>
   <test_depend>rclpy</test_depend>
 
   <export>

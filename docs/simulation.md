@@ -2,15 +2,16 @@
 
 The lightweight simulator is a deterministic ros2_control plant for controller,
 planner, odometry, TF, and visualization development. It does not use Gazebo,
-start the trajectory tracker, emulate the MCU ROS API, or provide hardware or
-release evidence.
+emulate the MCU ROS API, or provide hardware or release evidence. Its launch
+starts the vehicle-matched ADRC trajectory tracker by default.
 
 Build only the affected package in the Dev Container or on native Ubuntu 22.04:
 
 ```sh
 cd ros2_ws
 source /opt/ros/humble/setup.bash
-colcon build --symlink-install --packages-select mentor_pi_hardwares
+colcon build --symlink-install --packages-select \
+  mentor_pi_tracking mentor_pi_hardwares
 source install/setup.bash
 ```
 
@@ -23,12 +24,27 @@ ros2 launch mentor_pi_hardwares simulation.launch.py \
   robot_name:=ackermann_sim \
   initial_x_m:=0.0 \
   initial_y_m:=0.0 \
-  initial_yaw_rad:=0.0
+  initial_yaw_rad:=0.0 \
+  tracking_controller:=auto \
+  tracking_algorithm:=adrc
 ```
 
 Use `vehicle_type:=mecanum` for a Mecanum plant. Multiple plants may run under
-different `robot_name` namespaces. Send the same reference used by the physical
-vehicle:
+different `robot_name` namespaces. Select MPC with
+`tracking_algorithm:=mpc`. The tracker consumes
+`/<robot>/trajectory_tracker/reference_trajectory`, consumes geometry-center
+`/<robot>/vehicle/odometry`, and publishes `/<robot>/vehicle/reference`.
+
+For a direct controller-reference test, launch without the competing tracker:
+
+```sh
+ros2 launch mentor_pi_hardwares simulation.launch.py \
+  vehicle_type:=ackermann \
+  robot_name:=ackermann_sim \
+  tracking_controller:=none
+```
+
+Then publish the same reference used by the physical vehicle:
 
 ```sh
 ros2 topic pub --rate 20 \
@@ -40,7 +56,10 @@ ros2 topic pub --rate 20 \
 The public outputs are `/ackermann_sim/vehicle/odometry`,
 `/ackermann_sim/vehicle/tf_odometry`, `/joint_states`, `/tf`, `/tf_static`, and
 `/ackermann_sim/robot_description`. The standard controller reference timeout
-still applies.
+still applies. The default tracker also exposes
+`/ackermann_sim/trajectory_tracker/cancel` and publishes
+`diagnostic_msgs/msg/DiagnosticArray` on
+`/ackermann_sim/trajectory_tracker/diagnostics`.
 
 ## Foxglove
 
@@ -68,8 +87,10 @@ states already use ROS chassis-direction semantics.
 
 The existing vehicle controllers reconstruct chassis motion from those joint
 states. Ackermann raw rear-axle odometry is converted to geometry-center
-odometry by the common adapter; Mecanum uses its zero-offset path. Simulation
-adds no `/clock`, noise, slip, collision, terrain, IMU, motor time constant, or
-servo time constant. The acceleration and steering-rate limits are provisional
-software ceilings documented in [constraint.md](constraint.md), not measured
-physical actuator performance.
+odometry by the common adapter; Mecanum uses its zero-offset path. The tracker
+uses odometry plus its static `37.699112 rad/s` driven-wheel limit and creates
+no motor-state, heartbeat, authorization, supervisor, or firmware endpoints.
+Simulation adds no `/clock`, noise, slip, collision, terrain, IMU, motor time
+constant, or servo time constant. The acceleration and steering-rate limits
+are provisional software ceilings documented in
+[constraint.md](constraint.md), not measured physical actuator performance.

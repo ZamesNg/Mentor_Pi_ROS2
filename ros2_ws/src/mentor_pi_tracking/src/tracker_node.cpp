@@ -19,14 +19,10 @@
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
-#include "mentor_pi_interfaces/motor_profile_contract.hpp"
-#include "mentor_pi_interfaces/msg/heartbeat.hpp"
-#include "mentor_pi_interfaces/msg/motor_state.hpp"
 #include "mentor_pi_tracking/tracker_plugin.hpp"
 #include "mentor_pi_tracking_interfaces/msg/polynomial_trajectory.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "pluginlib/class_loader.hpp"
-#include "std_msgs/msg/u_int64.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 namespace mentor_pi::tracking {
@@ -59,13 +55,12 @@ using SteadyClock = std::chrono::steady_clock;
 
 constexpr auto kControlPeriod = std::chrono::nanoseconds(33'333'333);
 constexpr auto kFeedbackTimeout = std::chrono::milliseconds(100);
-constexpr auto kHeartbeatTimeout = std::chrono::milliseconds(1500);
 constexpr auto kControllerDeadline = std::chrono::milliseconds(25);
 constexpr auto kMpcFallbackLimit = std::chrono::milliseconds(100);
 constexpr auto kMinimumStartLead = std::chrono::milliseconds(250);
 constexpr auto kMaximumStartLead = std::chrono::seconds(60);
 constexpr double kTwoPi = 6.28318530717958647692;
-constexpr char kAuthorizationTopic[] = "configuration/motion_authorization";
+constexpr double kMaximumDrivenWheelAngularSpeedRadS = 37.69911184307752;
 
 struct ScheduledTrajectory {
   std::shared_ptr<const PolynomialTrajectory> trajectory;
@@ -143,7 +138,9 @@ class TrackerNode final : public rclcpp::Node {
         declare_parameter<double>("mecanum_radius_sum", 0.14);
     configured_.max_steering_angle =
         declare_parameter<double>("max_steering_angle", 0.6);
-    configuration_.mpc = configured_;
+    driven_wheel_angular_speed_limit_rad_s_ =
+        declare_parameter<double>("driven_wheel_angular_speed_limit_rad_s",
+                                  kMaximumDrivenWheelAngularSpeedRadS);
     configuration_.position_adrc_input_gain =
         declare_parameter<double>("position_adrc_input_gain", 1.0);
     configuration_.position_adrc_controller_bandwidth_rad_s =
@@ -159,6 +156,16 @@ class TrackerNode final : public rclcpp::Node {
     configuration_.yaw_adrc_observer_bandwidth_rad_s =
         declare_parameter<double>("yaw_adrc_observer_bandwidth_rad_s", 3.0);
     ValidateConfiguration();
+    const double wheel_linear_speed =
+        driven_wheel_angular_speed_limit_rad_s_ * wheel_radius_;
+    configured_.max_linear_speed = wheel_linear_speed;
+    configured_.max_lateral_speed = wheel_linear_speed;
+    configured_.max_yaw_rate =
+        vehicle_ == VehicleType::kMecanum
+            ? wheel_linear_speed / configured_.mecanum_radius_sum
+            : wheel_linear_speed * std::tan(configured_.max_steering_angle) /
+                  configured_.wheelbase;
+    configuration_.mpc = configured_;
 
     plugin_ = loader_.createSharedInstance(plugin_name);
     if (plugin_->vehicle() != vehicle_ || !plugin_->requires_worker()) {
@@ -175,7 +182,7 @@ class TrackerNode final : public rclcpp::Node {
         controller_ + "/reference", rclcpp::QoS(1).reliable());
     diagnostics_publisher_ =
         create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
-            "diagnostics", rclcpp::QoS(10).reliable());
+            "trajectory_tracker/diagnostics", rclcpp::QoS(10).reliable());
 
     safety_group_ =
         create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -194,26 +201,6 @@ class TrackerNode final : public rclcpp::Node {
           AcceptOdometry(*message);
         },
         safety_options);
-    motor_subscription_ =
-        create_subscription<mentor_pi_interfaces::msg::MotorState>(
-            "motors/state", rclcpp::SensorDataQoS(),
-            [this](const mentor_pi_interfaces::msg::MotorState::SharedPtr
-                       message) { AcceptMotor(*message); },
-            safety_options);
-    authorization_subscription_ = create_subscription<std_msgs::msg::UInt64>(
-        kAuthorizationTopic, rclcpp::QoS(1).reliable().transient_local(),
-        [this](const std_msgs::msg::UInt64::SharedPtr message) {
-          AcceptAuthorization(message->data);
-        },
-        safety_options);
-    heartbeat_subscription_ =
-        create_subscription<mentor_pi_interfaces::msg::Heartbeat>(
-            "heartbeat", rclcpp::QoS(1).reliable(),
-            [this](
-                const mentor_pi_interfaces::msg::Heartbeat::SharedPtr message) {
-              AcceptHeartbeat(*message);
-            },
-            safety_options);
     cancel_service_ = create_service<std_srvs::srv::Trigger>(
         "trajectory_tracker/cancel",
         [this](const std_srvs::srv::Trigger::Request::SharedPtr,
@@ -260,6 +247,9 @@ class TrackerNode final : public rclcpp::Node {
         !IsFinitePositive(configured_.wheelbase) ||
         !IsFinitePositive(configured_.wheel_track) ||
         !IsFinitePositive(wheel_radius_) ||
+        !IsFinitePositive(driven_wheel_angular_speed_limit_rad_s_) ||
+        driven_wheel_angular_speed_limit_rad_s_ >
+            kMaximumDrivenWheelAngularSpeedRadS ||
         !IsFinitePositive(configured_.mecanum_radius_sum) ||
         !IsFinitePositive(configured_.max_steering_angle) ||
         (vehicle_ == VehicleType::kAckermann &&
@@ -369,87 +359,8 @@ class TrackerNode final : public rclcpp::Node {
     }
   }
 
-  void AcceptMotor(const mentor_pi_interfaces::msg::MotorState& message) {
-    const auto* profile =
-        mentor_pi_interfaces::FindMotorProfileContract(message.motor_model);
-    if (profile == nullptr) {
-      {
-        std::lock_guard<std::mutex> lock(state_mutex_);
-        has_motor_profile_ = false;
-      }
-      SafetyInhibit();
-      return;
-    }
-    const double wheel_speed =
-        std::min(6.0, static_cast<double>(profile->max_rps)) * kTwoPi *
-        wheel_radius_;
-    {
-      std::lock_guard<std::mutex> lock(state_mutex_);
-      live_configuration_ = configured_;
-      live_configuration_.max_linear_speed = wheel_speed;
-      live_configuration_.max_lateral_speed = wheel_speed;
-      live_configuration_.max_yaw_rate =
-          vehicle_ == VehicleType::kMecanum
-              ? wheel_speed / configured_.mecanum_radius_sum
-              : wheel_speed * std::tan(configured_.max_steering_angle) /
-                    configured_.wheelbase;
-      motor_time_ = SteadyClock::now();
-      has_motor_profile_ = true;
-    }
-  }
-
-  void AcceptAuthorization(std::uint64_t authorization) {
-    bool valid = false;
-    {
-      std::lock_guard<std::mutex> lock(state_mutex_);
-      motion_authorization_ = authorization;
-      valid = AuthorizationStateValidLocked();
-    }
-    if (!valid) {
-      SafetyInhibit();
-    }
-  }
-
-  void AcceptHeartbeat(const mentor_pi_interfaces::msg::Heartbeat& heartbeat) {
-    bool valid = false;
-    {
-      std::lock_guard<std::mutex> lock(state_mutex_);
-      heartbeat_session_id_ = heartbeat.agent_session_id;
-      heartbeat_ready_ =
-          heartbeat.agent_session_id != 0U &&
-          (heartbeat.state == mentor_pi_interfaces::msg::Heartbeat::READY ||
-           heartbeat.state == mentor_pi_interfaces::msg::Heartbeat::DEGRADED);
-      has_heartbeat_ = true;
-      heartbeat_time_ = SteadyClock::now();
-      valid = AuthorizationStateValidLocked();
-    }
-    if (!valid) {
-      SafetyInhibit();
-    }
-  }
-
-  bool AuthorizationStateValidLocked() const {
-    const std::uint32_t generation =
-        static_cast<std::uint32_t>(motion_authorization_ >> 32U);
-    const std::uint32_t session =
-        static_cast<std::uint32_t>(motion_authorization_);
-    return has_heartbeat_ && heartbeat_ready_ &&
-           SteadyClock::now() - heartbeat_time_ <= kHeartbeatTimeout &&
-           generation != 0U && session != 0U &&
-           session == heartbeat_session_id_;
-  }
-
-  bool HasExpectedAuthorizationPublisher() const {
-    const auto publishers = get_publishers_info_by_topic(kAuthorizationTopic);
-    return publishers.size() == 1U &&
-           publishers.front().node_name() == "configuration_supervisor" &&
-           publishers.front().node_namespace() == get_namespace();
-  }
-
   bool FreshLocked(SteadyClock::time_point now) const {
-    return has_odometry_ && has_motor_profile_ &&
-           now - odometry_time_ <= kFeedbackTimeout &&
-           now - motor_time_ <= kFeedbackTimeout;
+    return has_odometry_ && now - odometry_time_ <= kFeedbackTimeout;
   }
 
   std::optional<ControlSnapshot> MakeSnapshot(SteadyClock::time_point now) {
@@ -478,8 +389,7 @@ class TrackerNode final : public rclcpp::Node {
     }
 
     std::lock_guard<std::mutex> lock(state_mutex_);
-    if (!active_ || now < active_->start || !FreshLocked(now) ||
-        !AuthorizationStateValidLocked()) {
+    if (!active_ || now < active_->start || !FreshLocked(now)) {
       return std::nullopt;
     }
     const double elapsed =
@@ -500,7 +410,7 @@ class TrackerNode final : public rclcpp::Node {
     TrackerRequest request;
     request.trajectory = active_->trajectory;
     request.mpc = {state_, request.trajectory.get(), elapsed};
-    request.live_configuration = live_configuration_;
+    request.bounded_configuration = configured_;
     request.measured_period_seconds = period;
     return ControlSnapshot{generation_, active_->trajectory, active_->start,
                            std::move(request)};
@@ -510,8 +420,7 @@ class TrackerNode final : public rclcpp::Node {
                                  SteadyClock::time_point now,
                                  MpcConfiguration* configuration) const {
     if (inhibited_ || !active_ || active_->trajectory != snapshot.trajectory ||
-        generation_ != snapshot.generation || !FreshLocked(now) ||
-        !AuthorizationStateValidLocked()) {
+        generation_ != snapshot.generation || !FreshLocked(now)) {
       return false;
     }
     const double elapsed =
@@ -519,7 +428,7 @@ class TrackerNode final : public rclcpp::Node {
     if (elapsed >= active_->trajectory->duration()) {
       return false;
     }
-    *configuration = live_configuration_;
+    *configuration = configured_;
     return true;
   }
 
@@ -532,8 +441,7 @@ class TrackerNode final : public rclcpp::Node {
       std::lock_guard<std::mutex> state_lock(state_mutex_);
       const auto now = SteadyClock::now();
       if (!CandidateStillValidLocked(snapshot, now, &bounds) ||
-          (deadline.has_value() && now >= *deadline) ||
-          !HasExpectedAuthorizationPublisher()) {
+          (deadline.has_value() && now >= *deadline)) {
         return false;
       }
       command = EnforceCommandBounds(bounds, std::move(command));
@@ -546,13 +454,12 @@ class TrackerNode final : public rclcpp::Node {
       plugin_->SetAppliedCommand(command);
     }
     // Recheck after the controller result and any observer handoff.  A cancel,
-    // replacement activation, profile change, authorization loss, or deadline
-    // expiry must never allow a stale command to be published.
+    // replacement activation, stale odometry, or deadline expiry must never
+    // allow a stale command to be published.
     std::lock_guard<std::mutex> state_lock(state_mutex_);
     const auto now = SteadyClock::now();
     if (!CandidateStillValidLocked(snapshot, now, &bounds) ||
-        (deadline.has_value() && now >= *deadline) ||
-        !HasExpectedAuthorizationPublisher()) {
+        (deadline.has_value() && now >= *deadline)) {
       return false;
     }
     if (!is_fallback) {
@@ -569,7 +476,7 @@ class TrackerNode final : public rclcpp::Node {
     }
     const auto tick_time = SteadyClock::now();
     std::optional<ControlSnapshot> snapshot = MakeSnapshot(tick_time);
-    if (!snapshot.has_value() || !HasExpectedAuthorizationPublisher()) {
+    if (!snapshot.has_value()) {
       SafetyInhibit();
       PublishZero();
       return;
@@ -660,10 +567,7 @@ class TrackerNode final : public rclcpp::Node {
     }
   }
 
-  MpcConfiguration SnapshotBounds() const {
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    return live_configuration_;
-  }
+  MpcConfiguration SnapshotBounds() const { return configured_; }
 
   void WorkerLoop() {
     while (true) {
@@ -769,24 +673,17 @@ class TrackerNode final : public rclcpp::Node {
   MpcConfiguration configured_;
   TrackerConfiguration configuration_;
   double wheel_radius_{};
+  double driven_wheel_angular_speed_limit_rad_s_{};
   pluginlib::ClassLoader<TrackerPlugin> loader_;
   std::shared_ptr<TrackerPlugin> plugin_;
 
   mutable std::mutex state_mutex_;
   std::array<double, 3> state_{};
-  MpcConfiguration live_configuration_{};
   SteadyClock::time_point odometry_time_{};
-  SteadyClock::time_point motor_time_{};
   bool has_odometry_{};
-  bool has_motor_profile_{};
   bool has_raw_yaw_{};
   double last_raw_yaw_{};
   double yaw_unwrapped_{};
-  std::uint64_t motion_authorization_{};
-  std::uint32_t heartbeat_session_id_{};
-  SteadyClock::time_point heartbeat_time_{};
-  bool has_heartbeat_{};
-  bool heartbeat_ready_{};
   bool inhibited_{true};
   std::optional<ScheduledTrajectory> active_;
   std::optional<ScheduledTrajectory> pending_;
@@ -819,12 +716,6 @@ class TrackerNode final : public rclcpp::Node {
       trajectory_subscription_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr
       odometry_subscription_;
-  rclcpp::Subscription<mentor_pi_interfaces::msg::MotorState>::SharedPtr
-      motor_subscription_;
-  rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr
-      authorization_subscription_;
-  rclcpp::Subscription<mentor_pi_interfaces::msg::Heartbeat>::SharedPtr
-      heartbeat_subscription_;
   rclcpp::CallbackGroup::SharedPtr safety_group_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_service_;
   rclcpp::TimerBase::SharedPtr timer_;

@@ -22,8 +22,36 @@ _ROBOT_NAME_PATTERN = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)*$"
 )
 _VEHICLE_TYPES = frozenset(("mecanum", "ackermann"))
+_TRACKING_ALGORITHMS = frozenset(("mpc", "adrc"))
 _VEHICLE_CONTROLLER_NAME = "vehicle"
-_GEOMETRY_CENTER_OFFSETS = {"mecanum": 0.0, "ackermann": 0.0675}
+_DEFAULT_TRACKING_CONTROLLER = "auto"
+_DEFAULT_TRACKING_ALGORITHM = "adrc"
+_CONTROLLER_PLUGINS = {
+    ("mecanum", "mpc"): "mentor_pi_tracking/MecanumMpc",
+    ("ackermann", "mpc"): "mentor_pi_tracking/AckermannMpc",
+    ("mecanum", "adrc"): "mentor_pi_tracking/MecanumAdrc",
+    ("ackermann", "adrc"): "mentor_pi_tracking/AckermannAdrc",
+}
+_TRACKING_GEOMETRY = {
+    "mecanum": {
+        "wheel_radius": 0.0325,
+        "wheelbase": 0.145,
+        "wheel_track": 0.140,
+        "rear_axle_to_geometry_center": 0.0,
+        "mecanum_radius_sum": 0.14,
+        "max_steering_angle": 0.5,
+        "driven_wheel_angular_speed_limit_rad_s": 37.69911184307752,
+    },
+    "ackermann": {
+        "wheel_radius": 0.0325,
+        "wheelbase": 0.135,
+        "wheel_track": 0.140,
+        "rear_axle_to_geometry_center": 0.0675,
+        "mecanum_radius_sum": 0.14,
+        "max_steering_angle": 0.6,
+        "driven_wheel_angular_speed_limit_rad_s": 37.69911184307752,
+    },
+}
 
 
 def _shutdown_on_exit(action, label):
@@ -75,6 +103,36 @@ def _finite_launch_value(context, name):
     return value
 
 
+def tracking_parameters(vehicle_type, tracking_algorithm):
+    if vehicle_type not in _VEHICLE_TYPES:
+        raise ValueError(f"unsupported vehicle_type: {vehicle_type}")
+    if tracking_algorithm not in _TRACKING_ALGORITHMS:
+        raise ValueError("tracking_algorithm must be mpc or adrc")
+    return {
+        "vehicle_type": vehicle_type,
+        "tracking_algorithm": tracking_algorithm,
+        "controller_plugin": _CONTROLLER_PLUGINS[
+            (vehicle_type, tracking_algorithm)
+        ],
+        **_TRACKING_GEOMETRY[vehicle_type],
+    }
+
+
+def resolve_tracking_controller(selection, vehicle_type):
+    if vehicle_type not in _VEHICLE_TYPES:
+        raise ValueError("unsupported vehicle_type")
+    if selection == "auto":
+        return vehicle_type
+    if selection == "none":
+        return None
+    if selection != vehicle_type:
+        raise ValueError(
+            "tracking_controller must be auto, none, or match the selected "
+            "vehicle_type"
+        )
+    return vehicle_type
+
+
 def controller_odometry_remappings(robot_name):
     if not _validate_robot_name(robot_name):
         raise ValueError("robot_name must be a valid relative ROS namespace")
@@ -102,7 +160,9 @@ def simulation_odometry_parameters(
     if not all(isinstance(value, (int, float)) and math.isfinite(value)
                for value in values):
         raise ValueError("initial geometry-center pose must be finite")
-    offset = _GEOMETRY_CENTER_OFFSETS[vehicle_type]
+    offset = _TRACKING_GEOMETRY[vehicle_type][
+        "rear_axle_to_geometry_center"
+    ]
     return {
         "source_to_geometry_center_m": offset,
         "geometry_center_frame_id": f"{robot_name}/base_footprint",
@@ -129,6 +189,14 @@ def _launch_simulation(context):
     initial_yaw_rad = _finite_launch_value(context, "initial_yaw_rad")
 
     hardware_share = get_package_share_directory("mentor_pi_hardwares")
+    tracking_share = get_package_share_directory("mentor_pi_tracking")
+    tracking_controller = resolve_tracking_controller(
+        LaunchConfiguration("tracking_controller").perform(context),
+        vehicle_type,
+    )
+    tracking_algorithm = LaunchConfiguration("tracking_algorithm").perform(
+        context
+    )
     description_file = os.path.join(
         hardware_share, "config", vehicle_type, "simulation.urdf.xacro"
     )
@@ -203,6 +271,23 @@ def _launch_simulation(context):
         _shutdown_on_failure(vehicle_spawner, "vehicle spawner"),
         vehicle_spawner,
     ]
+    if tracking_controller is not None:
+        tracking_config = os.path.join(
+            tracking_share, "config", f"{tracking_algorithm}.yaml"
+        )
+        tracker = Node(
+            package="mentor_pi_tracking",
+            executable="trajectory_tracker",
+            namespace=robot_name,
+            output="screen",
+            parameters=[
+                tracking_config,
+                tracking_parameters(vehicle_type, tracking_algorithm),
+            ],
+        )
+        delayed_actions.extend(
+            [_shutdown_on_exit(tracker, "tracking controller"), tracker]
+        )
     return [
         _shutdown_on_exit(robot_state_publisher, "robot state publisher"),
         robot_state_publisher,
@@ -222,6 +307,14 @@ def generate_launch_description():
             DeclareLaunchArgument("initial_x_m", default_value="0.0"),
             DeclareLaunchArgument("initial_y_m", default_value="0.0"),
             DeclareLaunchArgument("initial_yaw_rad", default_value="0.0"),
+            DeclareLaunchArgument(
+                "tracking_controller",
+                default_value=_DEFAULT_TRACKING_CONTROLLER,
+            ),
+            DeclareLaunchArgument(
+                "tracking_algorithm",
+                default_value=_DEFAULT_TRACKING_ALGORITHM,
+            ),
             OpaqueFunction(function=_launch_simulation),
         ]
     )

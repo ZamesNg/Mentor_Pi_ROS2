@@ -44,6 +44,7 @@ _TRACKING_GEOMETRY = {
         "rear_axle_to_geometry_center": 0.0,
         "mecanum_radius_sum": 0.14,
         "max_steering_angle": 0.5,
+        "driven_wheel_angular_speed_limit_rad_s": 37.69911184307752,
     },
     "ackermann": {
         "wheel_radius": 0.0325,
@@ -52,6 +53,7 @@ _TRACKING_GEOMETRY = {
         "rear_axle_to_geometry_center": 0.0675,
         "mecanum_radius_sum": 0.14,
         "max_steering_angle": 0.6,
+        "driven_wheel_angular_speed_limit_rad_s": 37.69911184307752,
     },
 }
 

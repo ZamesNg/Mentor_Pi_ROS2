@@ -36,10 +36,10 @@ class MpcTrackerPlugin : public TrackerPlugin {
   void Reset() override {}
 
   MpcCommand Compute(const TrackerRequest& request) override {
-    if (request.live_configuration.vehicle != vehicle_) {
+    if (request.bounded_configuration.vehicle != vehicle_) {
       return {false, 0.0, 0.0, 0.0, "MPC work vehicle mismatch"};
     }
-    return MpcSolver(request.live_configuration).Solve(request.mpc);
+    return MpcSolver(request.bounded_configuration).Solve(request.mpc);
   }
 
   void SetAppliedCommand(const MpcCommand&) override {}

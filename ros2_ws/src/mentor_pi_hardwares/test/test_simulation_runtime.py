@@ -10,9 +10,14 @@ import time
 
 from controller_manager_msgs.srv import ListControllers
 from geometry_msgs.msg import TwistStamped
+from mentor_pi_tracking_interfaces.msg import (
+    PolynomialSegment,
+    PolynomialTrajectory,
+)
 from nav_msgs.msg import Odometry
 import pytest
 import rclpy
+from rclpy.duration import Duration
 
 
 def yaw(orientation):
@@ -86,19 +91,33 @@ class SimulationClient:
             time.sleep(0.03)
 
 
-def launch_simulation(vehicle_type, robot_name, log):
+def launch_simulation(
+    vehicle_type,
+    robot_name,
+    log,
+    *,
+    initial_x_m=1.25,
+    initial_y_m=-0.75,
+    initial_yaw_rad=0.0,
+    tracking_controller=None,
+    tracking_algorithm="adrc",
+):
+    command = [
+        "ros2",
+        "launch",
+        "mentor_pi_hardwares",
+        "simulation.launch.py",
+        f"vehicle_type:={vehicle_type}",
+        f"robot_name:={robot_name}",
+        f"initial_x_m:={initial_x_m}",
+        f"initial_y_m:={initial_y_m}",
+        f"initial_yaw_rad:={initial_yaw_rad}",
+        f"tracking_algorithm:={tracking_algorithm}",
+    ]
+    if tracking_controller is not None:
+        command.append(f"tracking_controller:={tracking_controller}")
     return subprocess.Popen(
-        [
-            "ros2",
-            "launch",
-            "mentor_pi_hardwares",
-            "simulation.launch.py",
-            f"vehicle_type:={vehicle_type}",
-            f"robot_name:={robot_name}",
-            "initial_x_m:=1.25",
-            "initial_y_m:=-0.75",
-            "initial_yaw_rad:=0.0",
-        ],
+        command,
         stdout=log,
         stderr=subprocess.STDOUT,
         start_new_session=True,
@@ -156,7 +175,9 @@ def stop_process(process):
 def test_simulation_controller_and_odometry_runtime(vehicle_type):
     robot_name = f"{vehicle_type}_runtime_test"
     with tempfile.TemporaryFile(mode="w+") as log:
-        process = launch_simulation(vehicle_type, robot_name, log)
+        process = launch_simulation(
+            vehicle_type, robot_name, log, tracking_controller="none"
+        )
         if not rclpy.ok():
             rclpy.init()
         client = SimulationClient(robot_name)
@@ -251,7 +272,12 @@ def test_foxglove_bridge_is_separate_and_discovers_simulation_graph():
         tempfile.TemporaryFile(mode="w+") as simulation_log,
         tempfile.TemporaryFile(mode="w+") as bridge_log,
     ):
-        simulation = launch_simulation("mecanum", robot_name, simulation_log)
+        simulation = launch_simulation(
+            "mecanum",
+            robot_name,
+            simulation_log,
+            tracking_controller="none",
+        )
         bridge = None
         if not rclpy.ok():
             rclpy.init()
@@ -303,3 +329,107 @@ def test_foxglove_bridge_is_separate_and_discovers_simulation_graph():
                     pytest.fail(
                         f"{label} exited {process.returncode}:\n{log.read()}"
                     )
+
+
+@pytest.mark.parametrize(
+    "vehicle_type,tracking_algorithm",
+    [
+        ("ackermann", "adrc"),
+        ("ackermann", "mpc"),
+        ("mecanum", "adrc"),
+        ("mecanum", "mpc"),
+    ],
+)
+def test_default_tracker_drives_simulation_without_low_level_topics(
+    vehicle_type, tracking_algorithm
+):
+    robot_name = f"{vehicle_type}_{tracking_algorithm}_tracker_test"
+    with tempfile.TemporaryFile(mode="w+") as log:
+        process = launch_simulation(
+            vehicle_type,
+            robot_name,
+            log,
+            initial_x_m=0.0,
+            initial_y_m=0.0,
+            tracking_algorithm=tracking_algorithm,
+        )
+        if not rclpy.ok():
+            rclpy.init()
+        client = SimulationClient(robot_name)
+        trajectory_publisher = client.node.create_publisher(
+            PolynomialTrajectory,
+            f"/{robot_name}/trajectory_tracker/reference_trajectory",
+            10,
+        )
+        try:
+            assert client.spin_until(
+                lambda: process.poll() is not None
+                or (
+                    client.latest_odometry is not None
+                    and client.controller_is_active()
+                    and trajectory_publisher.get_subscription_count() == 1
+                ),
+                timeout=15.0,
+            )
+            assert process.poll() is None
+            nodes = set(client.node.get_node_names_and_namespaces())
+            assert ("trajectory_tracker", f"/{robot_name}") in nodes
+            topics = dict(client.node.get_topic_names_and_types())
+            assert topics[
+                f"/{robot_name}/trajectory_tracker/diagnostics"
+            ] == ["diagnostic_msgs/msg/DiagnosticArray"]
+            for absent in (
+                f"/{robot_name}/motors/state",
+                f"/{robot_name}/heartbeat",
+                f"/{robot_name}/configuration/motion_authorization",
+                f"/{robot_name}/diagnostics",
+            ):
+                assert absent not in topics
+
+            trajectory = PolynomialTrajectory()
+            trajectory.header.frame_id = "odom"
+            trajectory.header.stamp = (
+                client.node.get_clock().now()
+                + Duration(seconds=0.5)
+            ).to_msg()
+            trajectory.trajectory_id = (
+                f"{vehicle_type}-{tracking_algorithm}-runtime"
+            )
+            segment = PolynomialSegment()
+            segment.duration.sec = 2
+            segment.x_coefficients[1] = 0.10
+            if vehicle_type == "mecanum":
+                segment.y_coefficients[1] = 0.05
+                segment.yaw_coefficients[1] = 0.20
+            trajectory.segments.append(segment)
+            initial = client.latest_odometry
+            trajectory_publisher.publish(trajectory)
+
+            assert client.spin_until(
+                lambda: client.latest_odometry is not None
+                and client.latest_odometry.pose.pose.position.x
+                > initial.pose.pose.position.x + 0.01,
+                timeout=4.0,
+            )
+            moved = client.latest_odometry
+            if vehicle_type == "mecanum":
+                assert moved.pose.pose.position.y > 0.002
+                assert yaw(moved.pose.pose.orientation) > 0.005
+
+            assert client.spin_until(
+                lambda: client.latest_odometry is not None
+                and abs(client.latest_odometry.twist.twist.linear.x) < 0.02
+                and abs(client.latest_odometry.twist.twist.linear.y) < 0.02
+                and abs(client.latest_odometry.twist.twist.angular.z) < 0.02,
+                timeout=3.5,
+            )
+        finally:
+            stop_process(process)
+            client.destroy()
+            if rclpy.ok():
+                rclpy.shutdown()
+            if process.returncode not in (0, -signal.SIGINT):
+                log.seek(0)
+                pytest.fail(
+                    f"simulation launch exited {process.returncode}:\n{log.read()}"
+                )
