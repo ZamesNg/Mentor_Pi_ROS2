@@ -31,6 +31,11 @@ consequently `vehicle/controller_state` has the plugin's native
 `SteeringControllerStatus` or `MecanumDriveControllerState` type. Physical
 joint names and TF reference frames remain vehicle-specific.
 
+`vehicle.launch.py` starts the profile-matched ADRC trajectory tracker by
+default. MPC uses the identical `trajectory_tracker` node and endpoints when
+selected with `tracking_algorithm:=mpc`. Pass `tracking_controller:=none` only
+when the tracker must be absent, including direct `vehicle/reference` tests.
+
 ## Configuration ownership
 
 The selected absolute `vehicle_config` YAML is the sole authority for

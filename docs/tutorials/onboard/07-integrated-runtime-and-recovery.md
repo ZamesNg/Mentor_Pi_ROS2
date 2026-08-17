@@ -35,8 +35,10 @@ source ros2_ws/install/setup.zsh
 ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
-The generated profile selects the vehicle type. The Agent remains a separately
-managed service and does not start this launch.
+The generated profile selects the vehicle type and the launch starts its ADRC
+trajectory tracker by default. MPC selects the same node and endpoints with
+`tracking_algorithm:=mpc`. The Agent remains a separately managed service and
+does not start this launch.
 
 In another terminal, source the workspace and inspect the safety endpoints:
 

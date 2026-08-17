@@ -159,19 +159,47 @@ TEST(TrackerNodeContractTest, GenericNodeUsesOnlyGenericEndpoints) {
   EXPECT_EQ(services.count("/mentor_pi/mecanum_mpc_tracker/cancel"), 0U);
 }
 
-TEST(TrackerNodeContractTest, OutputFramesFollowVehicleContract) {
-  const auto mecanum = MakeTrackerNode(
-      OptionsFor("mecanum", "adrc", "mentor_pi_tracking/MecanumAdrc"));
-  const auto ackermann = MakeTrackerNode(
-      OptionsFor("ackermann", "adrc", "mentor_pi_tracking/AckermannAdrc"));
-  EXPECT_STREQ(mecanum->get_name(), "trajectory_tracker");
-  EXPECT_STREQ(ackermann->get_name(), "trajectory_tracker");
-  EXPECT_EQ(mecanum->get_topic_names_and_types().count(
-                "/mentor_pi/vehicle/reference"),
-            1U);
-  EXPECT_EQ(ackermann->get_topic_names_and_types().count(
-                "/mentor_pi/vehicle/reference"),
-            1U);
+TEST(TrackerNodeContractTest, DefaultsToAdrc) {
+  const auto tracker = MakeTrackerNode(rclcpp::NodeOptions());
+  EXPECT_EQ(tracker->get_parameter("tracking_algorithm").as_string(), "adrc");
+  EXPECT_EQ(tracker->get_parameter("controller_plugin").as_string(),
+            "mentor_pi_tracking/MecanumAdrc");
+}
+
+TEST(TrackerNodeContractTest, AllPluginsUseTheSameNodeAndEndpoints) {
+  struct TrackerSpec {
+    const char* vehicle;
+    const char* algorithm;
+    const char* plugin;
+  };
+  const std::array<TrackerSpec, 4> specs{{
+      {"mecanum", "mpc", "mentor_pi_tracking/MecanumMpc"},
+      {"mecanum", "adrc", "mentor_pi_tracking/MecanumAdrc"},
+      {"ackermann", "mpc", "mentor_pi_tracking/AckermannMpc"},
+      {"ackermann", "adrc", "mentor_pi_tracking/AckermannAdrc"},
+  }};
+
+  auto baseline = MakeTrackerNode(
+      OptionsFor(specs[0].vehicle, specs[0].algorithm, specs[0].plugin));
+  const auto expected_topics = baseline->get_topic_names_and_types();
+  const auto expected_services = baseline->get_service_names_and_types();
+  baseline.reset();
+
+  for (const auto& spec : specs) {
+    const auto tracker = MakeTrackerNode(
+        OptionsFor(spec.vehicle, spec.algorithm, spec.plugin));
+    EXPECT_STREQ(tracker->get_name(), "trajectory_tracker");
+    EXPECT_STREQ(tracker->get_namespace(), "/mentor_pi");
+    EXPECT_EQ(tracker->get_topic_names_and_types(), expected_topics);
+    EXPECT_EQ(tracker->get_service_names_and_types(), expected_services);
+    EXPECT_EQ(expected_topics.count(
+                  "/mentor_pi/trajectory_tracker/reference_trajectory"),
+              1U);
+    EXPECT_EQ(expected_topics.count("/mentor_pi/vehicle/reference"), 1U);
+    EXPECT_EQ(expected_topics.count("/mentor_pi/vehicle/odometry"), 1U);
+    EXPECT_EQ(expected_services.count("/mentor_pi/trajectory_tracker/cancel"),
+              1U);
+  }
 }
 
 TEST(TrackerNodeContractTest,

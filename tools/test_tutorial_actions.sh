@@ -33,7 +33,8 @@ rg -Fq 'Dev Container' "${PROJECT_ROOT}/docs/tutorials/onboard/01-prerequisites-
 readonly ONBOARD_ADRC_TUTORIAL="${PROJECT_ROOT}/docs/tutorials/onboard/08-evidence-and-qualification.md"
 for marker in \
     'ros2_ws/src/mentor_pi_tracking/config/adrc.yaml' \
-    'tracking_controller:=mecanum tracking_algorithm:=adrc' \
+    'tracking_algorithm:=adrc' \
+    'tracking_controller:=none' \
     '/mentor_pi/trajectory_tracker/reference_trajectory' \
     '/mentor_pi/trajectory_tracker/cancel' \
     '/mentor_pi/vehicle/reference' \

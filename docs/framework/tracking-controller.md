@@ -2,7 +2,7 @@
 
 ## Scope and licensing
 
-`mentor_pi_tracking` is an opt-in C++17 trajectory tracker for the Mecanum and
+`mentor_pi_tracking` is a C++17 trajectory tracker for the Mecanum and
 Ackermann `ros2_control` adapters. One `/mentor_pi/trajectory_tracker` node owns
 the ROS interfaces, safety gates, scheduling, and command bounds and loads
 exactly one controller through pluginlib:
@@ -91,15 +91,19 @@ timing, or numerical failure immediately resets it and publishes zero.
 Launch selection is:
 
 ```text
-tracking_controller:=none|mecanum|ackermann
-tracking_algorithm:=mpc|adrc
+tracking_controller:=auto|none|mecanum|ackermann
+tracking_algorithm:=adrc|mpc
 ```
 
-Both default to `none` and `mpc`, respectively. A non-`none` controller must
-match the selected vehicle and uses the fixed `mentor_pi` runtime namespace;
-launch rejects a custom `vehicle.robot_name` when tracking is enabled. No
-vehicle- or algorithm-specific trajectory topic, cancel service, or executable
-alias exists.
+The defaults are `auto` and `adrc`: `auto` selects the tracker plugin matching
+the generated vehicle profile. The explicit `mecanum` and `ackermann` values
+remain accepted only when they match that profile, and `none` disables the
+tracker for direct `vehicle/reference` testing. MPC and ADRC always use the
+same `/<robot_name>/trajectory_tracker` node,
+`trajectory_tracker/reference_trajectory` input,
+`trajectory_tracker/cancel` service, `vehicle/odometry` input, and
+`vehicle/reference` output. No vehicle- or algorithm-specific topic, service,
+node, or executable alias exists.
 
 ## Trajectory LADRC
 

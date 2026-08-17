@@ -267,6 +267,8 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
     for name in ("vehicle.launch.py",):
         module = load_launch(launch_directory / name)
         assert module._VEHICLE_CONTROLLER_NAME == "vehicle"
+        assert module._DEFAULT_TRACKING_CONTROLLER == "auto"
+        assert module._DEFAULT_TRACKING_ALGORITHM == "adrc"
         description = module.generate_launch_description()
         arguments = {
             entity.name
@@ -298,6 +300,41 @@ def test_launches_accept_only_a_vehicle_profile_for_name_and_type():
         '"ackermann_steering_controller"',
     ):
         assert forbidden not in launch_sources
+
+
+@pytest.mark.parametrize(
+    "selection,vehicle_type,expected",
+    [
+        ("auto", "ackermann", "ackermann"),
+        ("auto", "mecanum", "mecanum"),
+        ("ackermann", "ackermann", "ackermann"),
+        ("mecanum", "mecanum", "mecanum"),
+        ("none", "ackermann", None),
+        ("none", "mecanum", None),
+    ],
+)
+def test_tracking_selection_defaults_to_the_profile_vehicle_type(
+    selection, vehicle_type, expected
+):
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    module = vehicle_launch_module(share)
+    assert module.resolve_tracking_controller(selection, vehicle_type) == expected
+
+
+@pytest.mark.parametrize(
+    "selection,vehicle_type,error",
+    [
+        ("mecanum", "ackermann", "must be auto, none, or match"),
+        ("ackermann", "mecanum", "must be auto, none, or match"),
+        ("enabled", "mecanum", "must be auto, none, or match"),
+        ("auto", "tracked", "unsupported vehicle_type"),
+    ],
+)
+def test_tracking_selection_rejects_mismatches(selection, vehicle_type, error):
+    share = Path(get_package_share_directory("mentor_pi_hardwares"))
+    module = vehicle_launch_module(share)
+    with pytest.raises(ValueError, match=error):
+        module.resolve_tracking_controller(selection, vehicle_type)
 
 
 def test_tracking_parameters_select_generic_tracker_plugin_and_geometry():

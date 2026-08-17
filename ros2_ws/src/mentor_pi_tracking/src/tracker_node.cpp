@@ -88,7 +88,7 @@ class TrackerNode final : public rclcpp::Node {
     }
 
     const std::string algorithm =
-        declare_parameter<std::string>("tracking_algorithm", "mpc");
+        declare_parameter<std::string>("tracking_algorithm", "adrc");
     const std::string expected_plugin =
         "mentor_pi_tracking/" +
         std::string(vehicle_ == VehicleType::kMecanum ? "Mecanum"

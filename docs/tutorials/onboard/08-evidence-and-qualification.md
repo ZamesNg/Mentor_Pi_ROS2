@@ -292,12 +292,14 @@ source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
 export ROS_DOMAIN_ID=42
 export ROS_LOCALHOST_ONLY=0
-ros2 launch mentor_pi_hardwares vehicle.launch.py
+ros2 launch mentor_pi_hardwares vehicle.launch.py tracking_controller:=none
 ```
 
 For Ackermann, select the generated Ackermann profile through
 `MENTOR_PI_TYPE`. Replace the domain and localhost-only values with those
-installed in Tutorial 05. Before publishing a reference, verify that the
+installed in Tutorial 05. Direct controller-reference tuning requires the
+explicit `tracking_controller:=none` above because the default tracker also
+publishes `vehicle/reference`. Before publishing a reference, verify that the
 selected hardware plugin is the only motor-command publisher:
 
 ```zsh
@@ -408,13 +410,15 @@ source ros2_ws/install/setup.zsh
 export ROS_DOMAIN_ID=42
 export ROS_LOCALHOST_ONLY=0
 ros2 launch mentor_pi_hardwares vehicle.launch.py \
-  tracking_controller:=mecanum tracking_algorithm:=adrc
+  tracking_algorithm:=adrc
 ```
 
-For Ackermann, use `tracking_controller:=ackermann`. Replace the domain and localhost-only values
-with those installed in Tutorial 05. Before staging motion, require one tracker
-input, one selected controller-reference publisher, and exactly one hardware
-motor-command publisher:
+The same launch command applies to Ackermann because the tracker type is read
+from the generated profile. `tracking_algorithm:=adrc` is shown explicitly for
+tuning reproducibility even though ADRC is the default. Replace the domain and
+localhost-only values with those installed in Tutorial 05. Before staging
+motion, require one tracker input, one selected controller-reference publisher,
+and exactly one hardware motor-command publisher:
 
 ```zsh
 ros2 topic info /mentor_pi/trajectory_tracker/reference_trajectory --verbose

@@ -28,6 +28,8 @@ _ROBOT_NAME_PATTERN = re.compile(
 _VEHICLE_TYPES = frozenset(("mecanum", "ackermann"))
 _TRACKING_ALGORITHMS = frozenset(("mpc", "adrc"))
 _VEHICLE_CONTROLLER_NAME = "vehicle"
+_DEFAULT_TRACKING_CONTROLLER = "auto"
+_DEFAULT_TRACKING_ALGORITHM = "adrc"
 _CONTROLLER_PLUGINS = {
     ("mecanum", "mpc"): "mentor_pi_tracking/MecanumMpc",
     ("ackermann", "mpc"): "mentor_pi_tracking/AckermannMpc",
@@ -141,6 +143,21 @@ def tracking_parameters(vehicle_type, tracking_algorithm, hardware=None):
     }
 
 
+def resolve_tracking_controller(selection, vehicle_type):
+    if vehicle_type not in _VEHICLE_TYPES:
+        raise ValueError("unsupported vehicle_type")
+    if selection == "auto":
+        return vehicle_type
+    if selection == "none":
+        return None
+    if selection != vehicle_type:
+        raise ValueError(
+            "tracking_controller must be auto, none, or match the selected "
+            "vehicle_type"
+        )
+    return vehicle_type
+
+
 def load_vehicle_profile(path):
     if not isinstance(path, str) or not os.path.isabs(path):
         raise ValueError("vehicle_config must be an absolute path")
@@ -204,12 +221,10 @@ def _launch_vehicle(context):
     hardware_share = get_package_share_directory("mentor_pi_hardwares")
     bringup_share = get_package_share_directory("mentor_pi_bringup")
     tracking_share = get_package_share_directory("mentor_pi_tracking")
-    tracking_controller = LaunchConfiguration("tracking_controller").perform(context)
+    tracking_controller = resolve_tracking_controller(
+        LaunchConfiguration("tracking_controller").perform(context), vehicle_type
+    )
     tracking_algorithm = LaunchConfiguration("tracking_algorithm").perform(context)
-    if tracking_controller not in ("none", vehicle_type):
-        raise ValueError(
-            "tracking_controller must be none or match the selected vehicle_type"
-        )
     description_file = os.path.join(
         hardware_share, "config", vehicle_type, "mentor_pi.urdf.xacro"
     )
@@ -287,7 +302,7 @@ def _launch_vehicle(context):
         ),
         drive_controller_spawner,
     ]
-    if tracking_controller != "none":
+    if tracking_controller is not None:
         tracking_parameters_for_vehicle = tracking_parameters(
             vehicle_type, tracking_algorithm, hardware_settings
         )
@@ -329,8 +344,12 @@ def generate_vehicle_launch():
     return LaunchDescription(
         [
             DeclareLaunchArgument("vehicle_config", default_value=default_config),
-            DeclareLaunchArgument("tracking_controller", default_value="none"),
-            DeclareLaunchArgument("tracking_algorithm", default_value="mpc"),
+            DeclareLaunchArgument(
+                "tracking_controller", default_value=_DEFAULT_TRACKING_CONTROLLER
+            ),
+            DeclareLaunchArgument(
+                "tracking_algorithm", default_value=_DEFAULT_TRACKING_ALGORITHM
+            ),
             OpaqueFunction(function=_launch_vehicle),
         ]
     )

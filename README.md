@@ -123,6 +123,11 @@ source ros2_ws/install/setup.bash
 ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
+The complete vehicle launch starts the profile-matched ADRC trajectory tracker
+by default. Select MPC with `tracking_algorithm:=mpc`, or use
+`tracking_controller:=none` when intentionally publishing direct
+`vehicle/reference` commands without a trajectory tracker.
+
 Run `make help` for the onboarding, integration, and qualification interface.
 
 ## Tutorials
