@@ -98,8 +98,11 @@ rigid-body twist and covariance transformations, before publishing public
 geometry-center odometry as `base_footprint`. In the URDF,
 `rear_axle_footprint` is a fixed child `0.0675 m` behind `base_footprint`.
 Mecanum uses the same adapter with a zero offset. The retained visual/collision
-wheel coordinates and visual radius are illustrative and are not the
-controller's kinematic authority.
+wheel coordinates now place the imported Mentor Pi STL visuals against the
+controller geometry. Meshes remain visualization-only: primitive collision and
+inertial data are unchanged and are not controller authority. Camera and lidar
+meshes are composed into `base_link` without adding TF frames. Their provenance
+and separate `NOASSERTION` status are recorded with the installed configuration.
 
 `make onboard-configure` regenerates both profiles after a type or namespace
 change and flashes firmware with the same namespace. Multiple robots may share

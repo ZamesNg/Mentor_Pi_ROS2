@@ -173,6 +173,10 @@ if(BUILD_TESTING)
     test/test_launch_contract.py
     TIMEOUT 30
   )
+  ament_add_pytest_test(mesh_asset_test
+    test/test_mesh_assets.py
+    TIMEOUT 30
+  )
   ament_add_pytest_test(simulation_runtime_test
     test/test_simulation_runtime.py
     TIMEOUT 90

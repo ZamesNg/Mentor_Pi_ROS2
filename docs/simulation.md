@@ -77,9 +77,13 @@ Connect Foxglove to `ws://localhost:8765`. In a 3D panel, select
 `/ackermann_sim/robot_description` topic. Select `/tf` and `/tf_static` for
 transforms. Leave the URDF layer's **Frame prefix** empty: the generated
 description already uses `robot_name` in every link frame, exactly matching the
-published TF tree. The bridge defaults to loopback; override `address` only
-when deliberate network access is required. The Dev Container forwards port
-8765.
+published TF tree. The description uses the original Mentor Pi body, wheel,
+camera, and lidar STL visuals from the recorded `ng_planner` source commit;
+collision and inertial geometry remain the lightweight primitives. The bridge
+defaults to loopback; override `address` only when deliberate network access is
+required. The Dev Container forwards port 8765. Mesh provenance and the
+separate `NOASSERTION` license status are recorded in the installed
+`config/MESH_PROVENANCE.md`.
 
 ## Model boundary
 

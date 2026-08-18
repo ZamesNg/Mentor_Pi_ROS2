@@ -1,6 +1,13 @@
 <?xml version="1.0"?>
 <robot name="mentor_pi_ackermann" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+  <material name="mentor_pi_gray">
+    <color rgba="0.7 0.7 0.7 1.0"/>
+  </material>
+  <material name="mentor_pi_black">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+
   <xacro:macro name="ackermann_car" params="frame_prefix:=''">
     <link name="${frame_prefix}rear_axle_footprint"/>
     <link name="${frame_prefix}base_footprint"/>
@@ -18,9 +25,25 @@
         <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.02"/>
       </inertial>
       <visual>
+        <origin xyz="0 0 0.070" rpy="-1.5707963267948966 0 0"/>
         <geometry>
-          <box size="0.22 0.16 0.06"/>
+          <mesh filename="package://mentor_pi_hardwares/config/ackermann/meshes/base_link.stl"/>
         </geometry>
+        <material name="mentor_pi_gray"/>
+      </visual>
+      <visual>
+        <origin xyz="0.064015 -0.00013463 0.121155" rpy="-1.5707963267948966 0 0"/>
+        <geometry>
+          <mesh filename="package://mentor_pi_hardwares/config/ackermann/meshes/cam_link.stl"/>
+        </geometry>
+        <material name="mentor_pi_black"/>
+      </visual>
+      <visual>
+        <origin xyz="-0.0096019 -0.00008533 0.162501" rpy="-1.5707963267948966 0 0"/>
+        <geometry>
+          <mesh filename="package://mentor_pi_hardwares/config/ackermann/meshes/lidar_link.stl"/>
+        </geometry>
+        <material name="mentor_pi_black"/>
       </visual>
       <collision>
         <geometry>
@@ -36,48 +59,68 @@
     </joint>
 
     <link name="${frame_prefix}wheel_left_front_link">
-      <visual><geometry><cylinder radius="0.04" length="0.02"/></geometry></visual>
+      <visual>
+        <geometry>
+          <mesh filename="package://mentor_pi_hardwares/config/ackermann/meshes/wheel_left_front_link.stl"/>
+        </geometry>
+        <material name="mentor_pi_black"/>
+      </visual>
       <collision><geometry><cylinder radius="0.04" length="0.02"/></geometry></collision>
     </link>
     <joint name="wheel_left_front_joint" type="revolute">
       <parent link="${frame_prefix}base_link"/>
       <child link="${frame_prefix}wheel_left_front_link"/>
-      <origin xyz="0.11 0.09 -0.03" rpy="0 0 0"/>
+      <origin xyz="0.0675 0.070 0.0325" rpy="0 0 0"/>
       <axis xyz="0 0 1"/>
       <limit lower="-0.6" upper="0.6" effort="1.0" velocity="1.5"/>
     </joint>
 
     <link name="${frame_prefix}wheel_right_front_link">
-      <visual><geometry><cylinder radius="0.04" length="0.02"/></geometry></visual>
+      <visual>
+        <geometry>
+          <mesh filename="package://mentor_pi_hardwares/config/ackermann/meshes/wheel_right_front_link.stl"/>
+        </geometry>
+        <material name="mentor_pi_black"/>
+      </visual>
       <collision><geometry><cylinder radius="0.04" length="0.02"/></geometry></collision>
     </link>
     <joint name="wheel_right_front_joint" type="revolute">
       <parent link="${frame_prefix}base_link"/>
       <child link="${frame_prefix}wheel_right_front_link"/>
-      <origin xyz="0.11 -0.09 -0.03" rpy="0 0 0"/>
+      <origin xyz="0.0675 -0.070 0.0325" rpy="0 0 0"/>
       <axis xyz="0 0 1"/>
       <limit lower="-0.6" upper="0.6" effort="1.0" velocity="1.5"/>
     </joint>
 
     <link name="${frame_prefix}wheel_left_rear_link">
-      <visual><geometry><cylinder radius="0.04" length="0.02"/></geometry></visual>
+      <visual>
+        <geometry>
+          <mesh filename="package://mentor_pi_hardwares/config/ackermann/meshes/wheel_left_rear_link.stl"/>
+        </geometry>
+        <material name="mentor_pi_black"/>
+      </visual>
       <collision><geometry><cylinder radius="0.04" length="0.02"/></geometry></collision>
     </link>
     <joint name="wheel_left_rear_joint" type="continuous">
       <parent link="${frame_prefix}base_link"/>
       <child link="${frame_prefix}wheel_left_rear_link"/>
-      <origin xyz="-0.11 0.09 -0.03" rpy="0 0 0"/>
+      <origin xyz="-0.0675 0.070 0.0325" rpy="0 0 0"/>
       <axis xyz="0 1 0"/>
     </joint>
 
     <link name="${frame_prefix}wheel_right_rear_link">
-      <visual><geometry><cylinder radius="0.04" length="0.02"/></geometry></visual>
+      <visual>
+        <geometry>
+          <mesh filename="package://mentor_pi_hardwares/config/ackermann/meshes/wheel_right_rear_link.stl"/>
+        </geometry>
+        <material name="mentor_pi_black"/>
+      </visual>
       <collision><geometry><cylinder radius="0.04" length="0.02"/></geometry></collision>
     </link>
     <joint name="wheel_right_rear_joint" type="continuous">
       <parent link="${frame_prefix}base_link"/>
       <child link="${frame_prefix}wheel_right_rear_link"/>
-      <origin xyz="-0.11 -0.09 -0.03" rpy="0 0 0"/>
+      <origin xyz="-0.0675 -0.070 0.0325" rpy="0 0 0"/>
       <axis xyz="0 1 0"/>
     </joint>
 

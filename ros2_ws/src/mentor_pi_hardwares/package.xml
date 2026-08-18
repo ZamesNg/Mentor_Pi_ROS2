@@ -5,6 +5,7 @@
   <description>Host-side ros2_control adapter for Mentor Pi native firmware topics.</description>
   <maintainer email="maintainers@example.com">Mentor Pi Maintainers</maintainer>
   <license>Apache-2.0</license>
+  <license>NOASSERTION</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
