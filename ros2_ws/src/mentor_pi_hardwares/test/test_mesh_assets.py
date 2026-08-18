@@ -255,7 +255,21 @@ def test_descriptions_reference_every_retained_mesh(vehicle, simulation):
         link = root.find(f"./link[@name='mesh_test/{wheel}_link']")
         assert link is not None
         assert len(link.findall("./visual/geometry/mesh")) == 1
-        assert link.find("./visual/origin") is None
+        visual_origin = link.find("./visual/origin")
+        collision_origin = link.find("./collision/origin")
+        assert visual_origin is not None
+        assert collision_origin is not None
+        for origin in (visual_origin, collision_origin):
+            xyz = tuple(
+                float(value) for value in origin.attrib["xyz"].split()
+            )
+            rpy = tuple(
+                float(value) for value in origin.attrib["rpy"].split()
+            )
+            assert xyz == (0.0, 0.0, 0.0)
+            assert rpy == pytest.approx(
+                (-math.pi / 2.0, 0.0, 0.0), abs=1.0e-12
+            )
 
 
 @pytest.mark.parametrize("vehicle", ["ackermann", "mecanum"])
