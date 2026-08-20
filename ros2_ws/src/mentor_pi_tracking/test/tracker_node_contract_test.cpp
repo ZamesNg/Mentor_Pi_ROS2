@@ -11,12 +11,12 @@
 #include <thread>
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "gtest/gtest.h"
 #include "mentor_pi_tracking/tracker_node.hpp"
 #include "mentor_pi_tracking/tracker_plugin.hpp"
 #include "mentor_pi_tracking_interfaces/msg/polynomial_trajectory.hpp"
-#include "nav_msgs/msg/odometry.hpp"
 #include "pluginlib/class_loader.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -49,7 +49,7 @@ rclcpp::NodeOptions OptionsFor(const std::string& vehicle,
 std::shared_ptr<const PolynomialTrajectory> StraightTrajectory(
     double yaw = 0.0, double yaw_rate = 0.0) {
   mentor_pi_tracking_interfaces::msg::PolynomialTrajectory message;
-  message.header.frame_id = "odom";
+  message.header.frame_id = "map";
   message.trajectory_id = "adrc-test-" + std::to_string(yaw);
   mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
   segment.duration.sec = 2;
@@ -220,6 +220,8 @@ TEST(TrackerNodeContractTest, GenericNodeUsesOnlyGenericEndpoints) {
             1U);
   EXPECT_EQ(topics.count("/mentor_pi/trajectory_tracker/diagnostics"), 1U);
   EXPECT_EQ(topics.count("/mentor_pi/vehicle/reference"), 1U);
+  EXPECT_EQ(topics.count("/mentor_pi/vehicle/pose"), 1U);
+  EXPECT_EQ(topics.count("/mentor_pi/vehicle/odometry"), 0U);
   EXPECT_EQ(topics.count("/mentor_pi/motors/state"), 0U);
   EXPECT_EQ(topics.count("/mentor_pi/heartbeat"), 0U);
   EXPECT_EQ(topics.count("/mentor_pi/configuration/motion_authorization"), 0U);
@@ -245,24 +247,29 @@ TEST(TrackerNodeContractTest, DefaultsToAdrc) {
       37.69911184307752);
 }
 
-TEST(TrackerNodeContractTest, OdometryPoseIsAlreadyTheGeometryCenterState) {
-  nav_msgs::msg::Odometry odometry;
-  odometry.pose.pose.position.x = 1.25;
-  odometry.pose.pose.position.y = -0.75;
-  odometry.pose.pose.orientation.z = std::sin(0.3);
-  odometry.pose.pose.orientation.w = std::cos(0.3);
+TEST(TrackerNodeContractTest, MapPoseIsAlreadyTheGeometryCenterState) {
+  geometry_msgs::msg::PoseStamped pose;
+  pose.header.frame_id = "map";
+  pose.pose.position.x = 1.25;
+  pose.pose.position.y = -0.75;
+  pose.pose.orientation.z = std::sin(0.3);
+  pose.pose.orientation.w = std::cos(0.3);
 
-  const auto state = GeometryCenterPoseState(odometry);
+  const auto state = GeometryCenterPoseState(pose);
   ASSERT_TRUE(state.has_value());
   EXPECT_DOUBLE_EQ((*state)[0], 1.25);
   EXPECT_DOUBLE_EQ((*state)[1], -0.75);
   EXPECT_NEAR((*state)[2], 0.6, 1.0e-12);
 
-  odometry.pose.pose.orientation.x = 0.0;
-  odometry.pose.pose.orientation.y = 0.0;
-  odometry.pose.pose.orientation.z = 0.0;
-  odometry.pose.pose.orientation.w = 0.0;
-  EXPECT_FALSE(GeometryCenterPoseState(odometry).has_value());
+  pose.pose.orientation.x = 0.0;
+  pose.pose.orientation.y = 0.0;
+  pose.pose.orientation.z = 0.0;
+  pose.pose.orientation.w = 0.0;
+  EXPECT_FALSE(GeometryCenterPoseState(pose).has_value());
+
+  pose.pose.orientation.w = 1.0;
+  pose.header.frame_id = "odom";
+  EXPECT_FALSE(GeometryCenterPoseState(pose).has_value());
 }
 
 TEST(TrackerNodeContractTest, AllPluginsUseTheSameNodeAndEndpoints) {
@@ -295,7 +302,8 @@ TEST(TrackerNodeContractTest, AllPluginsUseTheSameNodeAndEndpoints) {
                   "/mentor_pi/trajectory_tracker/reference_trajectory"),
               1U);
     EXPECT_EQ(expected_topics.count("/mentor_pi/vehicle/reference"), 1U);
-    EXPECT_EQ(expected_topics.count("/mentor_pi/vehicle/odometry"), 1U);
+    EXPECT_EQ(expected_topics.count("/mentor_pi/vehicle/pose"), 1U);
+    EXPECT_EQ(expected_topics.count("/mentor_pi/vehicle/odometry"), 0U);
     EXPECT_EQ(
         expected_topics.count("/mentor_pi/trajectory_tracker/diagnostics"), 1U);
     EXPECT_EQ(expected_topics.count("/mentor_pi/motors/state"), 0U);
@@ -341,11 +349,11 @@ TEST(TrackerNodeContractTest,
 }
 
 TEST(TrackerNodeContractTest,
-     LateTrajectoryActivatesImmediatelyAndStaleOdometryInhibitsOutput) {
+     LateTrajectoryActivatesImmediatelyAndStalePoseInhibitsOutput) {
   using namespace std::chrono_literals;
   const auto tracker = MakeTrackerNode(
       OptionsFor("mecanum", "adrc", "mentor_pi_tracking/MecanumAdrc"));
-  const auto peer = std::make_shared<rclcpp::Node>("odometry_expiry_peer");
+  const auto peer = std::make_shared<rclcpp::Node>("pose_expiry_peer");
   geometry_msgs::msg::TwistStamped::SharedPtr command;
   const auto command_subscription =
       peer->create_subscription<geometry_msgs::msg::TwistStamped>(
@@ -357,9 +365,9 @@ TEST(TrackerNodeContractTest,
       mentor_pi_tracking_interfaces::msg::PolynomialTrajectory>(
       "/mentor_pi/trajectory_tracker/reference_trajectory",
       rclcpp::QoS(1).reliable());
-  const auto odometry_publisher =
-      peer->create_publisher<nav_msgs::msg::Odometry>(
-          "/mentor_pi/vehicle/odometry", rclcpp::SensorDataQoS());
+  const auto pose_publisher =
+      peer->create_publisher<geometry_msgs::msg::PoseStamped>(
+          "/mentor_pi/vehicle/pose", rclcpp::SensorDataQoS());
   (void)command_subscription;
 
   rclcpp::executors::SingleThreadedExecutor executor;
@@ -374,23 +382,24 @@ TEST(TrackerNodeContractTest,
   ASSERT_GT(trajectory_publisher->get_subscription_count(), 0U);
 
   mentor_pi_tracking_interfaces::msg::PolynomialTrajectory trajectory;
-  trajectory.header.frame_id = "odom";
+  trajectory.header.frame_id = "map";
   // Transport delay must not reject a synchronized absolute-time command.
   // A start in the recent past activates on the next tracker control tick.
   trajectory.header.stamp = peer->now() - rclcpp::Duration::from_seconds(0.1);
-  trajectory.trajectory_id = "odometry-expiry";
+  trajectory.trajectory_id = "pose-expiry";
   mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
   segment.duration.sec = 5;
   segment.x_coefficients[1] = 0.1;
   trajectory.segments.push_back(segment);
   trajectory_publisher->publish(trajectory);
-  nav_msgs::msg::Odometry odometry;
-  odometry.pose.pose.orientation.w = 1.0;
+  geometry_msgs::msg::PoseStamped pose;
+  pose.header.frame_id = "map";
+  pose.pose.orientation.w = 1.0;
 
   bool nonzero = false;
   const auto active_deadline = std::chrono::steady_clock::now() + 2s;
   while (!nonzero && std::chrono::steady_clock::now() < active_deadline) {
-    odometry_publisher->publish(odometry);
+    pose_publisher->publish(pose);
     executor.spin_some();
     nonzero = command != nullptr && command->twist.linear.x > 0.01;
     std::this_thread::sleep_for(10ms);
@@ -410,7 +419,7 @@ TEST(TrackerNodeContractTest,
 }
 
 TEST(TrackerNodeContractTest,
-     TerminalHoldSurvivesStaleOdometryUntilReplacementOrCancel) {
+     TerminalHoldSurvivesStalePoseUntilReplacementOrCancel) {
   using namespace std::chrono_literals;
   const auto tracker = MakeTrackerNode(
       OptionsFor("mecanum", "adrc", "mentor_pi_tracking/MecanumAdrc"));
@@ -440,9 +449,9 @@ TEST(TrackerNodeContractTest,
       mentor_pi_tracking_interfaces::msg::PolynomialTrajectory>(
       "/mentor_pi/trajectory_tracker/reference_trajectory",
       rclcpp::QoS(1).reliable());
-  const auto odometry_publisher =
-      peer->create_publisher<nav_msgs::msg::Odometry>(
-          "/mentor_pi/vehicle/odometry", rclcpp::SensorDataQoS());
+  const auto pose_publisher =
+      peer->create_publisher<geometry_msgs::msg::PoseStamped>(
+          "/mentor_pi/vehicle/pose", rclcpp::SensorDataQoS());
   const auto cancel_client = peer->create_client<std_srvs::srv::Trigger>(
       "/mentor_pi/trajectory_tracker/cancel");
   (void)command_subscription;
@@ -463,7 +472,7 @@ TEST(TrackerNodeContractTest,
 
   auto make_trajectory = [&peer](const std::string& id, double terminal_x) {
     mentor_pi_tracking_interfaces::msg::PolynomialTrajectory trajectory;
-    trajectory.header.frame_id = "odom";
+    trajectory.header.frame_id = "map";
     trajectory.header.stamp = peer->now() + rclcpp::Duration::from_seconds(0.3);
     trajectory.trajectory_id = id;
     mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
@@ -473,15 +482,16 @@ TEST(TrackerNodeContractTest,
     trajectory.segments.push_back(segment);
     return trajectory;
   };
-  nav_msgs::msg::Odometry odometry;
-  odometry.pose.pose.orientation.w = 1.0;
+  geometry_msgs::msg::PoseStamped pose;
+  pose.header.frame_id = "map";
+  pose.pose.orientation.w = 1.0;
 
   trajectory_publisher->publish(make_trajectory("first-hold", 0.2));
   bool correcting_first_endpoint = false;
   const auto first_hold_deadline = std::chrono::steady_clock::now() + 2s;
   while (!correcting_first_endpoint &&
          std::chrono::steady_clock::now() < first_hold_deadline) {
-    odometry_publisher->publish(odometry);
+    pose_publisher->publish(pose);
     executor.spin_some();
     correcting_first_endpoint = terminal_hold_diagnostics == 1U &&
                                 command != nullptr &&
@@ -506,7 +516,7 @@ TEST(TrackerNodeContractTest,
   bool resumed_hold = false;
   const auto resume_deadline = std::chrono::steady_clock::now() + 1s;
   while (!resumed_hold && std::chrono::steady_clock::now() < resume_deadline) {
-    odometry_publisher->publish(odometry);
+    pose_publisher->publish(pose);
     executor.spin_some();
     resumed_hold = command != nullptr && command->twist.linear.x > 0.01;
     std::this_thread::sleep_for(10ms);
@@ -520,7 +530,7 @@ TEST(TrackerNodeContractTest,
   const auto replacement_deadline = std::chrono::steady_clock::now() + 2s;
   while (!replacement_active &&
          std::chrono::steady_clock::now() < replacement_deadline) {
-    odometry_publisher->publish(odometry);
+    pose_publisher->publish(pose);
     executor.spin_some();
     replacement_active = terminal_hold_diagnostics == 2U &&
                          command != nullptr && command->twist.linear.x < -0.01;
@@ -534,7 +544,7 @@ TEST(TrackerNodeContractTest,
   const auto cancel_deadline = std::chrono::steady_clock::now() + 1s;
   while (cancel_future.wait_for(0ms) != std::future_status::ready &&
          std::chrono::steady_clock::now() < cancel_deadline) {
-    odometry_publisher->publish(odometry);
+    pose_publisher->publish(pose);
     executor.spin_some();
     std::this_thread::sleep_for(5ms);
   }
@@ -544,7 +554,7 @@ TEST(TrackerNodeContractTest,
   bool cancelled_zero = false;
   const auto zero_deadline = std::chrono::steady_clock::now() + 500ms;
   while (!cancelled_zero && std::chrono::steady_clock::now() < zero_deadline) {
-    odometry_publisher->publish(odometry);
+    pose_publisher->publish(pose);
     executor.spin_some();
     cancelled_zero = command != nullptr && command->twist.linear.x == 0.0 &&
                      command->twist.linear.y == 0.0 &&

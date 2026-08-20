@@ -17,6 +17,7 @@
     front_wheels_names: ["wheel_right_front_joint", "wheel_left_front_joint"]
     base_frame_id: rear_axle_footprint
     odom_frame_id: odom
+    enable_odom_tf: false
     use_stamped_vel: true
     reference_timeout: 0.1
     front_steering: true

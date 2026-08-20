@@ -16,6 +16,7 @@
     rear_left_wheel_command_joint_name: "wheel_left_rear_joint"
     base_frame_id: "base_footprint"
     odom_frame_id: "odom"
+    enable_odom_tf: false
     reference_timeout: 0.1
     twist_covariance_diagonal: [0.0, 7.0, 14.0, 21.0, 28.0, 35.0]
     pose_covariance_diagonal: [0.0, 7.0, 14.0, 21.0, 28.0, 35.0]

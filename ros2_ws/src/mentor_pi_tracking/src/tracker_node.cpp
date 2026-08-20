@@ -18,19 +18,22 @@
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_msgs/msg/diagnostic_status.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "mentor_pi_tracking/tracker_plugin.hpp"
 #include "mentor_pi_tracking_interfaces/msg/polynomial_trajectory.hpp"
-#include "nav_msgs/msg/odometry.hpp"
 #include "pluginlib/class_loader.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 namespace mentor_pi::tracking {
 
 std::optional<std::array<double, 3>> GeometryCenterPoseState(
-    const nav_msgs::msg::Odometry& odometry) {
-  const auto& position = odometry.pose.pose.position;
-  const auto& orientation = odometry.pose.pose.orientation;
+    const geometry_msgs::msg::PoseStamped& pose) {
+  if (pose.header.frame_id != "map") {
+    return std::nullopt;
+  }
+  const auto& position = pose.pose.position;
+  const auto& orientation = pose.pose.orientation;
   const double norm = std::hypot(std::hypot(orientation.x, orientation.y),
                                  std::hypot(orientation.z, orientation.w));
   if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
@@ -195,10 +198,10 @@ class TrackerNode final : public rclcpp::Node {
         [this](const mentor_pi_tracking_interfaces::msg::PolynomialTrajectory::
                    SharedPtr message) { AcceptTrajectory(*message); },
         safety_options);
-    odometry_subscription_ = create_subscription<nav_msgs::msg::Odometry>(
-        controller_ + "/odometry", rclcpp::SensorDataQoS(),
-        [this](const nav_msgs::msg::Odometry::SharedPtr message) {
-          AcceptOdometry(*message);
+    pose_subscription_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+        controller_ + "/pose", rclcpp::SensorDataQoS(),
+        [this](const geometry_msgs::msg::PoseStamped::SharedPtr message) {
+          AcceptPose(*message);
         },
         safety_options);
     cancel_service_ = create_service<std_srvs::srv::Trigger>(
@@ -325,16 +328,16 @@ class TrackerNode final : public rclcpp::Node {
     }
   }
 
-  void AcceptOdometry(const nav_msgs::msg::Odometry& message) {
+  void AcceptPose(const geometry_msgs::msg::PoseStamped& message) {
     const auto geometry_center_state = GeometryCenterPoseState(message);
     if (!geometry_center_state.has_value()) {
       {
         std::lock_guard<std::mutex> lock(state_mutex_);
-        has_odometry_ = false;
+        has_pose_ = false;
       }
       SafetyInhibit();
       PublishDiagnostic(diagnostic_msgs::msg::DiagnosticStatus::ERROR,
-                        "non-finite or invalid odometry rejected");
+                        "non-finite, invalid, or non-map pose rejected");
       return;
     }
     const double raw_yaw = (*geometry_center_state)[2];
@@ -349,18 +352,18 @@ class TrackerNode final : public rclcpp::Node {
       has_raw_yaw_ = true;
       const double yaw =
           vehicle_ == VehicleType::kMecanum ? yaw_unwrapped_ : raw_yaw;
-      // Public vehicle odometry is defined at the chassis geometry center for
-      // both vehicle types.  The Ackermann rear-axle offset remains part of
-      // its dynamics, not an additional measurement-frame conversion here.
+      // Public vehicle pose is the chassis geometry center in map for both
+      // vehicle types. The Ackermann rear-axle offset remains part of its
+      // dynamics, not an additional measurement-frame conversion here.
       state_ = {
           {(*geometry_center_state)[0], (*geometry_center_state)[1], yaw}};
-      odometry_time_ = SteadyClock::now();
-      has_odometry_ = true;
+      pose_time_ = SteadyClock::now();
+      has_pose_ = true;
     }
   }
 
   bool FreshLocked(SteadyClock::time_point now) const {
-    return has_odometry_ && now - odometry_time_ <= kFeedbackTimeout;
+    return has_pose_ && now - pose_time_ <= kFeedbackTimeout;
   }
 
   std::optional<ControlSnapshot> MakeSnapshot(SteadyClock::time_point now) {
@@ -461,7 +464,7 @@ class TrackerNode final : public rclcpp::Node {
       plugin_->SetAppliedCommand(command);
     }
     // Recheck after the controller result and any observer handoff.  A cancel,
-    // replacement activation, stale odometry, or deadline expiry must never
+    // replacement activation, stale pose, or deadline expiry must never
     // allow a stale command to be published.
     std::lock_guard<std::mutex> state_lock(state_mutex_);
     const auto now = SteadyClock::now();
@@ -686,8 +689,8 @@ class TrackerNode final : public rclcpp::Node {
 
   mutable std::mutex state_mutex_;
   std::array<double, 3> state_{};
-  SteadyClock::time_point odometry_time_{};
-  bool has_odometry_{};
+  SteadyClock::time_point pose_time_{};
+  bool has_pose_{};
   bool has_raw_yaw_{};
   double last_raw_yaw_{};
   double yaw_unwrapped_{};
@@ -721,8 +724,8 @@ class TrackerNode final : public rclcpp::Node {
   rclcpp::Subscription<
       mentor_pi_tracking_interfaces::msg::PolynomialTrajectory>::SharedPtr
       trajectory_subscription_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr
-      odometry_subscription_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr
+      pose_subscription_;
   rclcpp::CallbackGroup::SharedPtr safety_group_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_service_;
   rclcpp::TimerBase::SharedPtr timer_;

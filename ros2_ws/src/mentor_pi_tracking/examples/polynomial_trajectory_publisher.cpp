@@ -25,7 +25,7 @@ class ExamplePublisher final : public rclcpp::Node {
         rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile());
     timer_ = create_wall_timer(std::chrono::seconds(1), [this] {
       mentor_pi_tracking_interfaces::msg::PolynomialTrajectory trajectory;
-      trajectory.header.frame_id = "odom";
+      trajectory.header.frame_id = "map";
       trajectory.header.stamp = now() + rclcpp::Duration::from_seconds(1.0);
       trajectory.trajectory_id = "example_straight_line";
       mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
@@ -33,7 +33,7 @@ class ExamplePublisher final : public rclcpp::Node {
       segment.x_coefficients[1] = 0.1;
       trajectory.segments.push_back(segment);
       publisher_->publish(trajectory);
-      RCLCPP_INFO(get_logger(), "Published approved odom-frame example spline");
+      RCLCPP_INFO(get_logger(), "Published approved map-frame example spline");
       timer_->cancel();
     });
   }

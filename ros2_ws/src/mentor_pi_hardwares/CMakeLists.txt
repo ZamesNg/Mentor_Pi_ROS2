@@ -14,7 +14,6 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(tf2_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(mentor_pi_interfaces REQUIRED)
 
@@ -54,14 +53,13 @@ ament_target_dependencies(mentor_pi_hardwares
   rclcpp
   rclcpp_lifecycle
   std_msgs
-  tf2_msgs
 )
 
-add_executable(vehicle_odometry src/vehicle_odometry.cpp)
-target_compile_features(vehicle_odometry PRIVATE cxx_std_17)
-target_compile_options(vehicle_odometry PRIVATE ${MENTOR_PI_WARNING_FLAGS})
-ament_target_dependencies(vehicle_odometry nav_msgs rclcpp tf2_msgs tf2_ros)
-target_link_libraries(vehicle_odometry mentor_pi_hardwares)
+add_executable(vehicle_pose src/vehicle_pose.cpp)
+target_compile_features(vehicle_pose PRIVATE cxx_std_17)
+target_compile_options(vehicle_pose PRIVATE ${MENTOR_PI_WARNING_FLAGS})
+ament_target_dependencies(vehicle_pose geometry_msgs nav_msgs rclcpp tf2_ros)
+target_link_libraries(vehicle_pose mentor_pi_hardwares)
 
 pluginlib_export_plugin_description_file(hardware_interface ros2_control_plugins.xml)
 
@@ -74,7 +72,7 @@ install(
 )
 
 install(
-  TARGETS vehicle_odometry
+  TARGETS vehicle_pose
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -94,6 +92,7 @@ install(
 # install step does not otherwise delete files left by an older release.
 install(CODE "
   file(REMOVE
+    \"\${CMAKE_INSTALL_PREFIX}/lib/${PROJECT_NAME}/vehicle_odometry\"
     \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/launch/mecanum.launch.py\"
     \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/launch/ackermann.launch.py\"
     \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/launch/exp_vehicle_launch.py\"
@@ -118,7 +117,6 @@ ament_export_dependencies(
   rclcpp
   rclcpp_lifecycle
   std_msgs
-  tf2_msgs
 )
 
 if(BUILD_TESTING)
@@ -137,7 +135,7 @@ if(BUILD_TESTING)
   ament_add_gtest(odometry_transform_test test/odometry_transform_test.cpp)
   if(TARGET odometry_transform_test)
     target_link_libraries(odometry_transform_test mentor_pi_hardwares)
-    ament_target_dependencies(odometry_transform_test nav_msgs tf2_msgs)
+    ament_target_dependencies(odometry_transform_test nav_msgs)
     target_compile_features(odometry_transform_test PRIVATE cxx_std_17)
     target_compile_options(odometry_transform_test PRIVATE ${MENTOR_PI_WARNING_FLAGS})
   endif()
@@ -180,6 +178,10 @@ if(BUILD_TESTING)
   ament_add_pytest_test(simulation_runtime_test
     test/test_simulation_runtime.py
     TIMEOUT 90
+  )
+  ament_add_pytest_test(vehicle_pose_runtime_test
+    test/test_vehicle_pose_runtime.py
+    TIMEOUT 30
   )
 endif()
 

@@ -354,8 +354,9 @@ it is not a poor-gain result.
 
 Do this only after the inner motor and chassis velocity loops have accepted
 guarded-HIL records. The trajectory tracker is a third, outer loop: it compares
-scheduled position with odometry and requests a bounded chassis velocity. A
-poor inner velocity loop cannot be repaired with outer position gains.
+scheduled map-frame position with the mocap geometry-center pose and requests a
+bounded chassis velocity. A poor inner velocity loop cannot be repaired with
+outer position gains.
 
 For Mecanum, the outer LADRC tracks geometry-center world X, world Y, and
 unwrapped yaw. For Ackermann it tracks geometry-center X/Y only. Ackermann yaw
@@ -455,8 +456,8 @@ Tune Mecanum X, then Y, then yaw, both signs. Tune Ackermann straight
 center-position tracking before curved center-position tracking, then repeat
 forward and reverse. Change input gain first, `wc` second, and `wo` last. For
 every run record scheduled and measured center pose, requested and bounded
-twist, cross-track error, rise/settling time, overshoot, steady error, odometry
-and IMU noise, saturation duration, current, temperature, watchdogs, resets,
+twist, cross-track error, rise/settling time, overshoot, steady error, mocap
+pose and IMU noise, saturation duration, current, temperature, watchdogs, resets,
 and the exact plugin parameters. A green software run or rosbag alone does not
 qualify trajectory ADRC.
 

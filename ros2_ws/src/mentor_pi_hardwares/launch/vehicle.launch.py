@@ -160,7 +160,7 @@ def resolve_tracking_controller(selection, vehicle_type):
     return vehicle_type
 
 
-def controller_odometry_remappings(robot_name):
+def controller_state_estimate_remappings(robot_name):
     if not _validate_robot_name(robot_name):
         raise ValueError("robot_name must be a valid relative ROS namespace")
     controller_prefix = f"/{robot_name}/vehicle"
@@ -176,18 +176,26 @@ def controller_odometry_remappings(robot_name):
     ]
 
 
-def odometry_adapter_parameters(robot_name, vehicle_type):
+def physical_pose_parameters(robot_name):
     if not _validate_robot_name(robot_name):
         raise ValueError("robot_name must be a valid relative ROS namespace")
-    if vehicle_type not in _VEHICLE_TYPES:
-        raise ValueError(f"unsupported vehicle_type: {vehicle_type}")
     return {
-        "source_to_geometry_center_m": _TRACKING_GEOMETRY[vehicle_type][
-            "rear_axle_to_geometry_center"
-        ],
+        "input_type": "mocap_pose",
+        "source_to_geometry_center_m": 0.0,
         "geometry_center_frame_id": f"{robot_name}/base_footprint",
-        "output_odom_frame_id": f"{robot_name}/odom",
+        "output_frame_id": "map",
     }
+
+
+def mocap_pose_remappings(robot_name):
+    if not _validate_robot_name(robot_name):
+        raise ValueError("robot_name must be a valid relative ROS namespace")
+    return [
+        (
+            f"/{robot_name}/vehicle/_mocap_pose",
+            f"/vrpn_mocap/{robot_name}/pose",
+        )
+    ]
 
 
 def load_vehicle_profile(path):
@@ -299,14 +307,16 @@ def _launch_vehicle(context):
         namespace=robot_name,
         output="screen",
         parameters=[controllers_file, robot_description],
-        remappings=controller_odometry_remappings(robot_name),
+        remappings=controller_state_estimate_remappings(robot_name),
     )
-    odometry_adapter = Node(
+    pose_adapter = Node(
         package="mentor_pi_hardwares",
-        executable="vehicle_odometry",
+        executable="vehicle_pose",
+        name="vehicle_pose",
         namespace=robot_name,
         output="screen",
-        parameters=[odometry_adapter_parameters(robot_name, vehicle_type)],
+        parameters=[physical_pose_parameters(robot_name)],
+        remappings=mocap_pose_remappings(robot_name),
     )
     joint_state_spawner = Node(
         package="controller_manager",
@@ -369,8 +379,8 @@ def _launch_vehicle(context):
         robot_state_publisher,
         _shutdown_on_exit(controller_manager, "controller manager"),
         controller_manager,
-        _shutdown_on_exit(odometry_adapter, "vehicle odometry adapter"),
-        odometry_adapter,
+        _shutdown_on_exit(pose_adapter, "vehicle pose adapter"),
+        pose_adapter,
         TimerAction(
             period=2.0,
             actions=delayed_actions,

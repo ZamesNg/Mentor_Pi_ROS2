@@ -119,6 +119,27 @@ void ValidateOdometry(const nav_msgs::msg::Odometry& odometry) {
   }
 }
 
+geometry_msgs::msg::Quaternion NormalizedOrientation(
+    const geometry_msgs::msg::Quaternion& orientation) {
+  const std::array<double, 4> elements{
+      {orientation.x, orientation.y, orientation.z, orientation.w}};
+  if (!std::all_of(elements.begin(), elements.end(),
+                   [](double value) { return std::isfinite(value); })) {
+    throw std::invalid_argument("orientation must be finite");
+  }
+  const double norm = std::hypot(std::hypot(orientation.x, orientation.y),
+                                 std::hypot(orientation.z, orientation.w));
+  if (!std::isfinite(norm) || norm < 1.0e-9) {
+    throw std::invalid_argument("orientation must be nonzero");
+  }
+  geometry_msgs::msg::Quaternion normalized;
+  normalized.x = orientation.x / norm;
+  normalized.y = orientation.y / norm;
+  normalized.z = orientation.z / norm;
+  normalized.w = orientation.w / norm;
+  return normalized;
+}
+
 std::array<double, 36> PlanarRotationJacobian(double yaw) {
   auto jacobian = IdentityJacobian();
   const double cosine = std::cos(yaw);
@@ -140,16 +161,6 @@ void TransformPosition(geometry_msgs::msg::Point* position,
   const double sine = std::sin(transform.yaw_rad);
   position->x = transform.x_m + cosine * source_x - sine * source_y;
   position->y = transform.y_m + sine * source_x + cosine * source_y;
-}
-
-void TransformTranslation(geometry_msgs::msg::Vector3* translation,
-                          const PlanarTransform& transform) {
-  const double source_x = translation->x;
-  const double source_y = translation->y;
-  const double cosine = std::cos(transform.yaw_rad);
-  const double sine = std::sin(transform.yaw_rad);
-  translation->x = transform.x_m + cosine * source_x - sine * source_y;
-  translation->y = transform.y_m + sine * source_x + cosine * source_y;
 }
 
 }  // namespace
@@ -194,39 +205,56 @@ nav_msgs::msg::Odometry ToGeometryCenterOdometry(
   return output;
 }
 
-tf2_msgs::msg::TFMessage ToGeometryCenterTf(
-    const tf2_msgs::msg::TFMessage& source_tf,
+geometry_msgs::msg::PoseStamped GeometryCenterPoseFromOdometry(
+    const nav_msgs::msg::Odometry& source_odometry,
     double source_to_geometry_center_m,
     const std::string& geometry_center_frame_id,
-    PlanarTransform output_from_source,
-    const std::string& output_odom_frame_id) {
-  Validate(source_to_geometry_center_m, geometry_center_frame_id,
-           output_from_source);
-  tf2_msgs::msg::TFMessage output = source_tf;
-  for (auto& transform : output.transforms) {
-    const std::array<double, 3> translation{{
-        transform.transform.translation.x,
-        transform.transform.translation.y,
-        transform.transform.translation.z,
-    }};
-    if (!std::all_of(translation.begin(), translation.end(),
-                     [](double value) { return std::isfinite(value); })) {
-      throw std::invalid_argument("transform translation must be finite");
-    }
-    const double yaw = Yaw(transform.transform.rotation);
-    transform.child_frame_id = geometry_center_frame_id;
-    if (!output_odom_frame_id.empty()) {
-      transform.header.frame_id = output_odom_frame_id;
-    }
-    transform.transform.translation.x +=
-        source_to_geometry_center_m * std::cos(yaw);
-    transform.transform.translation.y +=
-        source_to_geometry_center_m * std::sin(yaw);
-    TransformTranslation(&transform.transform.translation, output_from_source);
-    transform.transform.rotation = RotateOrientation(
-        transform.transform.rotation, output_from_source.yaw_rad);
+    PlanarTransform output_from_source, const std::string& output_frame_id) {
+  if (output_frame_id.empty()) {
+    throw std::invalid_argument("output pose frame must not be empty");
   }
+  const auto odometry = ToGeometryCenterOdometry(
+      source_odometry, source_to_geometry_center_m, geometry_center_frame_id,
+      output_from_source, output_frame_id);
+  geometry_msgs::msg::PoseStamped pose;
+  pose.header = odometry.header;
+  pose.pose = odometry.pose.pose;
+  pose.pose.orientation = NormalizedOrientation(pose.pose.orientation);
+  return pose;
+}
+
+geometry_msgs::msg::PoseStamped ValidateGeometryCenterPose(
+    const geometry_msgs::msg::PoseStamped& source_pose) {
+  if (source_pose.header.frame_id != "map") {
+    throw std::invalid_argument("geometry-center pose frame must be map");
+  }
+  const std::array<double, 3> position{{source_pose.pose.position.x,
+                                        source_pose.pose.position.y,
+                                        source_pose.pose.position.z}};
+  if (!std::all_of(position.begin(), position.end(),
+                   [](double value) { return std::isfinite(value); })) {
+    throw std::invalid_argument("geometry-center pose position must be finite");
+  }
+  auto output = source_pose;
+  output.pose.orientation = NormalizedOrientation(source_pose.pose.orientation);
   return output;
+}
+
+geometry_msgs::msg::TransformStamped GeometryCenterPoseToTransform(
+    const geometry_msgs::msg::PoseStamped& pose,
+    const std::string& geometry_center_frame_id) {
+  const auto valid = ValidateGeometryCenterPose(pose);
+  if (geometry_center_frame_id.empty()) {
+    throw std::invalid_argument("geometry_center_frame_id must not be empty");
+  }
+  geometry_msgs::msg::TransformStamped transform;
+  transform.header = valid.header;
+  transform.child_frame_id = geometry_center_frame_id;
+  transform.transform.translation.x = valid.pose.position.x;
+  transform.transform.translation.y = valid.pose.position.y;
+  transform.transform.translation.z = valid.pose.position.z;
+  transform.transform.rotation = valid.pose.orientation;
+  return transform;
 }
 
 }  // namespace mentor_pi::hardware

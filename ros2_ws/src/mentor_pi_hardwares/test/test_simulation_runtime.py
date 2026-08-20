@@ -10,12 +10,11 @@ import time
 import xml.etree.ElementTree as ET
 
 from controller_manager_msgs.srv import ListControllers
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped
 from mentor_pi_tracking_interfaces.msg import (
     PolynomialSegment,
     PolynomialTrajectory,
 )
-from nav_msgs.msg import Odometry
 import pytest
 import rclpy
 from rclpy.duration import Duration
@@ -47,17 +46,17 @@ class SimulationClient:
     def __init__(self, robot_name):
         self.robot_name = robot_name
         self.node = rclpy.create_node(f"{robot_name}_runtime_probe")
-        self.latest_odometry = None
+        self.latest_pose = None
         self.robot_description = None
         self.transforms = {}
         self.publisher = self.node.create_publisher(
             TwistStamped, f"/{robot_name}/vehicle/reference", 10
         )
         self.subscription = self.node.create_subscription(
-            Odometry,
-            f"/{robot_name}/vehicle/odometry",
-            self._accept_odometry,
-            10,
+            PoseStamped,
+            f"/{robot_name}/vehicle/pose",
+            self._accept_pose,
+            qos_profile_sensor_data,
         )
         transient_local_qos = QoSProfile(
             depth=1,
@@ -89,8 +88,8 @@ class SimulationClient:
     def destroy(self):
         self.node.destroy_node()
 
-    def _accept_odometry(self, message):
-        self.latest_odometry = message
+    def _accept_pose(self, message):
+        self.latest_pose = message
 
     def _accept_robot_description(self, message):
         self.robot_description = message.data
@@ -213,7 +212,7 @@ def stop_process(process):
 
 
 @pytest.mark.parametrize("vehicle_type", ["ackermann", "mecanum"])
-def test_simulation_controller_and_odometry_runtime(vehicle_type):
+def test_simulation_controller_and_map_pose_runtime(vehicle_type):
     robot_name = f"{vehicle_type}_runtime_test"
     with tempfile.TemporaryFile(mode="w+") as log:
         process = launch_simulation(
@@ -226,7 +225,7 @@ def test_simulation_controller_and_odometry_runtime(vehicle_type):
             assert client.spin_until(
                 lambda: process.poll() is not None
                 or (
-                    client.latest_odometry is not None
+                    client.latest_pose is not None
                     and client.controller_is_active()
                     and client.robot_description is not None
                     and f"{robot_name}/wheel_left_rear_link"
@@ -235,12 +234,11 @@ def test_simulation_controller_and_odometry_runtime(vehicle_type):
                 timeout=15.0,
             )
             assert process.poll() is None
-            initial = client.latest_odometry
-            assert initial.header.frame_id == f"{robot_name}/odom"
-            assert initial.child_frame_id == f"{robot_name}/base_footprint"
-            assert initial.pose.pose.position.x == pytest.approx(1.25, abs=0.01)
-            assert initial.pose.pose.position.y == pytest.approx(-0.75, abs=0.01)
-            assert yaw(initial.pose.pose.orientation) == pytest.approx(
+            initial = client.latest_pose
+            assert initial.header.frame_id == "map"
+            assert initial.pose.position.x == pytest.approx(1.25, abs=0.01)
+            assert initial.pose.position.y == pytest.approx(-0.75, abs=0.01)
+            assert yaw(initial.pose.orientation) == pytest.approx(
                 0.0, abs=0.01
             )
 
@@ -250,18 +248,23 @@ def test_simulation_controller_and_odometry_runtime(vehicle_type):
             }
             assert ("vehicle", f"/{robot_name}") in nodes
             assert ("vehicle_hardware", f"/{robot_name}") in nodes
+            assert ("vehicle_pose", f"/{robot_name}") in nodes
+            assert ("_vehicle_odometry", f"/{robot_name}") not in nodes
             assert ("trajectory_tracker", f"/{robot_name}") not in nodes
             assert ("configuration_supervisor", f"/{robot_name}") not in nodes
             topics = {
                 name for name, _ in client.node.get_topic_names_and_types()
             }
             assert f"/{robot_name}/vehicle/reference" in topics
-            assert f"/{robot_name}/vehicle/odometry" in topics
+            assert f"/{robot_name}/vehicle/pose" in topics
+            assert f"/{robot_name}/vehicle/odometry" not in topics
+            assert f"/{robot_name}/vehicle/tf_odometry" not in topics
             assert f"/{robot_name}/robot_description" in topics
             assert "/tf" in topics
             assert "/tf_static" in topics
             assert f"/{robot_name}/heartbeat" not in topics
             assert f"/{robot_name}/motors/state" not in topics
+            assert client.transforms[f"{robot_name}/base_footprint"].header.frame_id == "map"
 
             description = ET.fromstring(client.robot_description)
             link_names = {
@@ -308,7 +311,7 @@ def test_simulation_controller_and_odometry_runtime(vehicle_type):
                 client.publish_for(0.12, 0.0, 0.25, 1.0)
             else:
                 client.publish_for(0.12, 0.08, 0.25, 1.0)
-            positive = client.latest_odometry
+            positive = client.latest_pose
             positive_wheel_rotation = client.transforms[
                 wheel_frame
             ].transform.rotation
@@ -321,34 +324,37 @@ def test_simulation_controller_and_odometry_runtime(vehicle_type):
             assert positive_wheel_quaternion != pytest.approx(
                 initial_wheel_quaternion, abs=1.0e-3
             )
-            assert positive.pose.pose.position.x > initial.pose.pose.position.x + 0.03
-            assert yaw(positive.pose.pose.orientation) > 0.03
+            assert positive.pose.position.x > initial.pose.position.x + 0.03
+            assert yaw(positive.pose.orientation) > 0.03
             if vehicle_type == "mecanum":
-                assert positive.pose.pose.position.y > (
-                    initial.pose.pose.position.y + 0.02
+                assert positive.pose.position.y > (
+                    initial.pose.position.y + 0.02
                 )
 
             if vehicle_type == "ackermann":
                 client.publish_for(-0.12, 0.0, 0.0, 1.0)
-                reverse = client.latest_odometry
-                assert reverse.pose.pose.position.x < (
-                    positive.pose.pose.position.x - 0.02
+                reverse = client.latest_pose
+                assert reverse.pose.position.x < (
+                    positive.pose.position.x - 0.02
                 )
             else:
                 client.publish_for(-0.12, -0.08, -0.25, 1.0)
-                reverse = client.latest_odometry
-                assert reverse.pose.pose.position.x < positive.pose.pose.position.x
-                assert reverse.pose.pose.position.y < positive.pose.pose.position.y
-                assert yaw(reverse.pose.pose.orientation) < (
-                    yaw(positive.pose.pose.orientation) - 0.03
+                reverse = client.latest_pose
+                assert reverse.pose.position.x < positive.pose.position.x
+                assert reverse.pose.position.y < positive.pose.position.y
+                assert yaw(reverse.pose.orientation) < (
+                    yaw(positive.pose.orientation) - 0.03
                 )
 
-            assert client.spin_until(
-                lambda: client.latest_odometry is not None
-                and abs(client.latest_odometry.twist.twist.linear.x) < 0.02
-                and abs(client.latest_odometry.twist.twist.linear.y) < 0.02
-                and abs(client.latest_odometry.twist.twist.angular.z) < 0.02,
-                timeout=1.5,
+            assert client.spin_until(lambda: client.latest_pose is not None, timeout=1.5)
+            stopped = client.latest_pose.pose.position
+            time.sleep(0.3)
+            rclpy.spin_once(client.node, timeout_sec=0.05)
+            assert client.latest_pose.pose.position.x == pytest.approx(
+                stopped.x, abs=0.01
+            )
+            assert client.latest_pose.pose.position.y == pytest.approx(
+                stopped.y, abs=0.01
             )
         finally:
             stop_process(process)
@@ -383,7 +389,7 @@ def test_foxglove_bridge_is_separate_and_discovers_simulation_graph():
             assert client.spin_until(
                 lambda: simulation.poll() is not None
                 or (
-                    client.latest_odometry is not None
+                    client.latest_pose is not None
                     and client.controller_is_active()
                 ),
                 timeout=15.0,
@@ -462,7 +468,7 @@ def test_default_tracker_drives_simulation_without_low_level_topics(
             assert client.spin_until(
                 lambda: process.poll() is not None
                 or (
-                    client.latest_odometry is not None
+                    client.latest_pose is not None
                     and client.controller_is_active()
                     and trajectory_publisher.get_subscription_count() == 1
                 ),
@@ -484,7 +490,7 @@ def test_default_tracker_drives_simulation_without_low_level_topics(
                 assert absent not in topics
 
             trajectory = PolynomialTrajectory()
-            trajectory.header.frame_id = "odom"
+            trajectory.header.frame_id = "map"
             trajectory.header.stamp = (
                 client.node.get_clock().now()
                 + Duration(seconds=0.5)
@@ -499,27 +505,21 @@ def test_default_tracker_drives_simulation_without_low_level_topics(
                 segment.y_coefficients[1] = 0.05
                 segment.yaw_coefficients[1] = 0.20
             trajectory.segments.append(segment)
-            initial = client.latest_odometry
+            initial = client.latest_pose
             trajectory_publisher.publish(trajectory)
 
             assert client.spin_until(
-                lambda: client.latest_odometry is not None
-                and client.latest_odometry.pose.pose.position.x
-                > initial.pose.pose.position.x + 0.01,
+                lambda: client.latest_pose is not None
+                and client.latest_pose.pose.position.x
+                > initial.pose.position.x + 0.01,
                 timeout=4.0,
             )
-            moved = client.latest_odometry
+            moved = client.latest_pose
             if vehicle_type == "mecanum":
-                assert moved.pose.pose.position.y > 0.002
-                assert yaw(moved.pose.pose.orientation) > 0.005
+                assert moved.pose.position.y > 0.002
+                assert yaw(moved.pose.orientation) > 0.005
 
-            assert client.spin_until(
-                lambda: client.latest_odometry is not None
-                and abs(client.latest_odometry.twist.twist.linear.x) < 0.02
-                and abs(client.latest_odometry.twist.twist.linear.y) < 0.02
-                and abs(client.latest_odometry.twist.twist.angular.z) < 0.02,
-                timeout=3.5,
-            )
+            assert client.spin_until(lambda: client.latest_pose is not None, timeout=3.5)
         finally:
             stop_process(process)
             client.destroy()
@@ -555,7 +555,7 @@ def test_tracker_continues_correcting_after_execution_horizon():
             assert client.spin_until(
                 lambda: process.poll() is not None
                 or (
-                    client.latest_odometry is not None
+                    client.latest_pose is not None
                     and client.controller_is_active()
                     and trajectory_publisher.get_subscription_count() == 1
                 ),
@@ -564,7 +564,7 @@ def test_tracker_continues_correcting_after_execution_horizon():
             assert process.poll() is None
 
             trajectory = PolynomialTrajectory()
-            trajectory.header.frame_id = "odom"
+            trajectory.header.frame_id = "map"
             trajectory.header.stamp = (
                 client.node.get_clock().now() + Duration(seconds=0.5)
             ).to_msg()
@@ -576,23 +576,21 @@ def test_tracker_continues_correcting_after_execution_horizon():
             trajectory_publisher.publish(trajectory)
 
             assert client.spin_until(
-                lambda: client.latest_odometry is not None
-                and client.latest_odometry.pose.pose.position.x > 0.08,
+                lambda: client.latest_pose is not None
+                and client.latest_pose.pose.position.x > 0.08,
                 timeout=4.0,
             )
             assert client.spin_until(
-                lambda: client.latest_odometry is not None
-                and abs(client.latest_odometry.pose.pose.position.x - 0.15)
-                < 0.04
-                and abs(client.latest_odometry.twist.twist.linear.x) < 0.02,
+                lambda: client.latest_pose is not None
+                and abs(client.latest_pose.pose.position.x - 0.15) < 0.04,
                 timeout=4.0,
             )
-            held_x = client.latest_odometry.pose.pose.position.x
+            held_x = client.latest_pose.pose.position.x
             hold_deadline = time.monotonic() + 0.5
             while time.monotonic() < hold_deadline:
                 rclpy.spin_once(client.node, timeout_sec=0.02)
             assert (
-                abs(client.latest_odometry.pose.pose.position.x - held_x)
+                abs(client.latest_pose.pose.position.x - held_x)
                 < 0.02
             )
         finally:

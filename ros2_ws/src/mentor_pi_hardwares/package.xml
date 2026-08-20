@@ -18,7 +18,6 @@
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>std_msgs</depend>
-  <depend>tf2_msgs</depend>
   <depend>tf2_ros</depend>
 
   <exec_depend>ackermann_steering_controller</exec_depend>
@@ -42,6 +41,7 @@
   <test_depend>controller_manager_msgs</test_depend>
   <test_depend>mentor_pi_tracking_interfaces</test_depend>
   <test_depend>rclpy</test_depend>
+  <test_depend>tf2_msgs</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

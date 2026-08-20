@@ -1,7 +1,8 @@
 # RRCLite v2 Reliability and Safety Contract
 
 The optional lower-level tracker is an additional host safety boundary. It
-publishes zero when it has no active scheduled trajectory or fresh odometry;
+publishes zero when it has no active scheduled trajectory or fresh map-frame
+geometry-center pose;
 after cancellation; and after its bounded solver/fallback window. At the sum of
 the accepted segment durations it retains the terminal pose, forces reference
 derivatives to zero, and actively holds that endpoint until replacement or

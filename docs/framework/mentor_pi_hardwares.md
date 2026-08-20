@@ -14,7 +14,8 @@ application processes:
 2. `robot_state_publisher`;
 3. `controller_manager`, which loads one `SystemInterface` plugin and spawns
    the selected drive controller plus `joint_state_broadcaster`.
-4. the hidden geometry-center odometry adapter.
+4. the geometry-center mocap pose adapter; and
+5. the profile-matched trajectory tracker unless explicitly disabled.
 
 Use `vehicle.launch.py`; onboarding installs its generated `vehicle.yaml` and
 matching controller profile. The profile's `robot_name` namespaces firmware
@@ -23,15 +24,61 @@ absolute `vehicle_config` override is retained for development; its sibling
 `controllers.yaml` is used automatically.
 
 Both vehicle types use the same graph names. The selected drive controller is
-`/<robot_name>/vehicle`; its standard endpoints are `vehicle/reference`,
-`vehicle/reference_unstamped`, `vehicle/odometry`, `vehicle/tf_odometry`, and
+`/<robot_name>/vehicle`; its command and state endpoints include
+`vehicle/reference`, `vehicle/reference_unstamped`, and
 `vehicle/controller_state`. Both hardware adapters use the private node
-`/<robot_name>/vehicle_hardware`; both vehicles also use the hidden node
-`/<robot_name>/_vehicle_odometry`. The upstream controller odometry topics are
-hidden adapter inputs. Public odometry and its `odom -> base_footprint`
-transform always describe the geometry center. The transform is published on
-standard `/tf` and retained on `vehicle/tf_odometry` for the controller graph
-contract.
+`/<robot_name>/vehicle_hardware`; both vehicles also use
+`/<robot_name>/vehicle_pose`.
+
+Physical global position comes only from the geometry-center mocap pose on
+`/vrpn_mocap/<robot_name>/pose`. That input must be a finite
+`geometry_msgs/msg/PoseStamped` in `map`. The adapter normalizes its quaternion,
+publishes the common `/<robot_name>/vehicle/pose` endpoint, and owns the
+dynamic `map -> <robot_name>/base_footprint` transform. The VRPN client must
+therefore have its own TF broadcast disabled. A wrong-frame or invalid mocap
+sample is rejected instead of being relabelled.
+
+`vehicle.launch.py` does not start or configure `vrpn_client_ros`; localization
+is an external prerequisite, like the Discovery Server. Configure the VRPN
+client to publish each rigid body with `frame_id=map` and to leave TF
+broadcasting disabled, then verify the adapter boundary before sending a
+trajectory:
+
+```sh
+ros2 topic echo --once /vrpn_mocap/<robot>/pose
+ros2 topic echo --once /<robot>/vehicle/pose
+ros2 run tf2_ros tf2_echo map <robot>/base_footprint
+```
+
+The upstream controllers continue calculating encoder odometry internally,
+because that is part of their controller implementation, but both odometry
+outputs are remapped below `vehicle/_controller_*`. `enable_odom_tf` is false,
+and physical launch neither republishes nor consumes those global pose
+estimates. There is no public `vehicle/odometry`, `vehicle/tf_odometry`, or
+namespaced `odom` root in the physical TF tree.
+
+The resulting physical trees are:
+
+```text
+Ackermann
+map
+└── <robot>/base_footprint
+    ├── <robot>/rear_axle_footprint
+    └── <robot>/base_link
+        ├── four wheel links
+        └── <robot>/imu_link
+
+Mecanum
+map
+└── <robot>/base_footprint
+    └── <robot>/base_link
+        ├── four wheel links
+        └── <robot>/imu_link
+```
+
+`robot_state_publisher` retains fixed joints on `/tf_static` and moving wheel
+and steering joints on `/tf`; removing encoder-derived global pose does not
+remove any URDF link.
 Ackermann and Mecanum retain their different upstream controller plugin types;
 consequently `vehicle/controller_state` has the plugin's native
 `SteeringControllerStatus` or `MecanumDriveControllerState` type. Physical
@@ -44,7 +91,7 @@ when the tracker must be absent, including direct `vehicle/reference` tests.
 
 `simulation.launch.py` is a separate, development-only topology. It starts
 `robot_state_publisher`, `controller_manager`, the same `vehicle` controller,
-`joint_state_broadcaster`, and the same geometry-center odometry adapter over a
+`joint_state_broadcaster`, and the same geometry-center pose adapter over a
 deterministic numerical hardware plugin. It uses the same tracker selection as
 physical launch, defaulting to the vehicle-matched ADRC tracker. It does not
 start the configuration supervisor, micro-ROS Agent, or any firmware-facing
@@ -91,18 +138,16 @@ feedback or a transient-local authorization from the previous session from
 rearming motion.
 
 The measured Ackermann runtime geometry is a `0.135 m` wheelbase, `0.140 m`
-wheel track, `0.0325 m` wheel radius, and `+/-0.6 rad` steering limit. The
-upstream Humble controller internally integrates the rear-axle midpoint. The
-odometry adapter shifts that source forward by `0.0675 m`, including the
-rigid-body twist and covariance transformations, before publishing public
-geometry-center odometry as `base_footprint`. In the URDF,
+wheel track, `0.0325 m` wheel radius, and `+/-0.6 rad` steering limit. Physical
+mocap already measures `base_footprint` at the geometry center, so no
+rear-axle shift is applied to it. In the URDF,
 `rear_axle_footprint` is a fixed child `0.0675 m` behind `base_footprint`.
-Mecanum uses the same adapter with a zero offset. The retained visual/collision
-wheel coordinates now place the imported Mentor Pi STL visuals against the
-controller geometry. Meshes remain visualization-only: primitive collision and
-inertial data are unchanged and are not controller authority. Camera and lidar
-meshes are composed into `base_link` without adding TF frames. Their provenance
-and separate `NOASSERTION` status are recorded with the installed configuration.
+The retained visual/collision wheel coordinates place the imported Mentor Pi
+STL visuals against the controller geometry. Meshes remain visualization-only:
+primitive collision and inertial data are unchanged and are not controller
+authority. Camera and lidar meshes are composed into `base_link` without adding
+TF frames. Their provenance and separate `NOASSERTION` status are recorded with
+the installed configuration.
 
 `make onboard-configure` regenerates both profiles after a type or namespace
 change and flashes firmware with the same namespace. Multiple robots may share
@@ -118,9 +163,10 @@ Ackermann averages the two commanded front steering positions into one
 physical steering state, clamps it to `+/-0.6 rad`, rate-limits it to
 `60 rad/s`, and reports that state through both steering joints.
 
-The upstream controllers derive odometry from those joint states. The common
-adapter then applies the requested initial SE(2) pose and, for Ackermann, the
-rear-axle-to-center offset, so the first public pose is exactly the requested
+The upstream controllers derive an internal numerical pose from those joint
+states. The common adapter applies the requested initial SE(2) pose and, for
+Ackermann, the rear-axle-to-center offset, then publishes `vehicle/pose` and
+`map -> base_footprint`. The first public pose is exactly the requested
 geometry-center pose. Simulation publishes no `/clock` and models no noise,
 slip, collisions, terrain, IMU, or identified actuator lag. It is a numerical
 control and kinematics test, not HIL or qualification evidence. See

@@ -173,7 +173,8 @@ The physical hardware adapters require the single expected supervisor publisher
 and a matching live heartbeat session. Missing or invalid configuration, stale
 feedback, supervisor loss, Agent restart, or serial loss leaves physical motion
 disarmed. The vehicle-level tracker is hardware-independent; it requires fresh
-geometry-center odometry and relies on the lower layer for physical safety.
+fresh map-frame geometry-center pose and relies on the lower layer for physical
+safety.
 
 Before powered motor work, complete Tutorials 01–05 passively, verify encoder
 direction, raise or equivalently guard every wheel, use a current-limited

@@ -3,8 +3,9 @@
 
 #include <string>
 
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nav_msgs/msg/odometry.hpp"
-#include "tf2_msgs/msg/tf_message.hpp"
 
 namespace mentor_pi::hardware {
 
@@ -21,12 +22,19 @@ nav_msgs::msg::Odometry ToGeometryCenterOdometry(
     PlanarTransform output_from_source = {},
     const std::string& output_odom_frame_id = "");
 
-tf2_msgs::msg::TFMessage ToGeometryCenterTf(
-    const tf2_msgs::msg::TFMessage& source_tf,
+geometry_msgs::msg::PoseStamped GeometryCenterPoseFromOdometry(
+    const nav_msgs::msg::Odometry& source_odometry,
     double source_to_geometry_center_m,
     const std::string& geometry_center_frame_id,
     PlanarTransform output_from_source = {},
-    const std::string& output_odom_frame_id = "");
+    const std::string& output_frame_id = "map");
+
+geometry_msgs::msg::PoseStamped ValidateGeometryCenterPose(
+    const geometry_msgs::msg::PoseStamped& source_pose);
+
+geometry_msgs::msg::TransformStamped GeometryCenterPoseToTransform(
+    const geometry_msgs::msg::PoseStamped& pose,
+    const std::string& geometry_center_frame_id);
 
 }  // namespace mentor_pi::hardware
 

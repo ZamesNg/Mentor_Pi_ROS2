@@ -12,7 +12,7 @@ namespace {
 
 PolynomialTrajectory StraightTrajectory() {
   mentor_pi_tracking_interfaces::msg::PolynomialTrajectory message;
-  message.header.frame_id = "odom";
+  message.header.frame_id = "map";
   message.trajectory_id = "straight";
   mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
   segment.duration.sec = 5;
@@ -26,7 +26,7 @@ PolynomialTrajectory StraightTrajectory() {
 
 PolynomialTrajectory StraightTrajectoryWithYaw(double yaw, double yaw_rate) {
   auto message = mentor_pi_tracking_interfaces::msg::PolynomialTrajectory{};
-  message.header.frame_id = "odom";
+  message.header.frame_id = "map";
   message.trajectory_id = "straight-yaw-" + std::to_string(yaw);
   mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
   segment.duration.sec = 5;
@@ -181,7 +181,7 @@ TEST(MpcSolverTest, AckermannBoundPreservesSteeringGeometry) {
 
 TEST(MpcSolverTest, SolvesStationaryMecanumProblemWithAlto) {
   auto message = mentor_pi_tracking_interfaces::msg::PolynomialTrajectory{};
-  message.header.frame_id = "odom";
+  message.header.frame_id = "map";
   message.trajectory_id = "stationary";
   mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
   segment.duration.sec = 2;

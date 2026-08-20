@@ -12,7 +12,6 @@
   <depend>diagnostic_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>mentor_pi_tracking_interfaces</depend>
-  <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
   <depend>pluginlib</depend>
   <depend>std_srvs</depend>

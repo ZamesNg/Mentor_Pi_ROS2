@@ -60,8 +60,8 @@ std::optional<PolynomialTrajectory> PolynomialTrajectory::FromMessage(
     }
     return std::optional<PolynomialTrajectory>{};
   };
-  if (message.header.frame_id != "odom") {
-    return reject("trajectory frame must be odom");
+  if (message.header.frame_id != "map") {
+    return reject("trajectory frame must be map");
   }
   if (message.trajectory_id.empty() || message.trajectory_id.size() > 64U) {
     return reject("trajectory_id must contain 1..64 characters");

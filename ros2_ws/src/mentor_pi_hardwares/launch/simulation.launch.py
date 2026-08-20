@@ -133,7 +133,7 @@ def resolve_tracking_controller(selection, vehicle_type):
     return vehicle_type
 
 
-def controller_odometry_remappings(robot_name):
+def controller_state_estimate_remappings(robot_name):
     if not _validate_robot_name(robot_name):
         raise ValueError("robot_name must be a valid relative ROS namespace")
     controller_prefix = f"/{robot_name}/vehicle"
@@ -149,7 +149,7 @@ def controller_odometry_remappings(robot_name):
     ]
 
 
-def simulation_odometry_parameters(
+def simulation_pose_parameters(
     robot_name, vehicle_type, initial_x_m, initial_y_m, initial_yaw_rad
 ):
     if not _validate_robot_name(robot_name):
@@ -164,16 +164,17 @@ def simulation_odometry_parameters(
         "rear_axle_to_geometry_center"
     ]
     return {
+        "input_type": "controller_odometry",
         "source_to_geometry_center_m": offset,
         "geometry_center_frame_id": f"{robot_name}/base_footprint",
-        "output_odom_frame_id": f"{robot_name}/odom",
-        "output_odom_origin_x_m": (
+        "output_frame_id": "map",
+        "output_origin_x_m": (
             initial_x_m - offset * math.cos(initial_yaw_rad)
         ),
-        "output_odom_origin_y_m": (
+        "output_origin_y_m": (
             initial_y_m - offset * math.sin(initial_yaw_rad)
         ),
-        "output_odom_origin_yaw_rad": initial_yaw_rad,
+        "output_origin_yaw_rad": initial_yaw_rad,
     }
 
 
@@ -222,15 +223,16 @@ def _launch_simulation(context):
         namespace=robot_name,
         output="screen",
         parameters=[controllers_file, robot_description],
-        remappings=controller_odometry_remappings(robot_name),
+        remappings=controller_state_estimate_remappings(robot_name),
     )
-    odometry_adapter = Node(
+    pose_adapter = Node(
         package="mentor_pi_hardwares",
-        executable="vehicle_odometry",
+        executable="vehicle_pose",
+        name="vehicle_pose",
         namespace=robot_name,
         output="screen",
         parameters=[
-            simulation_odometry_parameters(
+            simulation_pose_parameters(
                 robot_name,
                 vehicle_type,
                 initial_x_m,
@@ -293,8 +295,8 @@ def _launch_simulation(context):
         robot_state_publisher,
         _shutdown_on_exit(controller_manager, "controller manager"),
         controller_manager,
-        _shutdown_on_exit(odometry_adapter, "vehicle odometry adapter"),
-        odometry_adapter,
+        _shutdown_on_exit(pose_adapter, "vehicle pose adapter"),
+        pose_adapter,
         TimerAction(period=2.0, actions=delayed_actions),
     ]
 

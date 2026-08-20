@@ -13,7 +13,7 @@ namespace {
 
 mentor_pi_tracking_interfaces::msg::PolynomialTrajectory ValidMessage() {
   mentor_pi_tracking_interfaces::msg::PolynomialTrajectory message;
-  message.header.frame_id = "odom";
+  message.header.frame_id = "map";
   message.trajectory_id = "trajectory-1";
   mentor_pi_tracking_interfaces::msg::PolynomialSegment first;
   first.duration.sec = 2;
@@ -78,7 +78,7 @@ TEST(PolynomialTrajectoryTest, HoldsTerminalPoseWithZeroDerivatives) {
 TEST(PolynomialTrajectoryTest, RejectsWrongFrameNonFiniteAndDiscontinuity) {
   std::string error;
   auto message = ValidMessage();
-  message.header.frame_id = "map";
+  message.header.frame_id = "odom";
   EXPECT_FALSE(PolynomialTrajectory::FromMessage(message, &error).has_value());
 
   message = ValidMessage();
@@ -107,7 +107,7 @@ TEST(PolynomialTrajectoryTest, WrapsAnglesToShortestDifference) {
 
 TEST(PolynomialTrajectoryTest, AnalyticDerivativeMatchesFiniteDifference) {
   auto message = mentor_pi_tracking_interfaces::msg::PolynomialTrajectory{};
-  message.header.frame_id = "odom";
+  message.header.frame_id = "map";
   message.trajectory_id = "derivative";
   mentor_pi_tracking_interfaces::msg::PolynomialSegment segment;
   segment.duration.sec = 2;

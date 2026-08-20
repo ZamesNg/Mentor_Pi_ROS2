@@ -6,14 +6,14 @@
 #include <array>
 #include <optional>
 
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "mentor_pi_tracking/mpc_solver.hpp"
-#include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 namespace mentor_pi::tracking {
 
 std::optional<std::array<double, 3>> GeometryCenterPoseState(
-    const nav_msgs::msg::Odometry& odometry);
+    const geometry_msgs::msg::PoseStamped& pose);
 
 rclcpp::Node::SharedPtr MakeTrackerNode(const rclcpp::NodeOptions& options);
 

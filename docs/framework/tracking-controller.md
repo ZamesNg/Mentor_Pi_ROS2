@@ -4,7 +4,7 @@
 
 `mentor_pi_tracking` is a hardware-independent C++17 trajectory tracker for the
 Mecanum and Ackermann `ros2_control` vehicles. One
-`/mentor_pi/trajectory_tracker` node owns the ROS interfaces, odometry
+`/mentor_pi/trajectory_tracker` node owns the ROS interfaces, pose
 freshness gate, scheduling, and command bounds and loads exactly one controller
 through pluginlib:
 
@@ -20,9 +20,10 @@ GPL-2.0-or-later `https://github.com/ZamesNg/altro-cpp` fork at commit
 compatibility patch in a disposable build tree and carries the required source
 and license provenance.
 
-High-level planning and arbitrary frame transforms remain offboard. The
-hardware launch publishes geometry-center odometry for both vehicle types, so
-the tracker performs no odometry reference-point conversion.
+High-level planning and arbitrary frame transforms remain offboard. Physical
+launch adapts mocap and simulation launch adapts numerical plant state to the
+same geometry-center `PoseStamped` in `map`, so the tracker performs no
+reference-point or frame conversion.
 
 ## Interfaces and trajectory meaning
 
@@ -30,15 +31,16 @@ the tracker performs no odometry reference-point conversion.
 and six coefficients `c0` through `c5` for each of x, y, and unwrapped yaw.
 Coefficients are evaluated in segment-local seconds. `PolynomialTrajectory`
 contains a `std_msgs/Header`, a string bounded to 64 characters, and at most 64
-segments. `header.frame_id` is exactly `odom`; `header.stamp` is the scheduled
+segments. `header.frame_id` is exactly `map`; `header.stamp` is the scheduled
 ROS start time.
 
 | Interface | Contract |
 | --- | --- |
 | Trajectory input | `/mentor_pi/trajectory_tracker/reference_trajectory` |
 | Cancel service | `/mentor_pi/trajectory_tracker/cancel` |
-| Mecanum odometry/output | `/mentor_pi/vehicle/odometry` and `base_footprint` command on `/mentor_pi/vehicle/reference` |
-| Ackermann odometry/output | geometry-center `/mentor_pi/vehicle/odometry` and `rear_axle_footprint` command on `/mentor_pi/vehicle/reference` |
+| Geometry-center pose input | `geometry_msgs/msg/PoseStamped` on `/mentor_pi/vehicle/pose`, exactly in `map` |
+| Mecanum output | `base_footprint` command on `/mentor_pi/vehicle/reference` |
+| Ackermann output | `rear_axle_footprint` command on `/mentor_pi/vehicle/reference` |
 | Diagnostics | `diagnostic_msgs/msg/DiagnosticArray` on `/mentor_pi/trajectory_tracker/diagnostics` |
 
 Trajectory input uses reliable, volatile QoS. Commands use
@@ -54,8 +56,8 @@ but neither Ackermann plugin uses it as a cost or reference-control target.
 
 The measured runtime geometry is wheelbase `L=0.135 m`, rear-axle-to-center
 offset `l=0.0675 m`, wheel track `0.140 m`, wheel radius `0.0325 m`, and
-steering limit `+/-0.6 rad`. Public Ackermann odometry already describes
-`base_footprint` at the geometry center. The tracker copies its pose directly
+steering limit `+/-0.6 rad`. Public Ackermann pose describes `base_footprint`
+at the geometry center in `map`. The tracker copies it directly
 into the three-state vector `(x_center, y_center, theta)`. The fixed URDF
 transform places `rear_axle_footprint` `0.0675 m` behind `base_footprint`.
 Vehicle launch validates the selected hardware profile against these measured
@@ -110,7 +112,7 @@ the selected physical or simulated vehicle. The explicit `mecanum` and
 `none` disables the tracker for direct `vehicle/reference` testing. MPC and
 ADRC always use the same `/<robot_name>/trajectory_tracker` node,
 `trajectory_tracker/reference_trajectory` input,
-`trajectory_tracker/cancel` service, `vehicle/odometry` input, and
+`trajectory_tracker/cancel` service, `vehicle/pose` input, and
 `vehicle/reference` output. Diagnostics use
 `trajectory_tracker/diagnostics`. No vehicle- or algorithm-specific topic,
 service, node, or executable alias exists. Both `vehicle.launch.py` and
@@ -164,7 +166,7 @@ The configurable trajectory parameters and defaults are:
 | `yaw_adrc_observer_bandwidth_rad_s` | `3.0` | Mecanum yaw ESO bandwidth. |
 
 All values must be finite and positive, `wo >= wc`, and `wo*T <= 0.5`. ADRC
-state resets on a new or replaced trajectory, cancel, stale odometry, time
+state resets on a new or replaced trajectory, cancel, stale pose, time
 discontinuity, invalid computation, or recovery from inhibition. Entering
 terminal hold does not reset the observer because it is a continuation of the
 accepted trajectory.
@@ -173,7 +175,7 @@ accepted trajectory.
 
 Bounds derive from configured geometry and the static driven-wheel speed limit,
 which cannot exceed the 6 RPS implementation ceiling. The output is zero before
-start, after cancellation, with missing or older-than-100-ms odometry, or after
+start, after cancellation, with missing or older-than-100-ms pose, or after
 a local fault. Terminal hold has zero feedforward velocity but may publish a
 bounded corrective command when the measured pose differs from the endpoint;
 it is station-keeping rather than a mechanical brake. The tracker has no MCU

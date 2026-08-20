@@ -257,6 +257,7 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
     assert ackermann_controller["wheelbase"] == 0.135
     assert ackermann_controller["front_wheels_radius"] == 0.0325
     assert ackermann_controller["rear_wheels_radius"] == 0.0325
+    assert ackermann_controller["enable_odom_tf"] is False
 
     with open(
         share / "config" / "mecanum" / "controllers.yaml", encoding="utf-8"
@@ -266,6 +267,9 @@ def test_xacro_modes_export_expected_plugins_interfaces_and_configuration():
         "vehicle"
     ]["type"] == "mecanum_drive_controller/MecanumDriveController"
     assert "/**/vehicle" in mecanum_controllers
+    assert mecanum_controllers["/**/vehicle"]["ros__parameters"][
+        "enable_odom_tf"
+    ] is False
     assert "/**/ackermann_steering_controller" not in ackermann_controllers
     assert "/**/mecanum_drive_controller" not in mecanum_controllers
 
@@ -465,7 +469,7 @@ def test_simulation_launch_is_separate_and_has_no_physical_dependencies():
     assert module._DEFAULT_TRACKING_ALGORITHM == "adrc"
     source = path.read_text(encoding="utf-8")
     assert 'executable="ros2_control_node"' in source
-    assert 'executable="vehicle_odometry"' in source
+    assert 'executable="vehicle_pose"' in source
     assert 'executable="trajectory_tracker"' in source
     assert 'name="spawner_vehicle"' in source
     for forbidden in (
@@ -484,42 +488,44 @@ def test_simulation_launch_is_separate_and_has_no_physical_dependencies():
 def test_simulation_initial_pose_is_geometry_center_pose():
     share = Path(get_package_share_directory("mentor_pi_hardwares"))
     module = load_launch(share / "launch" / "simulation.launch.py")
-    ackermann = module.simulation_odometry_parameters(
+    ackermann = module.simulation_pose_parameters(
         "ackermann_sim", "ackermann", 2.0, -3.0, math.pi / 2.0
     )
     assert ackermann.pop("geometry_center_frame_id") == (
         "ackermann_sim/base_footprint"
     )
-    assert ackermann.pop("output_odom_frame_id") == "ackermann_sim/odom"
+    assert ackermann.pop("output_frame_id") == "map"
+    assert ackermann.pop("input_type") == "controller_odometry"
     assert ackermann == pytest.approx(
         {
             "source_to_geometry_center_m": 0.0675,
-            "output_odom_origin_x_m": 2.0,
-            "output_odom_origin_y_m": -3.0675,
-            "output_odom_origin_yaw_rad": math.pi / 2.0,
+            "output_origin_x_m": 2.0,
+            "output_origin_y_m": -3.0675,
+            "output_origin_yaw_rad": math.pi / 2.0,
         }
     )
-    mecanum = module.simulation_odometry_parameters(
+    mecanum = module.simulation_pose_parameters(
         "mecanum_sim", "mecanum", -1.0, 4.0, -0.5
     )
     assert mecanum.pop("geometry_center_frame_id") == (
         "mecanum_sim/base_footprint"
     )
-    assert mecanum.pop("output_odom_frame_id") == "mecanum_sim/odom"
+    assert mecanum.pop("output_frame_id") == "map"
+    assert mecanum.pop("input_type") == "controller_odometry"
     assert mecanum == pytest.approx(
         {
             "source_to_geometry_center_m": 0.0,
-            "output_odom_origin_x_m": -1.0,
-            "output_odom_origin_y_m": 4.0,
-            "output_odom_origin_yaw_rad": -0.5,
+            "output_origin_x_m": -1.0,
+            "output_origin_y_m": 4.0,
+            "output_origin_yaw_rad": -0.5,
         }
     )
     with pytest.raises(ValueError, match="finite"):
-        module.simulation_odometry_parameters(
+        module.simulation_pose_parameters(
             "ackermann_sim", "ackermann", float("nan"), 0.0, 0.0
         )
     with pytest.raises(ValueError, match="relative ROS namespace"):
-        module.simulation_odometry_parameters(
+        module.simulation_pose_parameters(
             "/ackermann_sim", "ackermann", 0.0, 0.0, 0.0
         )
 
@@ -561,10 +567,10 @@ def test_tracking_selection_defaults_to_the_profile_vehicle_type(
     assert module.resolve_tracking_controller(selection, vehicle_type) == expected
 
 
-def test_controller_odometry_is_hidden_behind_common_geometry_center_adapter():
+def test_physical_pose_uses_map_frame_mocap_and_controller_odom_is_hidden():
     share = Path(get_package_share_directory("mentor_pi_hardwares"))
     module = vehicle_launch_module(share)
-    assert module.controller_odometry_remappings("fleet/robot_two") == [
+    assert module.controller_state_estimate_remappings("fleet/robot_two") == [
         (
             "/fleet/robot_two/vehicle/odometry",
             "/fleet/robot_two/vehicle/_controller_odometry",
@@ -574,22 +580,24 @@ def test_controller_odometry_is_hidden_behind_common_geometry_center_adapter():
             "/fleet/robot_two/vehicle/_controller_tf_odometry",
         ),
     ]
-    assert module.odometry_adapter_parameters("ackermann_1", "ackermann") == {
-        "source_to_geometry_center_m": 0.0675,
-        "geometry_center_frame_id": "ackermann_1/base_footprint",
-        "output_odom_frame_id": "ackermann_1/odom",
-    }
-    assert module.odometry_adapter_parameters("mecanum_2", "mecanum") == {
+    assert module.physical_pose_parameters("ackermann_1") == {
+        "input_type": "mocap_pose",
         "source_to_geometry_center_m": 0.0,
-        "geometry_center_frame_id": "mecanum_2/base_footprint",
-        "output_odom_frame_id": "mecanum_2/odom",
+        "geometry_center_frame_id": "ackermann_1/base_footprint",
+        "output_frame_id": "map",
     }
+    assert module.mocap_pose_remappings("fleet/robot_two") == [
+        (
+            "/fleet/robot_two/vehicle/_mocap_pose",
+            "/vrpn_mocap/fleet/robot_two/pose",
+        )
+    ]
 
     launch_source = (share / "launch" / "vehicle.launch.py").read_text(
         encoding="utf-8"
     )
-    assert 'executable="vehicle_odometry"' in launch_source
-    assert '"vehicle odometry adapter"' in launch_source
+    assert 'executable="vehicle_pose"' in launch_source
+    assert '"vehicle pose adapter"' in launch_source
 
 
 @pytest.mark.parametrize(

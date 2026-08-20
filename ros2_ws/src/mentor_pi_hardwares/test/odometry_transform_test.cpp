@@ -85,44 +85,12 @@ TEST(OdometryTransformTest, ConvertsPoseAtQuarterTurnAndNegativeYaw) {
               -2.0 - std::sqrt(3.0) * 0.5 * kOffset, 1.0e-12);
 }
 
-TEST(OdometryTransformTest, ConvertsTfAndPreservesParentAndStamp) {
-  tf2_msgs::msg::TFMessage input;
-  geometry_msgs::msg::TransformStamped transform;
-  transform.header.stamp.sec = 9;
-  transform.header.frame_id = "ackermann_1/odom";
-  transform.child_frame_id = "ackermann_1/rear_axle_footprint";
-  transform.transform.translation.x = 3.0;
-  transform.transform.translation.y = 4.0;
-  transform.transform.rotation = Orientation(kPi / 2.0);
-  input.transforms.push_back(transform);
-
-  const auto output =
-      ToGeometryCenterTf(input, kOffset, "ackermann_1/base_footprint");
-  ASSERT_EQ(output.transforms.size(), 1U);
-  EXPECT_EQ(output.transforms[0].header, transform.header);
-  EXPECT_EQ(output.transforms[0].child_frame_id, "ackermann_1/base_footprint");
-  EXPECT_NEAR(output.transforms[0].transform.translation.x, 3.0, 1.0e-12);
-  EXPECT_NEAR(output.transforms[0].transform.translation.y, 4.0 + kOffset,
-              1.0e-12);
-  EXPECT_EQ(output.transforms[0].transform.rotation,
-            transform.transform.rotation);
-}
-
 TEST(OdometryTransformTest, MecanumZeroOffsetIsIdentityExceptForFrame) {
   auto input = SourceOdometry(-0.4);
   input.child_frame_id = "mecanum_2/base_footprint";
   const auto output =
       ToGeometryCenterOdometry(input, 0.0, "mecanum_2/base_footprint");
   EXPECT_EQ(output, input);
-
-  tf2_msgs::msg::TFMessage input_tf;
-  geometry_msgs::msg::TransformStamped transform;
-  transform.header.frame_id = "mecanum_2/odom";
-  transform.child_frame_id = "mecanum_2/base_footprint";
-  transform.transform.rotation = Orientation(0.7);
-  input_tf.transforms.push_back(transform);
-  EXPECT_EQ(ToGeometryCenterTf(input_tf, 0.0, "mecanum_2/base_footprint"),
-            input_tf);
 }
 
 TEST(OdometryTransformTest, PlacesInitialAckermannGeometryCenterExactly) {
@@ -151,24 +119,6 @@ TEST(OdometryTransformTest, PlacesInitialAckermannGeometryCenterExactly) {
       output.twist.twist.linear.y,
       input.twist.twist.linear.y + kOffset * input.twist.twist.angular.z,
       1.0e-12);
-
-  tf2_msgs::msg::TFMessage input_tf;
-  geometry_msgs::msg::TransformStamped transform;
-  transform.header.frame_id = "ackermann_sim/odom";
-  transform.child_frame_id = "ackermann_sim/rear_axle_footprint";
-  transform.transform.rotation = Orientation(0.0);
-  input_tf.transforms.push_back(transform);
-  const auto output_tf =
-      ToGeometryCenterTf(input_tf, kOffset, "ackermann_sim/base_footprint",
-                         output_from_source, "ackermann_sim/odom");
-  ASSERT_EQ(output_tf.transforms.size(), 1U);
-  EXPECT_EQ(output_tf.transforms[0].header.frame_id, "ackermann_sim/odom");
-  EXPECT_NEAR(output_tf.transforms[0].transform.translation.x, initial_x,
-              1.0e-12);
-  EXPECT_NEAR(output_tf.transforms[0].transform.translation.y, initial_y,
-              1.0e-12);
-  EXPECT_NEAR(OrientationYaw(output_tf.transforms[0].transform.rotation),
-              initial_yaw, 1.0e-12);
 }
 
 TEST(OdometryTransformTest, RotatesMecanumPoseAndPoseCovariance) {
@@ -193,6 +143,58 @@ TEST(OdometryTransformTest, RotatesMecanumPoseAndPoseCovariance) {
   EXPECT_EQ(output.twist, input.twist);
 }
 
+TEST(OdometryTransformTest, ProducesMapGeometryCenterPoseAndTransform) {
+  auto input = SourceOdometry(0.0);
+  input.pose.pose.position.x = 0.0;
+  input.pose.pose.position.y = 0.0;
+  input.pose.pose.orientation.w = 2.0;
+  const double initial_x = 2.5;
+  const double initial_y = -1.25;
+  const double initial_yaw = kPi / 2.0;
+  const PlanarTransform output_from_source{
+      initial_x - kOffset * std::cos(initial_yaw),
+      initial_y - kOffset * std::sin(initial_yaw), initial_yaw};
+
+  const auto pose = GeometryCenterPoseFromOdometry(
+      input, kOffset, "ackermann_sim/base_footprint", output_from_source,
+      "map");
+  EXPECT_EQ(pose.header.frame_id, "map");
+  EXPECT_EQ(pose.header.stamp, input.header.stamp);
+  EXPECT_NEAR(pose.pose.position.x, initial_x, 1.0e-12);
+  EXPECT_NEAR(pose.pose.position.y, initial_y, 1.0e-12);
+  EXPECT_NEAR(OrientationYaw(pose.pose.orientation), initial_yaw, 1.0e-12);
+  EXPECT_NEAR(std::hypot(pose.pose.orientation.z, pose.pose.orientation.w), 1.0,
+              1.0e-12);
+
+  const auto transform =
+      GeometryCenterPoseToTransform(pose, "ackermann_sim/base_footprint");
+  EXPECT_EQ(transform.header.frame_id, "map");
+  EXPECT_EQ(transform.child_frame_id, "ackermann_sim/base_footprint");
+  EXPECT_NEAR(transform.transform.translation.x, initial_x, 1.0e-12);
+  EXPECT_NEAR(transform.transform.translation.y, initial_y, 1.0e-12);
+}
+
+TEST(OdometryTransformTest, ValidatesMapMocapPoseWithoutChangingItsPoint) {
+  geometry_msgs::msg::PoseStamped input;
+  input.header.frame_id = "map";
+  input.header.stamp.sec = 12;
+  input.pose.position.x = 1.0;
+  input.pose.position.y = -2.0;
+  input.pose.position.z = 0.25;
+  input.pose.orientation.w = 2.0;
+
+  const auto output = ValidateGeometryCenterPose(input);
+  EXPECT_EQ(output.header, input.header);
+  EXPECT_EQ(output.pose.position, input.pose.position);
+  EXPECT_DOUBLE_EQ(output.pose.orientation.w, 1.0);
+
+  input.header.frame_id = "odom";
+  EXPECT_THROW(ValidateGeometryCenterPose(input), std::invalid_argument);
+  input.header.frame_id = "map";
+  input.pose.position.x = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(ValidateGeometryCenterPose(input), std::invalid_argument);
+}
+
 TEST(OdometryTransformTest, RejectsInvalidConfigurationAndOrientation) {
   const auto valid = SourceOdometry(0.0);
   EXPECT_THROW(ToGeometryCenterOdometry(valid, -0.1, "base_footprint"),
@@ -214,19 +216,6 @@ TEST(OdometryTransformTest, RejectsInvalidConfigurationAndOrientation) {
   invalid.pose.pose.orientation.z = 0.0;
   invalid.pose.pose.orientation.w = 0.0;
   EXPECT_THROW(ToGeometryCenterOdometry(invalid, 0.0, "base_footprint"),
-               std::invalid_argument);
-
-  tf2_msgs::msg::TFMessage invalid_tf;
-  geometry_msgs::msg::TransformStamped transform;
-  transform.transform.rotation.w = std::numeric_limits<double>::quiet_NaN();
-  invalid_tf.transforms.push_back(transform);
-  EXPECT_THROW(ToGeometryCenterTf(invalid_tf, 0.0, "base_footprint"),
-               std::invalid_argument);
-
-  invalid_tf.transforms[0].transform.rotation.w = 1.0;
-  invalid_tf.transforms[0].transform.translation.y =
-      std::numeric_limits<double>::infinity();
-  EXPECT_THROW(ToGeometryCenterTf(invalid_tf, 0.0, "base_footprint"),
                std::invalid_argument);
 
   invalid = valid;
