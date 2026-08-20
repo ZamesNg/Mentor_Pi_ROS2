@@ -159,7 +159,7 @@ ResolveSerialPort
 GenerateVehicleConfig
 
 if [[ "${MODE}" == configure ]]; then
-  if pgrep -f 'ros2_control_node|trajectory_tracker|vehicle.launch.py' \
+  if pgrep -f 'ros2_control_node|vehicle.launch.py' \
       >/dev/null 2>&1; then
     Fail "stop vehicle bringup before changing its type or namespace"
   fi

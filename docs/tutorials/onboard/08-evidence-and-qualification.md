@@ -292,14 +292,12 @@ source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
 export ROS_DOMAIN_ID=42
 export ROS_LOCALHOST_ONLY=0
-ros2 launch mentor_pi_hardwares vehicle.launch.py tracking_controller:=none
+ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
 For Ackermann, select the generated Ackermann profile through
 `MENTOR_PI_TYPE`. Replace the domain and localhost-only values with those
-installed in Tutorial 05. Direct controller-reference tuning requires the
-explicit `tracking_controller:=none` above because the default tracker also
-publishes `vehicle/reference`. Before publishing a reference, verify that the
+installed in Tutorial 05. The vehicle launch is command-only. Before publishing a reference, verify that the
 selected hardware plugin is the only motor-command publisher:
 
 ```zsh
@@ -350,116 +348,15 @@ chassis input gain first, then `wc`, then `wo`, by only 10–20 percent per run.
 Missing, invalid, or older-than-100-ms encoder/IMU feedback must stop the run;
 it is not a poor-gain result.
 
-## Tune the outer trajectory ADRC
+## External trajectory tracking boundary
 
-Do this only after the inner motor and chassis velocity loops have accepted
-guarded-HIL records. The trajectory tracker is a third, outer loop: it compares
-scheduled map-frame position with the mocap geometry-center pose and requests a
-bounded chassis velocity. A poor inner velocity loop cannot be repaired with
-outer position gains.
+Outer trajectory tracking, global map pose, and mocap processing are owned by
+the central experiment application. This repository exposes only the bounded
+`/<robot>/vehicle/reference` chassis-command boundary.
 
-For Mecanum, the outer LADRC tracks geometry-center world X, world Y, and
-unwrapped yaw. For Ackermann it tracks geometry-center X/Y only. Ackermann yaw
-is an internal kinematic state; the tracker uses the measured heading and the
-`0.0675 m` rear-axle-to-center offset to turn the desired center velocity into
-rear-axle speed and yaw rate. It does not force the trajectory yaw polynomial.
-
-The persistent outer-loop values live in
-`ros2_ws/src/mentor_pi_tracking/config/adrc.yaml`:
-
-| Parameter | Initial value | Meaning |
-|---|---:|---|
-| `position_adrc_input_gain` | `1.0` | Nominal dimensionless gain from commanded center velocity to position derivative; shared by X/Y. |
-| `position_adrc_controller_bandwidth_rad_s` | `1.0` | Shared center X/Y response bandwidth. |
-| `position_adrc_observer_bandwidth_rad_s` | `3.0` | Shared center X/Y disturbance-observer bandwidth. |
-| `yaw_adrc_input_gain` | `1.0` | Nominal dimensionless Mecanum yaw-rate gain. |
-| `yaw_adrc_controller_bandwidth_rad_s` | `1.0` | Mecanum yaw response bandwidth. |
-| `yaw_adrc_observer_bandwidth_rad_s` | `3.0` | Mecanum yaw observer bandwidth. |
-
-The outer observer is told the **post-bound applied velocity** that remained
-after the tracker applied wheel-speed, speed, yaw-rate, and steering bounds. It is not told the raw,
-unachievable request. This prevents saturation from being misidentified as an
-external disturbance. Each lower layer follows the same rule: chassis ADRC
-records its bounded correction and motor ADRC records final rounded/clamped
-PWM. That information is necessary but cannot create actuator authority below
-a nonzero minimum-drive floor; the firmware floor therefore remains zero.
-
-The initial `1/3 rad/s` bandwidths match the chassis defaults and are
-provisional. Coupled oscillation, noisy correction, or repeated saturation is a
-reason to reduce the outer bandwidth, not increase the inner and outer loops
-together. Keep `wo >= wc`, `wo*T <= 0.5`, and change one value by only 10–20
-percent per recorded run.
-
-Repeat the powered-test boundary immediately before every trajectory run:
-current-limited supply, one center axis/sign at a time, guarded motion-capable
-fixture, reachable physical stop, and continuous current, temperature, motion,
-and telemetry observation. Stop immediately for wrong direction, oscillation,
-excessive current/heat, reset, stale telemetry, or cross-channel motion. Raised
-wheels alone cannot provide useful Mecanum or Ackermann yaw evidence.
-
-Edit the source configuration, rebuild with the symlink install, and launch
-exactly one selected tracker:
-
-```zsh
-nano ros2_ws/src/mentor_pi_tracking/config/adrc.yaml
-cd ros2_ws
-colcon build --symlink-install --packages-up-to \
-  mentor_pi_tracking mentor_pi_hardwares
-cd ..
-source /opt/ros/humble/setup.zsh
-source ros2_ws/install/setup.zsh
-export ROS_DOMAIN_ID=42
-export ROS_LOCALHOST_ONLY=0
-ros2 launch mentor_pi_hardwares vehicle.launch.py \
-  tracking_algorithm:=adrc
-```
-
-The same launch command applies to Ackermann because the tracker type is read
-from the generated profile. `tracking_algorithm:=adrc` is shown explicitly for
-tuning reproducibility even though ADRC is the default. Replace the domain and
-localhost-only values with those installed in Tutorial 05. Before staging
-motion, require one tracker input, one selected controller-reference publisher,
-and exactly one hardware motor-command publisher:
-
-```zsh
-ros2 topic info /mentor_pi/trajectory_tracker/reference_trajectory --verbose
-ros2 topic info /mentor_pi/vehicle/reference --verbose
-ros2 topic info /mentor_pi/motors/command --verbose
-```
-
-Use the same vehicle-controller reference topic for the Ackermann check. Stop
-if the counts or publisher identities do not match the launched processes. Start a
-plainly named recording before the reviewed, time-bounded trajectory:
-
-```zsh
-ros2 bag record -a -o build/adrc-tuning/mecanum-trajectory-x-default-positive
-```
-
-In another sourced terminal, the packaged example stages one five-second
-straight trajectory. Its small reference is only a starting checkout and still
-requires the guarded boundary above:
-
-```zsh
-timeout --signal=INT --kill-after=1s 8s \
-  ros2 run mentor_pi_tracking polynomial_trajectory_publisher
-
-timeout 5s ros2 service call \
-  /mentor_pi/trajectory_tracker/cancel std_srvs/srv/Trigger '{}'
-```
-
-The explicit cancel clears both active and pending trajectories and publishes
-zero. Confirm zero controller output and stopped motion before ending the bag.
-Do not improvise a curved or yaw trajectory: use only the next trajectory in
-the reviewed fixture plan.
-
-Tune Mecanum X, then Y, then yaw, both signs. Tune Ackermann straight
-center-position tracking before curved center-position tracking, then repeat
-forward and reverse. Change input gain first, `wc` second, and `wo` last. For
-every run record scheduled and measured center pose, requested and bounded
-twist, cross-track error, rise/settling time, overshoot, steady error, mocap
-pose and IMU noise, saturation duration, current, temperature, watchdogs, resets,
-and the exact plugin parameters. A green software run or rosbag alone does not
-qualify trajectory ADRC.
+Do not tune or qualify an external tracker from this repository. Preserve the
+post-bound command, controller timeout, chassis feedback, firmware leases, and
+all guarded-HIL evidence when evaluating any external controller.
 
 ## Qualification boundary
 

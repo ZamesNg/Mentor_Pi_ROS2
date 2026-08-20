@@ -32,15 +32,10 @@ rg -Fq 'Dev Container' "${PROJECT_ROOT}/docs/tutorials/onboard/01-prerequisites-
 
 readonly ONBOARD_ADRC_TUTORIAL="${PROJECT_ROOT}/docs/tutorials/onboard/08-evidence-and-qualification.md"
 for marker in \
-    'ros2_ws/src/mentor_pi_tracking/config/adrc.yaml' \
-    'tracking_algorithm:=adrc' \
-    'tracking_controller:=none' \
-    '/mentor_pi/trajectory_tracker/reference_trajectory' \
-    '/mentor_pi/trajectory_tracker/cancel' \
     '/mentor_pi/vehicle/reference' \
     'post-bound'; do
   grep -Fq "${marker}" "${ONBOARD_ADRC_TUTORIAL}" || \
-    Fail "onboard ADRC tutorial omits trajectory-tracker marker ${marker}"
+    Fail "onboard ADRC tutorial omits command-boundary marker ${marker}"
 done
 ! rg -Fq '/mentor_pi/mecanum_mpc_tracker' \
   "${PROJECT_ROOT}/README.md" "${PROJECT_ROOT}/docs" || \

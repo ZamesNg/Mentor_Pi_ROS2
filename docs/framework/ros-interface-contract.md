@@ -1,9 +1,8 @@
 # Mentor Pi Controller v2 ROS Interface Contract
 
-The host-only polynomial tracking interfaces, topics, services, QoS,
-scheduling, and safe-output behavior are normative in
-[tracking-controller.md](tracking-controller.md). They do not change the fixed
-MCU endpoint count or `/mentor_pi/controller` contract below.
+Global pose, polynomial trajectories, and outer trajectory tracking are owned
+by external applications. They do not change the fixed MCU endpoint count or
+the `/mentor_pi/controller` contract below.
 
 ## 1. Contract status and identity
 

@@ -11,7 +11,7 @@ release evidence remains open as listed in `docs/NEXT_STEPS.md`.
 | micro-ROS Agent | CMake + colcon | `make -C micro_ros_agent ...` | non-root systemd service |
 | ROS applications | rosdep/vcs/colcon | `make -C ros2_ws ...` | manual ROS launch |
 
-The firmware, Agent, and five ROS packages share one Git history but not a
+The firmware, Agent, and three ROS project packages share one Git history but not a
 build graph. `mentor_pi_interfaces` is canonical under `ros2_ws/src`; the
 firmware's checked SDK and manifest provide the explicit compatibility bridge.
 

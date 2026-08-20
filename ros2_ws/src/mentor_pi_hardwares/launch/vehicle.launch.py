@@ -26,36 +26,7 @@ _ROBOT_NAME_PATTERN = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)*$"
 )
 _VEHICLE_TYPES = frozenset(("mecanum", "ackermann"))
-_TRACKING_ALGORITHMS = frozenset(("mpc", "adrc"))
 _VEHICLE_CONTROLLER_NAME = "vehicle"
-_DEFAULT_TRACKING_CONTROLLER = "auto"
-_DEFAULT_TRACKING_ALGORITHM = "adrc"
-_CONTROLLER_PLUGINS = {
-    ("mecanum", "mpc"): "mentor_pi_tracking/MecanumMpc",
-    ("ackermann", "mpc"): "mentor_pi_tracking/AckermannMpc",
-    ("mecanum", "adrc"): "mentor_pi_tracking/MecanumAdrc",
-    ("ackermann", "adrc"): "mentor_pi_tracking/AckermannAdrc",
-}
-_TRACKING_GEOMETRY = {
-    "mecanum": {
-        "wheel_radius": 0.0325,
-        "wheelbase": 0.145,
-        "wheel_track": 0.140,
-        "rear_axle_to_geometry_center": 0.0,
-        "mecanum_radius_sum": 0.14,
-        "max_steering_angle": 0.5,
-        "driven_wheel_angular_speed_limit_rad_s": 37.69911184307752,
-    },
-    "ackermann": {
-        "wheel_radius": 0.0325,
-        "wheelbase": 0.135,
-        "wheel_track": 0.140,
-        "rear_axle_to_geometry_center": 0.0675,
-        "mecanum_radius_sum": 0.14,
-        "max_steering_angle": 0.6,
-        "driven_wheel_angular_speed_limit_rad_s": 37.69911184307752,
-    },
-}
 
 
 def _validate_native_runtime():
@@ -104,62 +75,6 @@ def _validate_robot_name(robot_name):
     )
 
 
-def tracking_parameters(vehicle_type, tracking_algorithm, hardware=None):
-    if vehicle_type not in _VEHICLE_TYPES:
-        raise ValueError(f"unsupported vehicle_type: {vehicle_type}")
-    if tracking_algorithm not in _TRACKING_ALGORITHMS:
-        raise ValueError("tracking_algorithm must be mpc or adrc")
-    geometry = dict(_TRACKING_GEOMETRY[vehicle_type])
-    if hardware is not None:
-        if not isinstance(hardware, dict):
-            raise ValueError("hardware tracking geometry must be a mapping")
-        expected = (
-            {
-                "wheel_radius_m": ("wheel_radius", 0.0325),
-                "wheel_projection_sum_m": ("mecanum_radius_sum", 0.14),
-            }
-            if vehicle_type == "mecanum"
-            else {
-                "rear_wheel_radius_m": ("wheel_radius", 0.0325),
-                "wheelbase_m": ("wheelbase", 0.135),
-                "steering_angle_min_rad": (None, -0.6),
-                "steering_angle_max_rad": ("max_steering_angle", 0.6),
-            }
-        )
-        for hardware_name, (tracking_name, measured_value) in expected.items():
-            value = hardware.get(hardware_name, measured_value)
-            if not math.isclose(value, measured_value, rel_tol=0.0, abs_tol=1.0e-12):
-                raise ValueError(
-                    "tracking requires measured geometry; "
-                    f"{hardware_name} must be {measured_value}"
-                )
-            if tracking_name is not None:
-                geometry[tracking_name] = value
-    return {
-        "vehicle_type": vehicle_type,
-        "tracking_algorithm": tracking_algorithm,
-        "controller_plugin": _CONTROLLER_PLUGINS[
-            (vehicle_type, tracking_algorithm)
-        ],
-        **geometry,
-    }
-
-
-def resolve_tracking_controller(selection, vehicle_type):
-    if vehicle_type not in _VEHICLE_TYPES:
-        raise ValueError("unsupported vehicle_type")
-    if selection == "auto":
-        return vehicle_type
-    if selection == "none":
-        return None
-    if selection != vehicle_type:
-        raise ValueError(
-            "tracking_controller must be auto, none, or match the selected "
-            "vehicle_type"
-        )
-    return vehicle_type
-
-
 def controller_state_estimate_remappings(robot_name):
     if not _validate_robot_name(robot_name):
         raise ValueError("robot_name must be a valid relative ROS namespace")
@@ -173,28 +88,6 @@ def controller_state_estimate_remappings(robot_name):
             f"{controller_prefix}/tf_odometry",
             f"{controller_prefix}/_controller_tf_odometry",
         ),
-    ]
-
-
-def physical_pose_parameters(robot_name):
-    if not _validate_robot_name(robot_name):
-        raise ValueError("robot_name must be a valid relative ROS namespace")
-    return {
-        "input_type": "mocap_pose",
-        "source_to_geometry_center_m": 0.0,
-        "geometry_center_frame_id": f"{robot_name}/base_footprint",
-        "output_frame_id": "map",
-    }
-
-
-def mocap_pose_remappings(robot_name):
-    if not _validate_robot_name(robot_name):
-        raise ValueError("robot_name must be a valid relative ROS namespace")
-    return [
-        (
-            f"/{robot_name}/vehicle/_mocap_pose",
-            f"/vrpn_mocap/{robot_name}/pose",
-        )
     ]
 
 
@@ -260,11 +153,6 @@ def _launch_vehicle(context):
 
     hardware_share = get_package_share_directory("mentor_pi_hardwares")
     bringup_share = get_package_share_directory("mentor_pi_bringup")
-    tracking_share = get_package_share_directory("mentor_pi_tracking")
-    tracking_controller = resolve_tracking_controller(
-        LaunchConfiguration("tracking_controller").perform(context), vehicle_type
-    )
-    tracking_algorithm = LaunchConfiguration("tracking_algorithm").perform(context)
     description_file = os.path.join(
         hardware_share, "config", vehicle_type, "mentor_pi.urdf.xacro"
     )
@@ -309,15 +197,6 @@ def _launch_vehicle(context):
         parameters=[controllers_file, robot_description],
         remappings=controller_state_estimate_remappings(robot_name),
     )
-    pose_adapter = Node(
-        package="mentor_pi_hardwares",
-        executable="vehicle_pose",
-        name="vehicle_pose",
-        namespace=robot_name,
-        output="screen",
-        parameters=[physical_pose_parameters(robot_name)],
-        remappings=mocap_pose_remappings(robot_name),
-    )
     joint_state_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -352,24 +231,6 @@ def _launch_vehicle(context):
         ),
         drive_controller_spawner,
     ]
-    if tracking_controller is not None:
-        tracking_parameters_for_vehicle = tracking_parameters(
-            vehicle_type, tracking_algorithm, hardware_settings
-        )
-        tracking_config = os.path.join(
-            tracking_share, "config", f"{tracking_algorithm}.yaml"
-        )
-        tracker = Node(
-            package="mentor_pi_tracking",
-            executable="trajectory_tracker",
-            namespace=robot_name,
-            output="screen",
-            parameters=[tracking_config, tracking_parameters_for_vehicle],
-        )
-        delayed_actions.extend(
-            [_shutdown_on_exit(tracker, "tracking controller"), tracker]
-        )
-
     return [
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(bringup_launch),
@@ -379,8 +240,6 @@ def _launch_vehicle(context):
         robot_state_publisher,
         _shutdown_on_exit(controller_manager, "controller manager"),
         controller_manager,
-        _shutdown_on_exit(pose_adapter, "vehicle pose adapter"),
-        pose_adapter,
         TimerAction(
             period=2.0,
             actions=delayed_actions,
@@ -396,12 +255,6 @@ def generate_vehicle_launch():
     return LaunchDescription(
         [
             DeclareLaunchArgument("vehicle_config", default_value=default_config),
-            DeclareLaunchArgument(
-                "tracking_controller", default_value=_DEFAULT_TRACKING_CONTROLLER
-            ),
-            DeclareLaunchArgument(
-                "tracking_algorithm", default_value=_DEFAULT_TRACKING_ALGORITHM
-            ),
             OpaqueFunction(function=_launch_vehicle),
         ]
     )

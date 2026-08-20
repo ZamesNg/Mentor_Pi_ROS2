@@ -1,18 +1,9 @@
 # RRCLite v2 Reliability and Safety Contract
 
-The optional lower-level tracker is an additional host safety boundary. It
-publishes zero when it has no active scheduled trajectory or fresh map-frame
-geometry-center pose;
-after cancellation; and after its bounded solver/fallback window. At the sum of
-the accepted segment durations it retains the terminal pose, forces reference
-derivatives to zero, and actively holds that endpoint until replacement or
-cancellation. Endpoint corrections remain subject to the normal command
-bounds. Invalid or duplicate trajectory messages never disturb the accepted
-trajectory. It is independent of MCU and supervisor topics. These rules do not
-weaken the lower-layer hardware adapter, firmware leases, supervisor
+Outer tracking is application-owned and does not weaken the lower-layer
+controller timeout, hardware adapter, firmware leases, supervisor
 authorization, model limits, the 6 RPS ceiling, or the guarded-motion
-prerequisites in this document. Exact requirements are in
-[tracking-controller.md](tracking-controller.md).
+prerequisites in this document.
 
 Status: normative failure behavior  
 Scope: firmware, micro-ROS session, host Agent, and retained actuators

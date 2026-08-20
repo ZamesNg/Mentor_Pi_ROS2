@@ -33,13 +33,12 @@ readonly -a expected_packages=(
   mentor_pi_bringup
   mentor_pi_hardwares
   mentor_pi_interfaces
-  mentor_pi_tracking
-  mentor_pi_tracking_interfaces
 )
 [[ "${packages[*]}" == "${expected_packages[*]}" ]] || \
-  Fail "ros2_ws/src does not contain exactly the five project packages"
-grep -Fq -- '--base-paths src' "${PROJECT_ROOT}/ros2_ws/tools/colcon.sh" || \
-  Fail "colcon is not explicitly limited to ros2_ws/src"
+  Fail "ros2_ws/src does not contain exactly the three project packages"
+grep -Fq -- 'third_party/ros2_controllers' \
+  "${PROJECT_ROOT}/ros2_ws/tools/colcon.sh" || \
+  Fail "colcon does not include the pinned controller overlay"
 grep -Fq -- '--cmake-clean-cache' \
   "${PROJECT_ROOT}/ros2_ws/tools/colcon.sh" || \
   Fail "colcon does not invalidate stale CMake underlays"
@@ -51,6 +50,11 @@ for variable in AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH \
 done
 [[ -f "${PROJECT_ROOT}/ros2_ws/third_party/COLCON_IGNORE" ]] || \
   Fail "plain colcon discovery does not ignore third-party sources"
+grep -Fq 'ad559d9c8054f128296ac094d7130e162e61b37a' \
+  "${PROJECT_ROOT}/ros2_ws/dependencies.repos" || \
+  Fail "ros2_controllers is not pinned to the reviewed Humble commit"
+[[ -f "${PROJECT_ROOT}/ros2_ws/patches/ros2-controllers-zero-stamp-warning.patch" ]] || \
+  Fail "the zero-stamp warning patch is missing"
 
 [[ -f "${PROJECT_ROOT}/firmware/mentor_pi_mcu/sdk/humble/libmicroros.tar.xz" && \
    -f "${PROJECT_ROOT}/firmware/mentor_pi_mcu/sdk/humble/manifest.txt" ]] || \

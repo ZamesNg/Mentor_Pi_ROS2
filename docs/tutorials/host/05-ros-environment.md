@@ -12,17 +12,15 @@ colcon list --base-paths src
 cd ..
 ```
 
-Exactly these five project packages must be listed:
+Exactly these three project packages must be listed under `src`:
 
 ```text
 mentor_pi_interfaces
 mentor_pi_bringup
 mentor_pi_hardwares
-mentor_pi_tracking_interfaces
-mentor_pi_tracking
 ```
 
-Import and validate the pinned external ROS source:
+Import, patch, and validate the pinned upstream controller sources:
 
 ```zsh
 make -C ros2_ws deps

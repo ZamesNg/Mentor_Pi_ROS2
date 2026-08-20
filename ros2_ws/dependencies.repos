@@ -1,5 +1,5 @@
 repositories:
-  third_party/altro-cpp:
+  third_party/ros2_controllers:
     type: git
-    url: https://github.com/ZamesNg/altro-cpp.git
-    version: 7336800baa3f2f6e0c8edfad472c1ea51c54321a
+    url: https://github.com/ros-controls/ros2_controllers.git
+    version: ad559d9c8054f128296ac094d7130e162e61b37a

@@ -11,7 +11,8 @@ The repository is a native component monorepo:
 - `micro_ros_agent/` owns pinned sources, the CH9102F patch, native build,
   versioned `/opt/mentor_pi/agent/` installation, udev, and the non-root
   `mentor-pi-agent.service`;
-- `ros2_ws/` contains the five ROS packages and uses rosdep/vcs/colcon only;
+- `ros2_ws/` contains three project packages plus three pinned controller
+  overlay packages and uses rosdep/vcs/colcon only;
 - the Agent is an external boot prerequisite, while ROS applications start
   manually and shut down when their supervisor fails;
 - Ubuntu 22.04 amd64/arm64 is the sole native production platform;
@@ -49,8 +50,8 @@ Perform these in order on native Ubuntu 22.04:
 5. Install the Agent on an Ubuntu 22.04 board by stable CH9102F identity. Record
    boot startup, non-root ownership, hardening, unplug/replug reconnect, and
    repeated restart behavior.
-6. Run `colcon list/build/test/test-result` in `ros2_ws` and prove that only the
-   five workspace packages are discovered.
+6. Run `colcon list/build/test/test-result` in `ros2_ws` and prove that exactly
+   the three project and three reviewed controller packages are selected.
 7. Exercise manual ROS startup with the Agent available, unavailable, stopped,
    restarted, and serially disconnected. Confirm old generation/session tokens,
    invalid commands, lost sessions, stale feedback, and expired leases keep

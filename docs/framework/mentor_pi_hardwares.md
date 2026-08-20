@@ -1,109 +1,37 @@
 # `mentor_pi_hardwares` architecture
 
-`mentor_pi_hardwares` is the host-side `ros2_control` adapter for the generated
-robot namespace. It does not replace the micro-ROS Agent or the
-configuration supervisor. The Agent is an external systemd prerequisite; the
-manual application launch owns the supervisor and ROS application processes.
+`mentor_pi_hardwares` is the command and ros2_control hardware boundary for
+the generated robot namespace. The micro-ROS Agent remains an external systemd
+prerequisite and the configuration supervisor remains application-owned.
 
 ## Runtime topology
 
-The unified top-level launch contains four independently managed
-application processes:
+Physical launch starts the configuration supervisor, robot state publisher,
+controller manager, one hardware plugin, the selected drive controller, and
+`joint_state_broadcaster`. Simulation launch starts the corresponding
+simulation hardware without firmware-facing endpoints.
 
-1. the configuration supervisor from `controller.launch.py`;
-2. `robot_state_publisher`;
-3. `controller_manager`, which loads one `SystemInterface` plugin and spawns
-   the selected drive controller plus `joint_state_broadcaster`.
-4. the geometry-center mocap pose adapter; and
-5. the profile-matched trajectory tracker unless explicitly disabled.
+Both launches are command-only. They do not start mocap, global pose, TF,
+polynomial trajectory, ADRC trajectory-tracking, or MPC processes. An external
+application publishes best-effort `geometry_msgs/msg/TwistStamped` commands to
+`/<robot>/vehicle/reference`.
 
-Use `vehicle.launch.py`; onboarding installs its generated `vehicle.yaml` and
-matching controller profile. The profile's `robot_name` namespaces firmware
-and host APIs, controller nodes, tracking interfaces, and TF frame IDs. An
-absolute `vehicle_config` override is retained for development; its sibling
-`controllers.yaml` is used automatically.
+The selected controller replaces a zero header timestamp with its own receipt
+time and applies the configured 100 ms reference timeout. Its encoder odometry
+and TF odometry outputs are remapped to private
+`/<robot>/vehicle/_controller_*` topics and `enable_odom_tf` remains false.
+An external state adapter exclusively owns public map pose and
+`map -> <robot>/base_footprint`.
 
-Both vehicle types use the same graph names. The selected drive controller is
-`/<robot_name>/vehicle`; its command and state endpoints include
-`vehicle/reference`, `vehicle/reference_unstamped`, and
-`vehicle/controller_state`. Both hardware adapters use the private node
-`/<robot_name>/vehicle_hardware`; both vehicles also use
-`/<robot_name>/vehicle_pose`.
-
-Physical global position comes only from the geometry-center mocap pose on
-`/vrpn_mocap/<robot_name>/pose`. That input must be a finite
-`geometry_msgs/msg/PoseStamped` in `map`. The adapter normalizes its quaternion,
-publishes the common `/<robot_name>/vehicle/pose` endpoint, and owns the
-dynamic `map -> <robot_name>/base_footprint` transform. The VRPN client must
-therefore have its own TF broadcast disabled. A wrong-frame or invalid mocap
-sample is rejected instead of being relabelled.
-
-`vehicle.launch.py` does not start or configure `vrpn_client_ros`; localization
-is an external prerequisite, like the Discovery Server. Configure the VRPN
-client to publish each rigid body with `frame_id=map` and to leave TF
-broadcasting disabled, then verify the adapter boundary before sending a
-trajectory:
-
-```sh
-ros2 topic echo --once /vrpn_mocap/<robot>/pose
-ros2 topic echo --once /<robot>/vehicle/pose
-ros2 run tf2_ros tf2_echo map <robot>/base_footprint
-```
-
-The upstream controllers continue calculating encoder odometry internally,
-because that is part of their controller implementation, but both odometry
-outputs are remapped below `vehicle/_controller_*`. `enable_odom_tf` is false,
-and physical launch neither republishes nor consumes those global pose
-estimates. There is no public `vehicle/odometry`, `vehicle/tf_odometry`, or
-namespaced `odom` root in the physical TF tree.
-
-The resulting physical trees are:
-
-```text
-Ackermann
-map
-└── <robot>/base_footprint
-    ├── <robot>/rear_axle_footprint
-    └── <robot>/base_link
-        ├── four wheel links
-        └── <robot>/imu_link
-
-Mecanum
-map
-└── <robot>/base_footprint
-    └── <robot>/base_link
-        ├── four wheel links
-        └── <robot>/imu_link
-```
-
-`robot_state_publisher` retains fixed joints on `/tf_static` and moving wheel
-and steering joints on `/tf`; removing encoder-derived global pose does not
-remove any URDF link.
-Ackermann and Mecanum retain their different upstream controller plugin types;
-consequently `vehicle/controller_state` has the plugin's native
-`SteeringControllerStatus` or `MecanumDriveControllerState` type. Physical
-joint names and TF reference frames remain vehicle-specific.
-
-`vehicle.launch.py` starts the profile-matched ADRC trajectory tracker by
-default. MPC uses the identical `trajectory_tracker` node and endpoints when
-selected with `tracking_algorithm:=mpc`. Pass `tracking_controller:=none` only
-when the tracker must be absent, including direct `vehicle/reference` tests.
-
-`simulation.launch.py` is a separate, development-only topology. It starts
-`robot_state_publisher`, `controller_manager`, the same `vehicle` controller,
-`joint_state_broadcaster`, and the same geometry-center pose adapter over a
-deterministic numerical hardware plugin. It uses the same tracker selection as
-physical launch, defaulting to the vehicle-matched ADRC tracker. It does not
-start the configuration supervisor, micro-ROS Agent, or any firmware-facing
-endpoint. `foxglove.launch.py` is also separate so one bridge can visualize
-multiple namespaced simulated vehicles. Direct reference tests must pass
-`tracking_controller:=none`.
+Robot state publication still owns the URDF fixed and joint transforms below
+`<robot>/base_footprint`. Physical joint names, controller-state message
+types, authorization, firmware leases, and fail-closed hardware behavior remain
+vehicle-specific and unchanged.
 
 ## Configuration ownership
 
 The selected absolute `vehicle_config` YAML is the sole authority for
-`vehicle.robot_name` and `vehicle.vehicle_type`. Whether to include bringup and
-the optional tracking controller remain launch arguments. Serial/Agent
+`vehicle.robot_name` and `vehicle.vehicle_type`. Serial/Agent
 configuration belongs to `mentor-pi-agent.service`, not application launch.
 Mode-specific profiles under `config/mecanum` and `config/ackermann` own:
 

@@ -123,15 +123,15 @@ source ros2_ws/install/setup.bash
 ros2 launch mentor_pi_hardwares vehicle.launch.py
 ```
 
-The complete vehicle launch starts the profile-matched ADRC trajectory tracker
-by default. Select MPC with `tracking_algorithm:=mpc`, or use
-`tracking_controller:=none` when intentionally publishing direct
-`vehicle/reference` commands without a trajectory tracker.
+The complete vehicle launch is command-only. A separate application must
+publish bounded `geometry_msgs/msg/TwistStamped` commands on the selected
+robot's `vehicle/reference` topic. Global pose and trajectory tracking are not
+owned by this repository.
 
 For a deterministic ros2_control simulation without an Agent, MCU, or physics
-engine, use the separate simulation entry point. It runs the same default ADRC
-tracker in the Dev Container or on native Ubuntu and keeps the physical launch
-path unchanged:
+engine, use the separate simulation entry point. It exposes the same
+command-only controller interface in the Dev Container or on native Ubuntu and
+keeps the physical launch path unchanged:
 
 ```sh
 source /opt/ros/humble/setup.bash
@@ -190,8 +190,8 @@ The motor sign contract is defined in the
   CMake/Ninja build, verification, packaging, and host flash tools.
 - [`micro_ros_agent/`](micro_ros_agent/) — standalone source locks, CH9102F
   patch, native build, versioned installation, udev rule, and systemd service.
-- [`ros2_ws/`](ros2_ws/) — five directly buildable ROS 2 packages, pinned
-  external sources, and manual application launch.
+- [`ros2_ws/`](ros2_ws/) — three project ROS 2 packages, a pinned controller
+  overlay, and manual command-only application launch.
 - [`.devcontainer/`](.devcontainer/) — the only Docker definition; development
   build/test environment for macOS and non-Ubuntu-22.04 Linux.
 - [`docs/tutorials/host/`](docs/tutorials/host/) and

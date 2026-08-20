@@ -44,7 +44,6 @@ The Agent service must not start this launch. Stop the application with
 Ctrl-C. Disconnecting or restarting the Agent must invalidate the old session,
 disarm motion, and require the supervisor to configure the new session.
 
-The generated profile selects Mecanum or Ackermann from `MENTOR_PI_TYPE` and
-the launch starts its ADRC trajectory tracker by default. Use
-`tracking_algorithm:=mpc` to select MPC. Use `tracking_controller:=none` only
-for a deliberate direct-controller test with no tracker publisher.
+The generated profile selects Mecanum or Ackermann from `MENTOR_PI_TYPE`.
+Trajectory tracking and global pose are external applications; this launch
+only accepts bounded commands on `/<robot>/vehicle/reference`.

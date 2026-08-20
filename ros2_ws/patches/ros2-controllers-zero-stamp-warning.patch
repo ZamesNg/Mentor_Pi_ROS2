@@ -1,0 +1,27 @@
+diff --git a/mecanum_drive_controller/src/mecanum_drive_controller.cpp b/mecanum_drive_controller/src/mecanum_drive_controller.cpp
+index f52a20d..0000000 100644
+--- a/mecanum_drive_controller/src/mecanum_drive_controller.cpp
++++ b/mecanum_drive_controller/src/mecanum_drive_controller.cpp
+@@ -234,8 +234,5 @@ void MecanumDriveController::reference_callback(const std::shared_ptr<Controller
+   // If no timestamp provided, use current time for command timestamp
+   if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0u)
+   {
+-    RCLCPP_WARN(
+-      get_node()->get_logger(),
+-      "Timestamp in header is missing, using current time as command timestamp.");
+     msg->header.stamp = get_node()->now();
+   }
+diff --git a/steering_controllers_library/src/steering_controllers_library.cpp b/steering_controllers_library/src/steering_controllers_library.cpp
+index e6e70fd..0000000 100644
+--- a/steering_controllers_library/src/steering_controllers_library.cpp
++++ b/steering_controllers_library/src/steering_controllers_library.cpp
+@@ -220,9 +220,6 @@ void SteeringControllersLibrary::reference_callback(
+   // if no timestamp provided use current time for command timestamp
+   if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0u)
+   {
+-    RCLCPP_WARN(
+-      get_node()->get_logger(),
+-      "Timestamp in header is missing, using current time as command timestamp.");
+     msg->header.stamp = get_node()->now();
+   }
+   const auto age_of_last_command = get_node()->now() - msg->header.stamp;

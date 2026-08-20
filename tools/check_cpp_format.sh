@@ -29,8 +29,6 @@ done < <(
     "${PROJECT_ROOT}/ros2_ws/src/mentor_pi_bringup" \
     "${PROJECT_ROOT}/ros2_ws/src/mentor_pi_hardwares" \
     "${PROJECT_ROOT}/ros2_ws/src/mentor_pi_interfaces" \
-    "${PROJECT_ROOT}/ros2_ws/src/mentor_pi_tracking" \
-    "${PROJECT_ROOT}/ros2_ws/src/mentor_pi_tracking_interfaces" \
     -type f \( \
       -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o \
       -name '*.h' -o -name '*.hpp' \

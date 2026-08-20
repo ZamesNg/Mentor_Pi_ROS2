@@ -10,8 +10,8 @@ help:
 		'Mentor Pi ROS 2 workspace (Ubuntu 22.04 / Humble)' \
 		'' \
 		'  make doctor  Verify the native/Dev Container environment.' \
-		'  make deps    Import pinned ALTO sources and run rosdep.' \
-		'  make build   Build only packages below ros2_ws/src.' \
+		'  make deps    Import and patch pinned controller sources.' \
+		'  make build   Build the three project and three controller packages.' \
 		'  make test    Run package tests and report their results.' \
 		'  make clean   Remove this workspace build/install/log output.'
 

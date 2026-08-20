@@ -35,8 +35,9 @@ hardware, safety, and qualification.
 - The Agent owns its source lock, patch, build tree, metadata, service, and udev
   rule below `micro_ros_agent/`. Preserve pinned revisions and the CH9102F
   DTR/RTS patch.
-- Colcon in `ros2_ws/` discovers only its five packages. Preserve package names
-  and package-internal C++ `src/` directories. External pins belong in
+- Colcon in `ros2_ws/` builds three project packages plus the three reviewed
+  controller-overlay packages. Preserve package-internal C++ `src/`
+  directories. External pins belong in
   `dependencies.repos` and project patches belong in `ros2_ws/patches/`.
 - Keep the root Makefile limited to onboarding, integration, passive hardware,
   characterization, evidence, and qualification actions.

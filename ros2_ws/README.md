@@ -1,12 +1,19 @@
 # Mentor Pi ROS 2 workspace
 
-This is the conventional ROS 2 Humble workspace for the Mentor Pi host stack.
-It contains the firmware and polynomial-trajectory interfaces, bringup,
-ros2_control hardware packages, and opt-in mecanum/Ackermann ALTO trackers
-under `src/`.
+This ROS 2 Humble workspace owns the Mentor Pi command and hardware boundary.
+It contains three project packages under `src/`:
 
-Ubuntu 22.04 builds this workspace natively. macOS and other Linux
-distributions use the repository VS Code Dev Container:
+- `mentor_pi_interfaces`
+- `mentor_pi_bringup`
+- `mentor_pi_hardwares`
+
+The workspace also builds the pinned, reviewed
+`ackermann_steering_controller`, `mecanum_drive_controller`, and
+`steering_controllers_library` overlay declared in `dependencies.repos`.
+The overlay preserves receipt-time handling for zero-stamped commands without
+emitting a warning.
+
+On Ubuntu 22.04, or inside the repository Dev Container on other hosts:
 
 ```sh
 make -C ros2_ws deps
@@ -14,15 +21,12 @@ make -C ros2_ws build
 make -C ros2_ws test
 ```
 
-`colcon build` run from this directory sees only the five packages below
-`src/`; it never builds firmware or the micro-ROS Agent. The Agent is a
-separate boot service on the onboard computer, while ROS applications are
-started manually.
+The micro-ROS Agent remains a separate boot service. ROS applications start
+manually. `vehicle.launch.py` starts the physical command-only stack selected
+by the generated profile; `simulation.launch.py` starts the corresponding
+command-only ros2_control simulation.
 
-Tracking is disabled by default. Onboard runtime uses the checked-in ROS launch
-files directly after sourcing Humble and this workspace with the same exported
-`ROS_DOMAIN_ID` used to install the Agent service. Use `vehicle.launch.py`; its
-generated profile selects the type and namespace. Opt into tracking with the
-matching `tracking_controller` launch argument. The host clock must be synchronized, and
-the publisher must provide future-scheduled `odom`-frame polynomial
-trajectories.
+This repository does not own global pose, TF, polynomial trajectories, or an
+outer trajectory tracker. An external application publishes bounded
+`geometry_msgs/msg/TwistStamped` messages to
+`/<robot>/vehicle/reference`. Commands use a 100 ms receipt-time timeout.

@@ -1,6 +1,7 @@
 # 06 — Onboard ROS applications build and test
 
-Import dependencies and build only the five packages under `ros2_ws/src`:
+Import dependencies and build the three project packages plus the three pinned
+controller-overlay packages:
 
 ```zsh
 make -C ros2_ws clean

@@ -4,6 +4,15 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly CONTROLLERS_ROOT="${WORKSPACE_ROOT}/third_party/ros2_controllers"
+readonly -a PACKAGES=(
+  ackermann_steering_controller
+  mecanum_drive_controller
+  mentor_pi_bringup
+  mentor_pi_hardwares
+  mentor_pi_interfaces
+  steering_controllers_library
+)
 
 "${SCRIPT_DIR}/check_environment.sh" >/dev/null
 
@@ -32,18 +41,23 @@ shift
 case "${command_name}" in
   build)
     exec colcon --log-base log build "$@" \
-      --base-paths src --build-base build --install-base install \
+      --base-paths src "${CONTROLLERS_ROOT}" \
+      --packages-select "${PACKAGES[@]}" \
+      --build-base build --install-base install \
       --cmake-clean-cache
     ;;
   test)
     exec colcon --log-base log test "$@" \
+      --packages-select "${PACKAGES[@]}" \
       --build-base build --install-base install
     ;;
   test-result)
     exec colcon --log-base log test-result "$@" --test-result-base build
     ;;
   list)
-    exec colcon --log-base log list "$@" --base-paths src
+    exec colcon --log-base log list "$@" \
+      --base-paths src "${CONTROLLERS_ROOT}" \
+      --packages-select "${PACKAGES[@]}"
     ;;
   *)
     echo "unsupported colcon command: ${command_name}" >&2

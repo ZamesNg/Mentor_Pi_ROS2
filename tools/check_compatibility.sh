@@ -13,10 +13,13 @@ grep -Fqx 'ros_distro=humble' "${PROJECT_ROOT}/micro_ros_agent/sources.lock" || 
   Fail "Agent is not locked to Humble"
 grep -Fqx 'ros_distro=humble' "${SDK_MANIFEST}" || \
   Fail "firmware SDK is not Humble"
-for package in mentor_pi_interfaces mentor_pi_bringup mentor_pi_hardwares \
-    mentor_pi_tracking_interfaces mentor_pi_tracking; do
+for package in mentor_pi_interfaces mentor_pi_bringup mentor_pi_hardwares; do
   [[ -f "${PROJECT_ROOT}/ros2_ws/src/${package}/package.xml" ]] || \
     Fail "ROS package is missing: ${package}"
+done
+for removed in mentor_pi_tracking mentor_pi_tracking_interfaces; do
+  [[ ! -e "${PROJECT_ROOT}/ros2_ws/src/${removed}" ]] || \
+    Fail "retired ROS package remains: ${removed}"
 done
 [[ ! -e "${PROJECT_ROOT}/mentor_pi_ros2" ]] || \
   Fail "legacy mentor_pi_ros2 workspace still exists"

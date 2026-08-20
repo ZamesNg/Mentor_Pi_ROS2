@@ -7,19 +7,15 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(controller_manager REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(hardware_interface REQUIRED)
-find_package(nav_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(tf2_ros REQUIRED)
 find_package(mentor_pi_interfaces REQUIRED)
 
 add_library(mentor_pi_hardwares SHARED
   src/hardware_common.cpp
-  src/odometry_transform.cpp
   src/mecanum_hardware.cpp
   src/ackermann_hardware.cpp
   src/simulation_hardware.cpp
@@ -45,21 +41,13 @@ target_compile_options(mentor_pi_hardwares
 
 ament_target_dependencies(mentor_pi_hardwares
   controller_manager
-  geometry_msgs
   hardware_interface
   mentor_pi_interfaces
-  nav_msgs
   pluginlib
   rclcpp
   rclcpp_lifecycle
   std_msgs
 )
-
-add_executable(vehicle_pose src/vehicle_pose.cpp)
-target_compile_features(vehicle_pose PRIVATE cxx_std_17)
-target_compile_options(vehicle_pose PRIVATE ${MENTOR_PI_WARNING_FLAGS})
-ament_target_dependencies(vehicle_pose geometry_msgs nav_msgs rclcpp tf2_ros)
-target_link_libraries(vehicle_pose mentor_pi_hardwares)
 
 pluginlib_export_plugin_description_file(hardware_interface ros2_control_plugins.xml)
 
@@ -69,11 +57,6 @@ install(
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
-)
-
-install(
-  TARGETS vehicle_pose
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
 install(
@@ -92,6 +75,7 @@ install(
 # install step does not otherwise delete files left by an older release.
 install(CODE "
   file(REMOVE
+    \"\${CMAKE_INSTALL_PREFIX}/lib/${PROJECT_NAME}/vehicle_pose\"
     \"\${CMAKE_INSTALL_PREFIX}/lib/${PROJECT_NAME}/vehicle_odometry\"
     \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/launch/mecanum.launch.py\"
     \"\${CMAKE_INSTALL_PREFIX}/share/${PROJECT_NAME}/launch/ackermann.launch.py\"
@@ -109,10 +93,8 @@ ament_export_include_directories(include)
 ament_export_libraries(mentor_pi_hardwares)
 ament_export_dependencies(
   controller_manager
-  geometry_msgs
   hardware_interface
   mentor_pi_interfaces
-  nav_msgs
   pluginlib
   rclcpp
   rclcpp_lifecycle
@@ -130,14 +112,6 @@ if(BUILD_TESTING)
     ament_target_dependencies(hardware_common_test mentor_pi_interfaces)
     target_compile_features(hardware_common_test PRIVATE cxx_std_17)
     target_compile_options(hardware_common_test PRIVATE ${MENTOR_PI_WARNING_FLAGS})
-  endif()
-
-  ament_add_gtest(odometry_transform_test test/odometry_transform_test.cpp)
-  if(TARGET odometry_transform_test)
-    target_link_libraries(odometry_transform_test mentor_pi_hardwares)
-    ament_target_dependencies(odometry_transform_test nav_msgs)
-    target_compile_features(odometry_transform_test PRIVATE cxx_std_17)
-    target_compile_options(odometry_transform_test PRIVATE ${MENTOR_PI_WARNING_FLAGS})
   endif()
 
   ament_add_gtest(hardware_plugin_test test/hardware_plugin_test.cpp)
@@ -178,10 +152,6 @@ if(BUILD_TESTING)
   ament_add_pytest_test(simulation_runtime_test
     test/test_simulation_runtime.py
     TIMEOUT 90
-  )
-  ament_add_pytest_test(vehicle_pose_runtime_test
-    test/test_vehicle_pose_runtime.py
-    TIMEOUT 30
   )
 endif()
 
