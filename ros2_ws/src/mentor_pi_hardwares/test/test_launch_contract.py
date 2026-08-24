@@ -491,7 +491,11 @@ def test_controller_profiles_preserve_timeout_and_stamped_reference():
             encoding="utf-8",
         ) as stream:
             document = yaml.safe_load(stream)
+        manager_parameters = document["/**/controller_manager"][
+            "ros__parameters"
+        ]
         parameters = document["/**/vehicle"]["ros__parameters"]
+        assert manager_parameters["update_rate"] == 50
         assert parameters["reference_timeout"] == pytest.approx(0.1)
         assert parameters["use_stamped_vel"] is True
     ackermann = yaml.safe_load(

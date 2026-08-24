@@ -34,7 +34,9 @@
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_cmake_lint_cmake</test_depend>
   <test_depend>ament_cmake_xmllint</test_depend>
+  <test_depend>control_msgs</test_depend>
   <test_depend>controller_manager_msgs</test_depend>
+  <test_depend>rcl_interfaces</test_depend>
   <test_depend>rclpy</test_depend>
 
   <export>

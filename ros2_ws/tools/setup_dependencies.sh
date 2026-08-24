@@ -44,6 +44,8 @@ git -C "${CONTROLLERS_ROOT}" diff --check
 mapfile -t changed < <(git -C "${CONTROLLERS_ROOT}" diff --name-only)
 readonly -a expected_changed=(
   mecanum_drive_controller/src/mecanum_drive_controller.cpp
+  mecanum_drive_controller/test/test_mecanum_drive_controller.cpp
+  mecanum_drive_controller/test/test_mecanum_drive_controller.hpp
   steering_controllers_library/src/steering_controllers_library.cpp
 )
 [[ "${changed[*]}" == "${expected_changed[*]}" ]] || \

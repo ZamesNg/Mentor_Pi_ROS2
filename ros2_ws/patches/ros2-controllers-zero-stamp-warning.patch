@@ -1,27 +1,128 @@
 diff --git a/mecanum_drive_controller/src/mecanum_drive_controller.cpp b/mecanum_drive_controller/src/mecanum_drive_controller.cpp
-index f52a20d..0000000 100644
+index 3c763c15..3ca6a5c1 100644
 --- a/mecanum_drive_controller/src/mecanum_drive_controller.cpp
 +++ b/mecanum_drive_controller/src/mecanum_drive_controller.cpp
-@@ -234,8 +234,5 @@ void MecanumDriveController::reference_callback(const std::shared_ptr<Controller
-   // If no timestamp provided, use current time for command timestamp
-   if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0u)
-   {
+@@ -232,29 +232,8 @@
+ void MecanumDriveController::reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg)
+ {
+-  // If no timestamp provided, use current time for command timestamp
+-  if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0u)
+-  {
 -    RCLCPP_WARN(
 -      get_node()->get_logger(),
 -      "Timestamp in header is missing, using current time as command timestamp.");
-     msg->header.stamp = get_node()->now();
-   }
+-    msg->header.stamp = get_node()->now();
+-  }
+-
+-  const auto age_of_last_command = get_node()->now() - msg->header.stamp;
+-
+-  // Check the timeout condition
+-  if (ref_timeout_ == rclcpp::Duration::from_seconds(0) || age_of_last_command <= ref_timeout_)
+-  {
+-    input_ref_.writeFromNonRT(msg);
+-  }
+-  else
+-  {
+-    RCLCPP_ERROR(
+-      get_node()->get_logger(),
+-      "Received message has timestamp %.10f older by %.10f than allowed timeout (%.4f).",
+-      rclcpp::Time(msg->header.stamp).seconds(), age_of_last_command.seconds(),
+-      ref_timeout_.seconds());
+-
+-    reset_controller_reference_msg(msg, get_node());
+-  }
++  // Reference freshness is defined by local receipt time. Sender timestamps
++  // may be zero, stale, or use an unsynchronized clock; this controller has no
++  // separate data-time semantic that needs the original value.
++  msg->header.stamp = get_node()->now();
++  input_ref_.writeFromNonRT(msg);
+ }
+diff --git a/mecanum_drive_controller/test/test_mecanum_drive_controller.cpp b/mecanum_drive_controller/test/test_mecanum_drive_controller.cpp
+index 250c0485..c8dd2086 100644
+--- a/mecanum_drive_controller/test/test_mecanum_drive_controller.cpp
++++ b/mecanum_drive_controller/test/test_mecanum_drive_controller.cpp
+@@ -248,3 +248,3 @@
+-// when too old msg is sent expect reference msg reset
+-TEST_F(MecanumDriveControllerTest, when_reference_msg_is_too_old_expect_unset_reference)
++// A stale sender timestamp must not make a freshly received reference stale.
++TEST_F(MecanumDriveControllerTest, when_reference_msg_is_stale_expect_local_receipt_time)
+ {
+@@ -259,2 +259 @@
+-  auto old_timestamp = reference->header.stamp;
+   EXPECT_TRUE(std::isnan(reference->twist.linear.x));
+@@ -264,12 +263,17 @@
+   // reference_callback() is implicitly called when publish_commands() is called
+   // reference_msg is published with provided time stamp when publish_commands( time_stamp)
+   // is called
+-  publish_commands(
+-    controller_->get_node()->now() - controller_->ref_timeout_ -
+-    rclcpp::Duration::from_seconds(0.1));
++  const auto before_publish = controller_->get_node()->now();
++  const auto stale_sender_timestamp =
++    before_publish - controller_->ref_timeout_ - rclcpp::Duration::from_seconds(0.1);
++  publish_commands(stale_sender_timestamp);
+   controller_->wait_for_commands(executor);
+-  ASSERT_EQ(old_timestamp, (*(controller_->input_ref_.readFromNonRT()))->header.stamp);
+-  EXPECT_TRUE(std::isnan((reference)->twist.linear.x));
+-  EXPECT_TRUE(std::isnan((reference)->twist.linear.y));
+-  EXPECT_TRUE(std::isnan((reference)->twist.angular.z));
++  reference = *(controller_->input_ref_.readFromNonRT());
++  const rclcpp::Time receipt_timestamp(reference->header.stamp);
++  EXPECT_GE(receipt_timestamp, before_publish);
++  EXPECT_LE(receipt_timestamp, controller_->get_node()->now());
++  EXPECT_NE(receipt_timestamp, stale_sender_timestamp);
++  EXPECT_EQ(reference->twist.linear.x, 1.5);
++  EXPECT_EQ(reference->twist.linear.y, 0.0);
++  EXPECT_EQ(reference->twist.angular.z, 0.0);
+ }
+diff --git a/mecanum_drive_controller/test/test_mecanum_drive_controller.hpp b/mecanum_drive_controller/test/test_mecanum_drive_controller.hpp
+index ce500fbb..210c4d75 100644
+--- a/mecanum_drive_controller/test/test_mecanum_drive_controller.hpp
++++ b/mecanum_drive_controller/test/test_mecanum_drive_controller.hpp
+@@ -65,7 +65,8 @@ class TestableMecanumDriveController : public mecanum_drive_controller::MecanumD
+   FRIEND_TEST(
+     MecanumDriveControllerTest,
+     when_reference_msg_received_expect_updated_commands_and_status_message);
+-  FRIEND_TEST(MecanumDriveControllerTest, when_reference_msg_is_too_old_expect_unset_reference);
++  FRIEND_TEST(
++    MecanumDriveControllerTest, when_reference_msg_is_stale_expect_local_receipt_time);
+   FRIEND_TEST(
+     MecanumDriveControllerTest,
+     when_reference_msg_has_timestamp_zero_expect_reference_set_and_timestamp_set_to_current_time);
 diff --git a/steering_controllers_library/src/steering_controllers_library.cpp b/steering_controllers_library/src/steering_controllers_library.cpp
-index e6e70fd..0000000 100644
+index 65cc25c7..6ba0a091 100644
 --- a/steering_controllers_library/src/steering_controllers_library.cpp
 +++ b/steering_controllers_library/src/steering_controllers_library.cpp
-@@ -220,9 +220,6 @@ void SteeringControllersLibrary::reference_callback(
-   // if no timestamp provided use current time for command timestamp
-   if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0u)
-   {
+@@ -217,27 +217,9 @@
+ void SteeringControllersLibrary::reference_callback(
+   const std::shared_ptr<ControllerTwistReferenceMsg> msg)
+ {
+-  // if no timestamp provided use current time for command timestamp
+-  if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0u)
+-  {
 -    RCLCPP_WARN(
 -      get_node()->get_logger(),
 -      "Timestamp in header is missing, using current time as command timestamp.");
-     msg->header.stamp = get_node()->now();
-   }
-   const auto age_of_last_command = get_node()->now() - msg->header.stamp;
+-    msg->header.stamp = get_node()->now();
+-  }
+-  const auto age_of_last_command = get_node()->now() - msg->header.stamp;
+-
+-  if (ref_timeout_ == rclcpp::Duration::from_seconds(0) || age_of_last_command <= ref_timeout_)
+-  {
+-    input_ref_.writeFromNonRT(msg);
+-  }
+-  else
+-  {
+-    RCLCPP_ERROR(
+-      get_node()->get_logger(),
+-      "Received message has timestamp %.10f older for %.10f which is more then allowed timeout "
+-      "(%.4f).",
+-      rclcpp::Time(msg->header.stamp).seconds(), age_of_last_command.seconds(),
+-      ref_timeout_.seconds());
+-  }
++  // Reference freshness is defined by local receipt time. Sender timestamps
++  // may be zero, stale, or use an unsynchronized clock; this controller has no
++  // separate data-time semantic that needs the original value.
++  msg->header.stamp = get_node()->now();
++  input_ref_.writeFromNonRT(msg);
+ }
