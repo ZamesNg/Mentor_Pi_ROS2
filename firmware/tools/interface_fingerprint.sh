@@ -18,12 +18,16 @@ readonly SHA256="${SCRIPT_DIR}/sha256.sh"
 manifest="$(mktemp)"
 paths="$(mktemp)"
 trap 'rm -f -- "${manifest}" "${paths}"' EXIT
-printf '%s\n' "${INTERFACE_ROOT}/CMakeLists.txt" \
-  "${INTERFACE_ROOT}/package.xml" >"${paths}"
+printf '%s\n' 'CMakeLists.txt' 'package.xml' >"${paths}"
 find "${INTERFACE_ROOT}/include" "${INTERFACE_ROOT}/msg" \
-  "${INTERFACE_ROOT}/srv" -type f ! -name '.DS_Store' -print >>"${paths}"
-LC_ALL=C sort -u "${paths}" | while IFS= read -r file; do
-  relative="${file#"${INTERFACE_ROOT}/"}"
-  printf '%s  %s\n' "$("${SHA256}" "${file}")" "${relative}"
-done >"${manifest}"
+  "${INTERFACE_ROOT}/srv" -type f ! -name '.DS_Store' -print | \
+  while IFS= read -r file; do
+    printf '%s\n' "${file#"${INTERFACE_ROOT}/"}"
+  done >>"${paths}"
+files=()
+while IFS= read -r file; do
+  files+=("${file}")
+done < <(LC_ALL=C sort -u "${paths}")
+"${SCRIPT_DIR}/sha256_manifest.sh" "${INTERFACE_ROOT}" \
+  "${files[@]}" >"${manifest}"
 "${SHA256}" "${manifest}"

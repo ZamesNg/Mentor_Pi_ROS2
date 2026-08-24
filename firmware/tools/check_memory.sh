@@ -5,7 +5,17 @@ set -euo pipefail
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly MCU_ROOT="$(cd "${SCRIPT_DIR}/../mentor_pi_mcu" && pwd)"
 readonly MAP="${MCU_ROOT}/build/stm32/mentor_pi_mcu.map"
-"${SCRIPT_DIR}/verify.sh" >/dev/null
+[[ "$#" -le 1 ]] || {
+  echo "Usage: check_memory.sh [--verified]" >&2
+  exit 2
+}
+[[ "$#" == 0 || "$1" == "--verified" ]] || {
+  echo "Usage: check_memory.sh [--verified]" >&2
+  exit 2
+}
+if [[ "${1:-}" != "--verified" ]]; then
+  "${SCRIPT_DIR}/verify.sh" >/dev/null
+fi
 
 Used() {
   local symbol="$1" origin="$2" address

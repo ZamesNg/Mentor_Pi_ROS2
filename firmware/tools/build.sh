@@ -102,5 +102,5 @@ printf '%s\n' \
   "map_sha256=$("${SHA256}" "${BUILD_ROOT}/mentor_pi_mcu.map")" \
   >"${metadata}"
 "${SCRIPT_DIR}/verify.sh" >/dev/null
-"${SCRIPT_DIR}/check_memory.sh"
+"${SCRIPT_DIR}/check_memory.sh" --verified
 echo "Firmware artifacts: ${BUILD_ROOT}"

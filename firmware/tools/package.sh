@@ -29,11 +29,14 @@ printf '%s\n' \
   'control_mode=CLOSED_LOOP' \
   'classification=NORMAL_CLOSED_LOOP_DEFAULT' \
   >"${destination}/BUILD-MODE.txt"
-(
-  cd "${destination}"
-  find . -type f ! -name SHA256SUMS -print | LC_ALL=C sort | \
-    while IFS= read -r file; do
-      printf '%s  %s\n' "$("${SCRIPT_DIR}/sha256.sh" "${file}")" "${file#./}"
-    done >SHA256SUMS
-)
+"${SCRIPT_DIR}/sha256_manifest.sh" "${destination}" \
+  BUILD-METADATA.txt \
+  BUILD-MODE.txt \
+  mentor_pi_mcu-firmware-adrc-release.bin \
+  mentor_pi_mcu-firmware-adrc-release.elf \
+  mentor_pi_mcu-firmware-adrc-release.hex \
+  mentor_pi_mcu-firmware-adrc-release.map \
+  >"${destination}/SHA256SUMS"
+"${SCRIPT_DIR}/verify_package.sh" "${destination}" >/dev/null
 echo "Firmware release package: ${destination}"
+echo "Trusted SHA256SUMS digest (record separately): $("${SCRIPT_DIR}/sha256.sh" "${destination}/SHA256SUMS")"

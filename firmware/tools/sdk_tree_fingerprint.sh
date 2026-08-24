@@ -15,11 +15,12 @@ readonly SHA256="${SCRIPT_DIR}/sha256.sh"
 }
 manifest="$(mktemp)"
 trap 'rm -f -- "${manifest}"' EXIT
-(
-  cd "${SDK_ROOT}"
-  find . -type f ! -name '.DS_Store' -print | LC_ALL=C sort | \
-    while IFS= read -r file; do
-      printf '%s  %s\n' "$("${SHA256}" "${file}")" "${file#./}"
-    done
-) >"${manifest}"
+files=()
+while IFS= read -r file; do
+  files+=("${file#"${SDK_ROOT}/"}")
+done < <(
+  find "${SDK_ROOT}" -type f ! -name '.DS_Store' -print | LC_ALL=C sort
+)
+"${SCRIPT_DIR}/sha256_manifest.sh" "${SDK_ROOT}" \
+  "${files[@]}" >"${manifest}"
 "${SHA256}" "${manifest}"
