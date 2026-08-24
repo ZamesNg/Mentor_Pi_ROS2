@@ -75,21 +75,22 @@ void SpinFor(rclcpp::executors::SingleThreadedExecutor* executor,
 class FakeCommissioningController final : public rclcpp::Node {
  public:
   explicit FakeCommissioningController(
-      const std::string& authorization_node_name = "configuration_supervisor")
-      : rclcpp::Node(authorization_node_name, "/mentor_pi") {
+      const std::string& authorization_node_name = "configuration_supervisor",
+      const std::string& node_namespace = "/mentor_pi")
+      : rclcpp::Node(authorization_node_name, node_namespace) {
     motion_authorization_publisher_ = create_publisher<std_msgs::msg::UInt64>(
-        "/mentor_pi/configuration/motion_authorization",
+        "configuration/motion_authorization",
         rclcpp::QoS{rclcpp::KeepLast{std::size_t{1}}}
             .reliable()
             .transient_local());
-    heartbeat_publisher_ = create_publisher<Heartbeat>("/mentor_pi/heartbeat",
+    heartbeat_publisher_ = create_publisher<Heartbeat>("heartbeat",
                                                        ReliableDepthOneQos());
     diagnostics_publisher_ = create_publisher<ControllerDiagnostics>(
-        "/mentor_pi/diagnostics", ReliableDepthOneQos());
+        "diagnostics", ReliableDepthOneQos());
     motor_state_publisher_ = create_publisher<MotorState>(
-        "/mentor_pi/motors/state", BestEffortDepthOneQos());
+        "motors/state", BestEffortDepthOneQos());
     motor_command_subscription_ = create_subscription<MotorCommand>(
-        "/mentor_pi/motors/command", BestEffortDepthOneQos(),
+        "motors/command", BestEffortDepthOneQos(),
         [this](const MotorCommand::SharedPtr message) {
           ObserveMotorCommand(*message);
         });
@@ -185,8 +186,14 @@ class FakeCommissioningController final : public rclcpp::Node {
   rclcpp::TimerBase::SharedPtr motor_state_timer_;
 };
 
-rclcpp::NodeOptions ValidOptions(std::int64_t duration_ms = 100) {
+rclcpp::NodeOptions ValidOptions(
+    std::int64_t duration_ms = 100,
+    const std::string& node_namespace = "/mentor_pi") {
   rclcpp::NodeOptions options;
+  if (node_namespace != "/mentor_pi") {
+    options.arguments(
+        {"--ros-args", "--remap", "__ns:=" + node_namespace});
+  }
   options.parameter_overrides(
       {rclcpp::Parameter(
            "acknowledgement",
@@ -241,6 +248,40 @@ void TestSuccessfulCommissioningAndCommandPolicy() {
          "100 ms drive emits repeated 20 Hz targets");
   Expect(controller->stop_command_count() >= 20U,
          "pre-stop and post-stop each emit a repeated zero burst");
+
+  executor.remove_node(commissioning.node);
+  executor.remove_node(controller);
+}
+
+void TestNamespaceOverrideScopesCommissioning() {
+  constexpr char kNamespace[] = "/mecanum_1";
+  auto controller = std::make_shared<FakeCommissioningController>(
+      "configuration_supervisor", kNamespace);
+  const auto commissioning = mentor_pi_bringup::MakeMotorCommissioningNode(
+      ValidOptions(100, kNamespace));
+  Expect(std::string{commissioning.node->get_namespace()} == kNamespace,
+         "namespace remapping selects the mecanum_1 commissioning graph");
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(controller);
+  executor.add_node(commissioning.node);
+  Expect(SpinUntil(
+             &executor,
+             [&commissioning]() {
+               return commissioning.outcome->complete.load(
+                   std::memory_order_acquire);
+             },
+             std::chrono::seconds{5}),
+         "mecanum_1 commissioning finishes within the bounded test time");
+  Expect(commissioning.outcome->passed.load(std::memory_order_acquire),
+         "mecanum_1 supervisor identity and relative endpoints are accepted");
+  Expect(controller->command_policy_valid(),
+         "mecanum_1 commands retain the all-motor update policy");
+  Expect(controller->drive_command_count() >= 2U,
+         "mecanum_1 receives repeated drive commands");
+  Expect(commissioning.node->count_publishers(
+             "/mentor_pi/motors/command") == 0U,
+         "the mecanum_1 override does not publish on the default motor topic");
 
   executor.remove_node(commissioning.node);
   executor.remove_node(controller);
@@ -416,6 +457,7 @@ int main(int argc, char** argv) {
   try {
     TestInvalidAcknowledgementCreatesNoNode();
     TestSuccessfulCommissioningAndCommandPolicy();
+    TestNamespaceOverrideScopesCommissioning();
     TestAuthorizationPublisherIdentityAndMultiplicity();
     TestSessionBoundAuthorizationAndStopControl();
     TestCommandPublisherConflictFailsClosed();

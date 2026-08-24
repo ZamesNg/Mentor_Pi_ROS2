@@ -1,6 +1,6 @@
 # RRCLite v2 status and next steps
 
-This is the implementation and evidence handoff as of 2026-08-12. Begin with
+This is the implementation and evidence handoff as of 2026-08-24. Begin with
 one complete tutorial track from the [root README](../README.md).
 
 ## Current source contract
@@ -25,9 +25,9 @@ The repository is a native component monorepo:
 firmware SDK currently records:
 
 ```text
-interfaces_sha256=196e0c2579635d28c979ac74732aa76c1f9b79acb82de3c455efc7e7afeec576
-archive_sha256=d42ca8996cae0c2bb2f668f9454efc69edd1d1c986c9dff6a912628a4b6d0a7a
-tree_sha256=9ce2a22f321bf6734671361b1141e89c287332eafeaf17a10516412c02f66e02
+interfaces_sha256=84eab1b9b1baf2113e4605219b3ecdb8d84735a84484dbb548df1caba4ee299b
+archive_sha256=5e200f496de0ec2ec32a402fb5520b4d5b6a2f7f8b21edcd2d00e80e2733e7a7
+tree_sha256=5794a82572c238ec4ec3e3489ae6b4dea8004f9faca1851b3b3dae5a20d9e6b5
 toolchain_amd64_sha256=6cd1bbc1d9ae57312bcd169ae283153a9572bd6a8e4eeae2fedfbc33b115fdbb
 toolchain_arm64_sha256=8fd8b4a0a8d44ab2e195ccfbeef42223dfb3ede29d80f14dcf2183c34b8d199a
 ```

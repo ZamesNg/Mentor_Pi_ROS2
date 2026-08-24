@@ -20,15 +20,17 @@ conversion between the MCU coordinate and positive ROS wheel rotation. ADRC
 values and unverified physical channel mappings remain release-provisional
 until guarded HIL records them.
 
-Closed-loop control uses first-order linear ADRC at 100 Hz. The extended-state
-observer estimates motor speed and the combined disturbance from filtered
-encoder velocity and the previously applied output. The controller then uses
-the speed error and disturbance estimate to produce signed permille output.
-Output is bounded to 1000 permille. The minimum-drive floor is currently zero,
-so small nonzero ADRC outputs are no longer raised to a fixed duty. Every model
-defaults to input gain `b0=0.03
-RPS/s/permille`, controller bandwidth `wc=4 rad/s`, observer bandwidth `wo=12
-rad/s`, and velocity-filter new-sample weight `0.5`. These are provisional
+Closed-loop control uses first-order nonlinear ADRC at 100 Hz. Its
+dimension-preserving `fal` map retains unit slope inside each configured error
+threshold and compresses larger errors when an exponent is below one. The
+extended-state observer includes known velocity decay, bounded disturbance
+compensation, and disturbance leakage. Output is bounded to 1000 permille;
+independent positive- and negative-target floors may raise only a same-sign
+nonzero candidate and are bounded to 250 permille. Every model defaults to
+zero known decay and leakage, input gain `b0=0.03 RPS/s/permille`, controller
+bandwidth `wc=4 rad/s`, observer bandwidth `wo=12 rad/s`, all exponents `1`,
+both `fal` thresholds `0.1 RPS`, disturbance limit `30 RPS/s`, velocity-filter
+new-sample weight `0.5`, and zero directional floors. These are provisional
 starting values and require guarded physical tuning.
 
 ## Motor safety configuration
@@ -51,12 +53,17 @@ make -C firmware setup
 make -C firmware test
 MENTOR_PI_NAME=mentor_pi_1 make -C firmware build
 make -C firmware verify
+make -C firmware package
 ```
 
 `MENTOR_PI_NAME` is a required relative ROS namespace. It is compiled into the
 micro-ROS node so publishers, subscriptions, and services share the selected
 robot namespace. Changing it requires a new verified firmware build and flash;
 `make onboard-configure` performs that bounded reconfiguration workflow.
+For a host-built package intended for the first `mecanum_1` trial, set
+`MENTOR_PI_NAME=mecanum_1` on the build command before packaging. The package
+directory can then be copied unchanged to the physical Ubuntu robot without
+rebuilding the firmware there.
 
 Maintainers regenerate the checked Humble SDK after changing
 `ros2_ws/src/mentor_pi_interfaces` with:
@@ -95,7 +102,7 @@ Every successful supported build also writes
 `build/stm32/rrclite-build-metadata.txt`. The direct CubeProgrammer flash
 wrapper verifies that metadata, the pinned generated micro-ROS header/archive
 tree, the current project source fingerprint, the selected motor profile, and
-the ELF hash before creating an immutable upload snapshot. Flashing an
+the ELF hash before creating a read-only verified upload snapshot. Flashing an
 unverified artifact and debugger-initiated firmware loads are intentionally
 unsupported. Source-level debugging requires a separate SWD probe; the
 CH9102F/USART1 ROM-bootloader path provides flashing only.
@@ -103,10 +110,36 @@ CH9102F/USART1 ROM-bootloader path provides flashing only.
 On Linux, `make -C firmware flash` builds the host-side CH9102F helper through
 CMake/Ninja and uses separate RTS/DTR set/clear ioctls. It asserts reset with
 BOOT0 high, enters the ROM bootloader, probes it, programs and verifies the
-immutable snapshot, and only then resets with BOOT0 low into the application.
+read-only snapshot, and only then resets with BOOT0 low into the application.
 An ioctl, preflight, programming, or verification failure never performs the
 final application reset. `AUTOMATIC_BOOT_CONTROL=0` is reserved for the
 documented physical BOOT/RST fallback.
+
+A transferred package has a separate physical-host entry point. Pass the
+exact `firmware-adrc-release/` directory produced by `make -C firmware
+package`:
+
+```sh
+make -C firmware flash-package \
+  PACKAGE=/path/to/firmware-adrc-release \
+  EXPECTED_NAMESPACE=/mecanum_1 \
+  PACKAGE_MANIFEST_SHA256=64_HEX_DIGEST_RECORDED_ON_BUILD_HOST \
+  PORT=/dev/mentor_pi_mcu \
+  FLASH_ACK=ROM_BOOTLOADER_ACTIVE_MOTORS_DISCONNECTED
+```
+
+This target does not rebuild firmware. It rejects symbolic, missing, empty,
+nested, or additional package entries; requires the exact ELF/Hex/Bin/Map,
+mode, metadata, and `SHA256SUMS` closure; and accepts only
+`NORMAL_CLOSED_LOOP_DEFAULT`/`CLOSED_LOOP` metadata. It copies that verified
+package into a temporary read-only upload snapshot, re-verifies the snapshot,
+ELF identity/digest, and memory budget, then uses the same CH9102F boot sequence
+and CubeProgrammer read-back verification as `flash`. Package flashing also
+requires exact equality with the intended robot namespace and an out-of-band
+digest of `SHA256SUMS` printed by `make package`; this prevents a copied package
+or its self-consistent metadata from silently selecting another robot or
+replacing the build-host payload. Both flash targets require the physical host
+and are rejected in the Dev Container.
 
 ## Traceability
 

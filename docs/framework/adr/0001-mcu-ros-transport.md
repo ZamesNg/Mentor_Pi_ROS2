@@ -115,8 +115,10 @@ the rest of this specification remain mandatory.
   a TX error. Missing XRCE reliable ACKs or Agent/session replies are not
   `transport_tx_timeouts` when DMA and TC completed normally. Reliable
   publish/response operations instead use their 10 ms XRCE session timeout;
-  an ACK timeout is fatal to that session. With no reliable operation pending,
-  Agent loss is detected by three consecutive bounded ACTIVE ping failures.
+  an ACK timeout is fatal to that session. While `ACTIVE`, the reliable 2 Hz
+  heartbeat acknowledgement is the Agent-liveness boundary and its failure
+  tears down the session. Agent ping is retained only in `WAIT_AGENT` while
+  disconnected.
 - The initial XRCE MTU is 512 bytes with reliable stream history depth eight.
   The pinned Humble generated type support is normative and shall report a
   388-byte maximum message-field payload for `ControllerDiagnostics`; the
@@ -126,12 +128,17 @@ the rest of this specification remain mandatory.
   without endpoint-level fragmentation; conflicting handwritten arithmetic
   does not override the generator. Serial framing, CRC, and byte stuffing occur
   after this MTU and are accounted as wire bytes, not as unused CDR budget.
-- Middleware calls remain incremental and bounded: executor spin waits at most
-  1 ms; transport reads, ACTIVE ping/time sync, reliable publish/response, and
-  each remote finalizer call at most 10 ms; creation-time sync at most 20 ms;
+- Middleware calls remain incremental and bounded: ACTIVE executor spin is
+  nonblocking and its notification-aware outer task wait is at most 1 ms;
+  transport reads, ACTIVE time sync, reliable publish/response, and each remote
+  finalizer call are at most 10 ms; creation-time sync is at most 20 ms;
   each entity-creation call at most 40 ms and all creation at most 2 s; and all
   remote destruction at most 500 ms. `MicroRosTask` advances its heartbeat
   between lifecycle calls so no heartbeat interval exceeds 100 ms.
+- ACTIVE blocking operations are deferred while motor/PWM/IMU telemetry is
+  overdue or fewer than 12 ms remain before its next deadline. Reliable
+  periodic telemetry starts at staggered ACTIVE-entry phases: heartbeat at
+  0 ms, battery at 250 ms, and diagnostics at 750 ms.
 - No UDP, TCP, Ethernet, discovery-server, or USB CDC transport profile is built
   into the release firmware.
 - Total measured serialized traffic, summing RX and TX in every complete
@@ -168,11 +175,11 @@ prove all of the following on the actual STM32F407 toolchain and board:
 6. The Agent and all MCU ROS entities recover within five seconds after each
    reconnect, while motors satisfy the 200 ms command-lease rule.
 7. Fault injection separately proves: a missing reliable ACK returns through
-   the 10 ms session bound; three ping-only failures detect an absent Agent
-   when reliable operations are acknowledged; and missing TX-DMA/TC completion
-   uses the physical write deadline and `transport_tx_timeouts` diagnostic.
-   Every middleware/lifecycle bound above is met and task heartbeat age remains
-   no greater than 100 ms.
+   the 10 ms session bound; a failed 2 Hz reliable heartbeat acknowledgement
+   detects an absent Agent within 550 ms; no Agent ping occurs while `ACTIVE`;
+   and missing TX-DMA/TC completion uses the physical write deadline and
+   `transport_tx_timeouts` diagnostic. Every middleware/lifecycle bound above
+   is met and task heartbeat age remains no greater than 100 ms.
 
 If any item fails, implementation stops and this ADR is reopened. The team must
 not silently replace micro-ROS, relax safety behavior, remove an interface, or

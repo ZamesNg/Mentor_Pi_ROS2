@@ -16,8 +16,11 @@ polynomial trajectory, ADRC trajectory-tracking, or MPC processes. An external
 application publishes best-effort `geometry_msgs/msg/TwistStamped` commands to
 `/<robot>/vehicle/reference`.
 
-The selected controller replaces a zero header timestamp with its own receipt
-time and applies the configured 100 ms reference timeout. Its encoder odometry
+The selected controller records its own local receipt time for every reference,
+regardless of whether the sender header stamp is zero, stale, current, or from
+an unsynchronized clock. It consumes the latest best-effort reference on the
+50 Hz controller-manager loop and applies the configured 100 ms timeout from
+that local receipt. Its encoder odometry
 and TF odometry outputs are remapped to private
 `/<robot>/vehicle/_controller_*` topics and `enable_odom_tf` remains false.
 An external state adapter exclusively owns public map pose and
@@ -86,7 +89,7 @@ domain 42 because their ROS entity and TF names are distinct.
 The simulation plugins preserve the logical ROS joint order and do not apply
 MCU connector signs. Both vehicle types clamp driven-wheel velocity to
 `+/-37.699112 rad/s`, rate-limit it to `+/-188.495559 rad/s^2`, and integrate
-wheel position trapezoidally at the existing 30 Hz controller-manager period.
+wheel position trapezoidally at the 50 Hz controller-manager period.
 Ackermann averages the two commanded front steering positions into one
 physical steering state, clamps it to `+/-0.6 rad`, rate-limits it to
 `60 rad/s`, and reports that state through both steering joints.
@@ -129,7 +132,7 @@ PWM channel.
 
 ## Chassis feedback control
 
-Both hardware plugins run first-order linear ADRC at the existing 30 Hz
+Both hardware plugins run first-order linear ADRC at the 50 Hz
 `ros2_control` update rate, after the drive controller has produced its wheel
 or steering references. Consequently manual commands and tracker/MPC commands
 use the same feedback path without a new node or topic.

@@ -91,7 +91,7 @@ gets a `BUSY` response. Non-bus work has a 50 ms local deadline. Bus work has a
 | Fully qualified service | Type | Purpose |
 |---|---|---|
 | `/mentor_pi/motors/set_model` | `mentor_pi_interfaces/srv/SetMotorModel` | Select one profile for all four motors |
-| `/mentor_pi/motors/set_adrc` | `mentor_pi_interfaces/srv/SetMotorAdrc` | Apply volatile closed-loop gains while all motors are stopped |
+| `/mentor_pi/motors/set_adrc` | `mentor_pi_interfaces/srv/SetMotorAdrc` | Apply volatile nonlinear closed-loop, filter, and directional-floor parameters while all motors are stopped |
 | `/mentor_pi/pwm_servos/set_offsets` | `mentor_pi_interfaces/srv/SetPwmServoOffsets` | Set PWM-servo calibration offsets |
 | `/mentor_pi/bus_servos/get_state` | `mentor_pi_interfaces/srv/GetBusServoState` | Read selected registers from one servo |
 | `/mentor_pi/bus_servos/configure` | `mentor_pi_interfaces/srv/ConfigureBusServo` | Write selected registers on one servo |
@@ -282,14 +282,19 @@ shared contract. A mismatched model, tick count, non-finite speed, or different
 finite speed is treated as `IO_ERROR`; configuration is rejected for that
 generation and the motion gate remains closed.
 
-All four profiles use the same hardcoded, bounded first-order LADRC defaults:
-input gain `b0=0.03 RPS/s/permille`, controller bandwidth `wc=4 rad/s`,
-observer bandwidth `wo=12 rad/s`, and velocity-filter new-sample weight `0.5`.
-They are not release-qualified. D3 HIL shall qualify or replace these values,
-physical command/encoder polarity, filter, and the currently disabled
-zero-permille minimum-drive floor for each profile and record the evidence before nonzero production motion
-is released. The defective legacy PID expression and its negative gains are not
-a normative output algorithm. Changing any qualified constant or sign later
+All four profiles use the same bounded first-order nonlinear ADRC defaults:
+known velocity decay `a=0 s^-1`, input gain
+`b0=0.03 RPS/s/permille`, controller bandwidth `wc=4 rad/s`, controller
+`fal` exponent `1` and threshold `0.1 RPS`, observer bandwidth `wo=12 rad/s`,
+both observer `fal` exponents `1` with threshold `0.1 RPS`, disturbance
+leakage `0 s^-1`, disturbance-compensation limit `30 RPS/s`, velocity-filter
+new-sample weight `0.5`, and zero positive/negative minimum-drive floors. They
+are not release-qualified. The deployment supervisor applies the reviewed
+host filter value `0.8` before enabling motion. D3 HIL shall qualify or replace
+these values, physical command/encoder polarity, filter, and both directional
+minimum-drive floors for each profile before nonzero production motion is
+released. The defective legacy PID expression and its negative gains are not a
+normative output algorithm. Changing any qualified constant or sign later
 invalidates the affected motor HIL evidence.
 
 ### 4.4 `srv/SetMotorAdrc.srv`
@@ -302,22 +307,42 @@ uint8 MOTOR_4=8
 uint8 ALL_MOTORS=15
 
 uint8 update_mask
+float32[4] known_velocity_decay_rate_s_inverse
 float32[4] input_gain_rps_per_second_per_permille
 float32[4] controller_bandwidth_rad_s
+float32[4] controller_fal_exponent
+float32[4] controller_fal_threshold_rps
 float32[4] observer_bandwidth_rad_s
+float32[4] observer_velocity_fal_exponent
+float32[4] observer_disturbance_fal_exponent
+float32[4] observer_fal_threshold_rps
+float32[4] disturbance_leakage_s_inverse
+float32[4] disturbance_estimate_limit_rps_per_second
 float32[4] velocity_filter_new_weight
+uint16[4] positive_minimum_drive_permille
+uint16[4] negative_minimum_drive_permille
 ---
 mentor_pi_interfaces/Result result
 uint8 applied_mask
 ```
 
-`update_mask` shall be a nonzero subset of `ALL_MOTORS`. Every selected input
-gain shall be finite, positive, and no greater than `1000`. Every selected
-controller and observer bandwidth shall be finite and positive; controller
-bandwidth shall not exceed observer bandwidth, and observer bandwidth shall not
-exceed `50 rad/s`. Every selected filter new-sample weight shall be finite and
-in `[0, 1]`. A non-finite selected value returns `INVALID_ARGUMENT`; a finite
-value outside these bounds returns `OUT_OF_RANGE`.
+`update_mask` shall be a nonzero subset of `ALL_MOTORS`; values for unselected
+motors are ignored. Every selected floating-point value shall be finite. The
+selected values shall satisfy:
+
+- `known_velocity_decay_rate_s_inverse` and
+  `disturbance_leakage_s_inverse` are in `[0, 50] s^-1`;
+- `input_gain_rps_per_second_per_permille` (`b0`) is in `(0, 1000]`;
+- `0 < controller_bandwidth_rad_s <= observer_bandwidth_rad_s <= 50`;
+- all three `fal` exponents are in `[0.1, 1]`;
+- both `fal` thresholds are in `[0.001, 6] RPS`;
+- `disturbance_estimate_limit_rps_per_second` is in
+  `[0, b0 * 1000] RPS/s`;
+- `velocity_filter_new_weight` is in `[0, 1]`; and
+- each directional minimum-drive floor is in `[0, 250]` permille.
+
+A non-finite selected float returns `INVALID_ARGUMENT`; a finite value outside
+these bounds returns `OUT_OF_RANGE`.
 
 The service is supported by the default closed-loop ADRC artifact. It returns
 `BUSY` unless every channel is disarmed, every target is zero, and every
@@ -327,34 +352,49 @@ ADRC-state reset are atomic across all selected channels. On success
 Overrides are volatile: they survive an Agent
 transport reconnection but are cleared by an MCU reset or an actual motor-model
 change.
-The deployment supervisor validates four exactly-four-element double YAML
-arrays named `input_gain_rps_per_second_per_permille`, `controller_bandwidth_rad_s`, `observer_bandwidth_rad_s`, and
-`velocity_filter_new_weight`, using these same ranges. After each session it
-sets the motor model, applies all four ADRC arrays with `ALL_MOTORS`, verifies
-both `OK` and `applied_mask == ALL_MOTORS`, then applies PWM offsets and the
-battery threshold before enabling motion.
+The deployment supervisor validates all twelve exactly-four-element floating
+arrays and both exactly-four-element integer minimum-drive arrays using these
+same ranges and cross-field constraints. After each session it sets the motor
+model, applies every controller array with `ALL_MOTORS`, verifies both `OK` and
+`applied_mask == ALL_MOTORS`, then applies PWM offsets and the battery threshold
+before enabling motion.
 If the bounded service deadline expires before the motor owner commits the
 update, timeout cancellation wins the same owner critical section and prevents
 any later gain mutation for that request. If the owner commit wins first, the
 completed success response is returned instead of `TIMEOUT`.
 
 The closed-loop image uses filtered measured RPS and evaluates first-order
-linear ADRC at 100 Hz. The first sample establishes a nominal 10 ms timing
-baseline; subsequent samples use the wrap-safe actual elapsed period `T`. With
-`e = z1 - filtered_measured_rps` and the previously applied post-floor output:
+nonlinear ADRC at 100 Hz. The first sample establishes a nominal 10 ms timing
+baseline; subsequent samples use the wrap-safe actual elapsed period `T`. Its
+dimension-preserving nonlinear error map has unit slope near zero:
 
 ```text
-z1 += T * (z2 + b0 * applied_output - 2 * wo * e)
-z2 += T * (-wo * wo * e)
-output = (wc * (target_rps - z1) - z2) / b0
+fal(e, alpha, delta) = e                                      when |e| <= delta
+                     = sign(e) * delta * (|e| / delta)^alpha otherwise
+
+eo = z1 - filtered_measured_rps
+z1_dot = -a * z1 + z2 + b0 * applied_output
+         - 2 * wo * fal(eo, alpha_velocity, delta_observer)
+z2_dot = -wo * wo * fal(eo, alpha_disturbance, delta_observer)
+         - leakage * z2
+z1 += T * z1_dot
+z2 += T * z2_dot
+bounded_disturbance = clamp(z2, -disturbance_limit, disturbance_limit)
+output = (a * z1
+          + wc * fal(target_rps - z1, alpha_controller, delta_controller)
+          - bounded_disturbance) / b0
 ```
 
-`b0` is in RPS/s/permille and `wc`/`wo` are in rad/s. A non-finite state or
-`wo*T > 0.5` disarms the affected channel and records a watchdog stop. The
-final output is clamped to `[-1000, 1000]` permille. The minimum-drive floor is
-zero, so calculated nonzero outputs are not raised to a fixed duty. Stop, lease expiry,
-disarming, session loss, a successful selected ADRC update, and an actual model
-change reset observer and applied-output state.
+`a` is the known velocity-decay rate, `b0` is in RPS/s/permille, `wc`/`wo` are
+in rad/s, and `leakage` decays the disturbance estimate. A non-finite state or
+`a*T > 0.5`, `wo*T > 0.5`, or `leakage*T > 0.5` disarms the affected channel
+and records a watchdog stop. The candidate output is clamped to
+`[-1000, 1000]` permille. If its sign agrees with the nonzero target, a
+nonzero magnitude below the corresponding positive- or negative-target floor
+is raised to that floor; a braking/opposing candidate is never raised. Stop,
+lease expiry, disarming, session loss, a successful selected ADRC update, an
+actual motor-model change, and a nonzero target-sign reversal reset observer
+and applied-output state.
 
 ## 5. PWM servo interface
 

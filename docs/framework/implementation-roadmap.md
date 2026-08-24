@@ -52,7 +52,7 @@ Only the onboard sequence belongs in a production handoff.
 3. Agent installation, boot hardening, USB reconnect, and restart evidence.
 4. Manual application startup with Agent available/unavailable/restarted and
    proof that old sessions and stale feedback stay disarmed.
-5. Firmware memory/stack/resource evidence and tracker 30 Hz/25 ms benchmark.
+5. Firmware memory/stack/resource evidence and chassis 50 Hz/20 ms benchmark.
 6. Passive board characterization, powered guarded qualification, 500 Hz load,
    three 100-cycle recovery campaigns, and 24-hour soak.
 

@@ -33,13 +33,12 @@ using MotorCommand = mentor_pi_interfaces::msg::MotorCommand;
 using MotorState = mentor_pi_interfaces::msg::MotorState;
 
 constexpr char kMotionAuthorizationTopic[] =
-    "/mentor_pi/configuration/motion_authorization";
+    "configuration/motion_authorization";
 constexpr char kConfigurationSupervisorName[] = "configuration_supervisor";
-constexpr char kConfigurationSupervisorNamespace[] = "/mentor_pi";
-constexpr char kMotorCommandTopic[] = "/mentor_pi/motors/command";
-constexpr char kMotorStateTopic[] = "/mentor_pi/motors/state";
-constexpr char kHeartbeatTopic[] = "/mentor_pi/heartbeat";
-constexpr char kDiagnosticsTopic[] = "/mentor_pi/diagnostics";
+constexpr char kMotorCommandTopic[] = "motors/command";
+constexpr char kMotorStateTopic[] = "motors/state";
+constexpr char kHeartbeatTopic[] = "heartbeat";
+constexpr char kDiagnosticsTopic[] = "diagnostics";
 
 std::int64_t MonotonicNowMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -220,7 +219,7 @@ class MotorCommissioningNode final : public rclcpp::Node,
     return publisher_information.front().node_name() ==
                kConfigurationSupervisorName &&
            publisher_information.front().node_namespace() ==
-               kConfigurationSupervisorNamespace;
+               get_namespace();
   }
 
   void RunCycle() {

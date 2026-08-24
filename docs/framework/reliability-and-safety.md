@@ -196,8 +196,8 @@ The overload policy is part of the public behavior:
 | Any occupied local service slot | Respond `BUSY`. | No hidden request backlog or executor wait. |
 | Occupied shared bus service slot | Respond `BUSY` to every additional request, including stop; capacity remains one and an accepted service is nonpreemptive. When idle, stop is admitted before get/configure. An accepted stop finishes the current UART5 frame, abandons the active unsent remainder, invalidates every pending move generation accepted before the stop, and starts at the next frame boundary. | UART5 work stays bounded; stop interrupts move traffic without truncating a frame or corrupting an accepted get/configure transaction. Only a post-stop move can restart traffic. |
 | Service traffic | On a service-class slice, poll at most one occupied completion slot and take at most one ready request, using persistent round-robin cursors. Begin at most one service response. | A request flood cannot turn one executor iteration into a FIFO drain or starve another service group. |
-| Best-effort telemetry due together | Publish at most one of motor, PWM, or IMU per ACTIVE slice using persistent round-robin selection. | State rates remain available without stacking three bounded physical TX waits. |
-| Reliable telemetry due together | On a reliable-telemetry-class slice, publish at most one of button, battery, heartbeat, or diagnostics using persistent round-robin selection. | Missing XRCE ACKs consume at most one reliable-publication timeout rather than four consecutive timeouts. |
+| Best-effort telemetry due together | Publish at most one of motor, PWM, or IMU per ACTIVE slice using persistent round-robin selection. Service every overdue best-effort publication before admitting a 10 ms blocking middleware operation. | State rates remain available without stacking three bounded physical TX waits or letting an acknowledgement wait create a periodic missed release. |
+| Reliable telemetry due together | On a reliable-telemetry-class slice, publish at most one of button, battery, heartbeat, or diagnostics using persistent round-robin selection and only when at least 12 ms remains before the next motor/PWM/IMU deadline. Heartbeat is first due at ACTIVE entry, battery at +250 ms, and diagnostics at +750 ms; their normal 500 ms/1 s/1 s periods follow from those phases. | Missing XRCE ACKs consume at most one reliable-publication timeout, and periodic reliable publications do not become due together. |
 | USART1 RX ring overrun | Stop motors and tear down the session. | Corrupt XRCE framing is never treated as commands. |
 | Traffic budget exceeded | Fail qualification. | Do not compensate by adding unbounded buffering. |
 
@@ -221,7 +221,7 @@ The following events shall enter safe teardown:
 - circular DMA producer overtaking its consumer;
 - TX DMA timeout or HAL error;
 - fatal rcl/rmw/executor error;
-- three consecutive active-state Agent ping failures;
+- a failed or timed-out reliable heartbeat acknowledgement in `ACTIVE`;
 - entity construction failure after the permitted retry path.
 
 Safe teardown shall disarm motors first, invalidate all service generations,
@@ -245,12 +245,13 @@ parser resynchronization deadline.
 Reliable XRCE retransmission can restore reliable traffic after framing and
 session liveness recover, but it is not a motor-safety mechanism and does not
 replay best-effort motor commands. If recurring corruption or another arrival
-schedule prevents parser recovery, three consecutive 10 ms Agent-ping failures
-at the 500 ms cadence trigger bounded session teardown and recreation; this is
-the operational recovery path, not a property attributed to the framing parser.
-In all cases, each motor's independent 198--200 ms command lease expires without
-a fresh accepted command; neither retransmission nor eventual session recovery
-may refresh a lease with stale data.
+schedule prevents parser recovery, the next reliable 2 Hz heartbeat cannot be
+acknowledged within its 10 ms session timeout and triggers bounded session
+teardown and recreation. This is the operational recovery path, not a property
+attributed to the framing parser. Agent pings are issued only in `WAIT_AGENT`
+while disconnected. In all cases, each motor's independent 198--200 ms command
+lease expires without a fresh accepted command; neither retransmission nor
+eventual session recovery may refresh a lease with stale data.
 
 Session deactivation shall publish `INACTIVE` and perform the emergency motor
 stop in one controller critical section, in that order. A fatal USART1 or DMA
@@ -288,13 +289,14 @@ cleanup, transport reset, arena restoration, and reconnect rather than waiting
 or forcing an MCU reset.
 
 An ACTIVE slice has one common blocking-operation permit shared by service
-responses, reliable telemetry, Agent ping, and time synchronization. A strict
-service → reliable-telemetry → maintenance class rotation decides which class
-may use it; idle turns are not borrowed. Within maintenance, a due ping runs
-before a due time-sync attempt, and the latter remains due for the next
-maintenance turn. A request or publication flood therefore cannot starve
-session health, while a maintenance flood cannot starve the ROS endpoints. A
-second permit request in one slice is a fatal invariant violation.
+responses, reliable telemetry, and time synchronization. A strict service →
+reliable-telemetry → maintenance class rotation decides which class may use it;
+idle turns are not borrowed. Before granting the permit, the scheduler services
+all overdue best-effort telemetry and requires at least 12 ms of wrap-safe slack
+before the earliest next motor, PWM, or IMU deadline. An ineligible operation
+remains due for a later turn. A request or publication flood therefore cannot
+starve session health, while a maintenance flood cannot starve the ROS
+endpoints. A second permit request in one slice is a fatal invariant violation.
 
 On reconnect, all motion mailboxes and lease timestamps from the old session
 are invalid. PWM/bus servos continue the communication-loss hold state, while
@@ -424,7 +426,7 @@ an in-flight service buffer, or allocating per incoming message.
 | --- | --- | --- |
 | One motor command expires | Zero/disarm that motor; clear its ADRC state. | Fresh valid command for that motor while session is active and only within the active build's authority. |
 | All command traffic stops but Agent still answers | Per-motor leases expire independently. | Fresh valid commands subject to the model limit, implementation ceiling, and current-session gate; no session recreation required. |
-| Agent process or cable disappears | Motor lease remains primary; detected ping/transport failure disarms all and tears down. | Automatic Agent/session retry; fresh motor commands remain subject to the active build's authority. |
+| Agent process or cable disappears | Motor lease remains primary; failed reliable heartbeat acknowledgement or transport failure disarms all and tears down. | `WAIT_AGENT` resumes bounded ping/backoff, then recreates the session; fresh motor commands remain subject to the active build's authority. |
 | Invalid command | Reject atomically and count; refresh no affected lease. | Publisher corrects the message. |
 | Mailbox overwrite | Apply newest value and count overwrite. | No special recovery. |
 | Button overflow | Drop oldest event and count. | Queue drains normally. |

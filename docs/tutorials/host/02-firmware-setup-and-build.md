@@ -18,7 +18,20 @@ workspace.
 The package is written below
 `firmware/build/packages/<UTC>/firmware-adrc-release/` unless `PACKAGE_OUTPUT`
 is set. It contains one ELF/Hex/Bin/Map set plus build mode, metadata, and
-hashes.
+hashes. For an offboard build intended for the first `mecanum_1` trial, compile
+the namespace into the artifact before packaging:
+
+```zsh
+MENTOR_PI_NAME=mecanum_1 make -C firmware build
+make -C firmware package
+```
+
+Copy the complete `firmware-adrc-release/` directory unchanged to the physical
+Ubuntu robot. Separately record the `Trusted SHA256SUMS digest` printed by the
+package command; do not derive that trusted value from the copy on the robot.
+The package-aware flash path in Tutorial 04 binds the copy to that digest and
+the intended robot namespace, validates the closed package, and does not
+rebuild firmware onboard.
 
 The SDK manifest binds the editable interfaces under
 `ros2_ws/src/mentor_pi_interfaces`, the generated SDK tree, archive, upstream

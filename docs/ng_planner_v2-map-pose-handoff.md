@@ -14,8 +14,8 @@ geometry_msgs/msg/TwistStamped
 ```
 
 The controller consumes Mecanum `vx/vy/wz` or Ackermann rear-axle `vx/wz`.
-A zero timestamp is converted to local receipt time before the unchanged
-100 ms timeout is evaluated.
+Every reference refreshes a 100 ms deadline from local receipt time; zero,
+stale, current, or unsynchronized sender timestamps do not govern freshness.
 
 ## State ownership
 

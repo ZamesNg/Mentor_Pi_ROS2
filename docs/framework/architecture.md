@@ -214,20 +214,25 @@ separate lifecycle bounds below.
 
 Every `ACTIVE` iteration resets one blocking-operation permit and advances a
 persistent three-class scheduler in strict order: service, reliable telemetry,
-maintenance. A service response, reliable publication, Agent ping, or active
-time-sync attempt must acquire that same permit before entering middleware, so
-at most one such operation can begin in a slice. Classes do not borrow an idle
-turn; therefore request/publication floods cannot starve ping or time sync, and
-maintenance cannot starve services or telemetry. A second permit request is a
-firmware invariant violation and causes safe session teardown.
+maintenance. A service response, reliable publication, or active time-sync
+attempt must acquire that same permit before entering middleware, so at most
+one such operation can begin in a slice. The permit is admitted only after all
+currently overdue motor/PWM/IMU telemetry has been serviced and wrap-safe
+deadline arithmetic shows at least 12 ms until the earliest next motor, PWM, or
+IMU publication deadline. Otherwise the operation remains pending for a later
+eligible turn. Classes do not borrow an idle turn; therefore traffic in one
+class cannot starve the other classes. A second permit request is a firmware
+invariant violation and causes safe session teardown. Agent ping is not an
+`ACTIVE` operation; it is retained only by `WAIT_AGENT` while disconnected.
 
 ## ROS execution model
 
 `MicroRosTask` initializes one node, `/mentor_pi/controller`, and one
 `rclc_executor`. Node options disable `/rosout`; no parameter, parameter-event,
 statistics, action, or `/clock` entity is created. It calls
-`rclc_executor_spin_some` with a maximum 1 ms wait. The seven subscriptions are
-registered in this order:
+`rclc_executor_spin_some` with a zero timeout. A notification-aware outer task
+wait of at most 1 ms supplies the blocking point and wakes early for transport
+progress. The seven subscriptions are registered in this order:
 
 1. motor command;
 2. PWM-servo motion;
@@ -376,24 +381,46 @@ selected by a persistent round-robin cursor. A reliable-telemetry-class
 iteration may additionally begin at most one due button/battery/heartbeat/
 diagnostics publication, selected by a separate round-robin cursor. Spreading
 simultaneously due state does not change the source rates and prevents three
-consecutive physical TX waits in one slice.
+consecutive physical TX waits in one slice. On each transition to `ACTIVE`, the
+first heartbeat is due immediately, the first battery publication is due after
+250 ms, and the first diagnostics publication is due after 750 ms; subsequent
+deadlines retain their 500 ms, 1 s, and 1 s periods using wrap-safe arithmetic.
+This phase staggering prevents the three periodic reliable publications from
+becoming due together.
 
-The closed-loop motor calculation is first-order linear ADRC over filtered
-measured RPS. With observer error `e = z1 - measured_rps`, each 100 Hz update
-uses the previously applied post-floor motor output:
+The closed-loop motor calculation is first-order nonlinear ADRC over filtered
+measured RPS. Define the dimension-preserving, unit-slope-near-zero map:
 
 ```text
-z1 += dt * (z2 + b0 * applied_output - 2 * wo * e)
-z2 += dt * (-wo * wo * e)
-output = (wc * (target_rps - z1) - z2) / b0
+fal(e, alpha, delta) = e                                      when |e| <= delta
+                     = sign(e) * delta * (|e| / delta)^alpha otherwise
 ```
 
-`b0` is the input gain in RPS/s/permille, `wc` is controller bandwidth, and
-`wo` is observer bandwidth. The output is clamped to +/-1000 permille. The
-minimum-drive floor is zero, so the calculated nonzero magnitude is not raised
-to a fixed duty. ADRC state is owned exclusively by `MotorControlTask`; ROS callbacks
-can only submit validated parameter updates to the motor owner. Non-finite
-state or `wo * dt > 0.5` fails closed.
+With observer error `eo = z1 - measured_rps`, each 100 Hz update uses the
+previously applied post-floor motor output:
+
+```text
+z1_dot = -a * z1 + z2 + b0 * applied_output
+         - 2 * wo * fal(eo, alpha_velocity, delta_observer)
+z2_dot = -wo * wo * fal(eo, alpha_disturbance, delta_observer)
+         - leakage * z2
+z1 += dt * z1_dot
+z2 += dt * z2_dot
+bounded_disturbance = clamp(z2, -disturbance_limit, disturbance_limit)
+output = (a * z1
+          + wc * fal(target_rps - z1, alpha_controller, delta_controller)
+          - bounded_disturbance) / b0
+```
+
+`a` is known velocity decay, `b0` is the input gain in RPS/s/permille, `wc` is
+controller bandwidth, `wo` is observer bandwidth, and `leakage` decays the
+disturbance estimate. The output is clamped to +/-1000 permille. A candidate
+whose sign agrees with the nonzero target is raised to the independently
+configured positive- or negative-target minimum-drive floor when its nonzero
+magnitude is smaller; an opposing/braking candidate is not raised. ADRC state
+is owned exclusively by `MotorControlTask`; ROS callbacks can only submit
+validated parameter updates to the motor owner. Non-finite state or
+`a * dt > 0.5`, `wo * dt > 0.5`, or `leakage * dt > 0.5` fails closed.
 
 Every overwrite, drop, invalid command, busy response, timeout, UART error, DMA
 overrun, reconnect, missed release, and high-water mark shall be counted.
@@ -460,15 +487,17 @@ it shall not wait indefinitely for an unavailable Agent.
 
 ### `ACTIVE`
 
-Spin at the bounded interval, run the selected service/reliable-telemetry/
-maintenance class, and publish at most one due best-effort snapshot. On a
-maintenance-class turn, ping the Agent if its 500 ms period is due; otherwise
-perform time synchronization if due. Each uses the common 10 ms ACTIVE permit,
-and a due ping takes priority for that turn. Three consecutive ping failures, a
-fatal rcl/rmw return, any USART1 FE/NE/ORE/PE error, RX overrun, or TX timeout
-moves immediately to `TEARDOWN`. Until the first successful time sync, make a
-bounded 10 ms retry every 5 s and remain `DEGRADED`; after success, resynchronize
-at least once every 60 s. A failed periodic resync retains the last valid epoch
+Spin nonblockingly, publish at most one due best-effort snapshot, and run the
+selected service/reliable-telemetry/maintenance class only when the common
+deadline admission rule permits it. `ACTIVE` performs no Agent ping. Successful
+reliable 2 Hz heartbeat delivery is the session-liveness acknowledgement; a
+heartbeat acknowledgement timeout or other failed heartbeat publication moves
+immediately to `TEARDOWN`. Under the supported traffic profile, the next
+heartbeat detects Agent loss within approximately 550 ms. A fatal rcl/rmw
+return, any USART1 FE/NE/ORE/PE error, RX overrun, or TX timeout likewise moves
+immediately to `TEARDOWN`. Until the first successful time sync, make a bounded
+10 ms retry every 5 s and remain `DEGRADED`; after success, resynchronize at
+least once every 60 s. A failed periodic resync retains the last valid epoch
 offset, records an error, and retries after 5 s without affecting monotonic
 control time. The independent 200 ms motor lease remains the faster protection
 when commands stop without a detectable session failure.
@@ -606,22 +635,34 @@ parameter YAML file with this exact schema:
 /mentor_pi/configuration_supervisor:
   ros__parameters:
     motor_model: "JGA27"
+    known_velocity_decay_rate_s_inverse: [0.0, 0.0, 0.0, 0.0]
     input_gain_rps_per_second_per_permille: [0.03, 0.03, 0.03, 0.03]
     controller_bandwidth_rad_s: [4.0, 4.0, 4.0, 4.0]
+    controller_fal_exponent: [1.0, 1.0, 1.0, 1.0]
+    controller_fal_threshold_rps: [0.1, 0.1, 0.1, 0.1]
     observer_bandwidth_rad_s: [12.0, 12.0, 12.0, 12.0]
-    velocity_filter_new_weight: [0.5, 0.5, 0.5, 0.5]
+    observer_velocity_fal_exponent: [1.0, 1.0, 1.0, 1.0]
+    observer_disturbance_fal_exponent: [1.0, 1.0, 1.0, 1.0]
+    observer_fal_threshold_rps: [0.1, 0.1, 0.1, 0.1]
+    disturbance_leakage_s_inverse: [0.0, 0.0, 0.0, 0.0]
+    disturbance_estimate_limit_rps_per_second: [30.0, 30.0, 30.0, 30.0]
+    velocity_filter_new_weight: [0.8, 0.8, 0.8, 0.8]
+    positive_minimum_drive_permille: [0, 0, 0, 0]
+    negative_minimum_drive_permille: [0, 0, 0, 0]
     pwm_servo_offsets_us: [0, 0, 0, 0]
     battery_low_threshold_mv: 6300
 ```
 
 `motor_model` is exactly `JGB520`, `JGB37`, `JGA27`, or `JGB528`;
-`input_gain_rps_per_second_per_permille` contains exactly four finite positive
-doubles no greater than 1000. `controller_bandwidth_rad_s` and
-`observer_bandwidth_rad_s` each contain exactly four finite positive doubles no
-greater than 50, and each controller bandwidth shall not exceed its matching
-observer bandwidth. `velocity_filter_new_weight` contains exactly four finite
-doubles from 0 through 1. All four arrays use firmware connector order M1, M2,
-M3, M4;
+the twelve controller fields through `velocity_filter_new_weight` each contain
+exactly four finite doubles. Known velocity decay and disturbance leakage are
+in `[0, 50] s^-1`; input gain is in `(0, 1000]`; controller and observer
+bandwidth obey `0 < wc <= wo <= 50`; all three `fal` exponents are in
+`[0.1, 1]`; both `fal` thresholds are in `[0.001, 6] RPS`; disturbance limit
+is in `[0, b0 * 1000] RPS/s`; and filter weight is in `[0, 1]`.
+`positive_minimum_drive_permille` and `negative_minimum_drive_permille` each
+contain exactly four integers from 0 through 250. All fourteen controller
+arrays use firmware connector order M1, M2, M3, M4;
 `pwm_servo_offsets_us` contains exactly four integers from -100 through +100 in
 connector order; and `battery_low_threshold_mv` is 5000 through 20000. Unknown
 keys, wrong types/counts, and out-of-range values are startup errors. The Agent
@@ -641,8 +682,8 @@ heartbeat state `READY` or `DEGRADED`, and idempotently applies the validated
 deployment configuration in this order:
 
 1. call `motors/set_model`;
-2. call `motors/set_adrc` with `ALL_MOTORS` and all configured ADRC and filter
-   arrays;
+2. call `motors/set_adrc` with `ALL_MOTORS` and all configured nonlinear ADRC,
+   filter, and directional minimum-drive arrays;
 3. require its `OK` response to report `applied_mask == ALL_MOTORS`;
 4. call `pwm_servos/set_offsets`;
 5. call `battery/set_low_threshold`;

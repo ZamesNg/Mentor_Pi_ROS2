@@ -54,12 +54,11 @@ and therefore cannot tune the chassis yaw controller.
 
 ## What this controller does
 
-This repository uses first-order linear active disturbance rejection control
-(LADRC). At each update the controller compares a requested motion with the
-measured motion. Its extended-state observer (ESO) estimates both the actual
-motion and one combined disturbance. That disturbance includes effects the
-simple model did not describe well, such as load, friction, battery variation,
-and model error.
+The inner motor loop uses first-order nonlinear active disturbance rejection
+control (NLADRC). At each update its extended-state observer (ESO) estimates
+both motor speed and one combined disturbance. That disturbance includes load,
+friction, battery variation, and model error. The outer chassis loops remain
+first-order linear ADRC.
 
 There are two nested controller layers:
 
@@ -67,13 +66,13 @@ There are two nested controller layers:
 TwistStamped chassis reference
           |
           v
-30 Hz chassis LADRC ---- encoder translation/speed + IMU gyro Z
+50 Hz chassis LADRC ---- encoder translation/speed + IMU gyro Z
           |
           v
       wheel RPS targets
           |
           v
-100 Hz MCU motor LADRC ---- wheel encoders
+100 Hz MCU motor NLADRC ---- wheel encoders
           |
           v
     PWM permille -> motors
@@ -85,18 +84,32 @@ minimum-drive floor.
 
 For the motor loop, let `r` be target RPS, `y` be filtered measured RPS, `T` be
 the actual update period, and `u_previous` be the previously applied PWM output
-after clamping and the minimum-drive floor. The firmware evaluates:
+after clamping and the directional minimum-drive floor. The nonlinear error
+map preserves units and unit slope for small errors:
 
 ```text
-e = z1 - y
-z1 += T * (z2 + b0 * u_previous - 2 * wo * e)
-z2 += T * (-wo * wo * e)
-u = (wc * (r - z1) - z2) / b0
+fal(e, alpha, delta) = e                                      when |e| <= delta
+                     = sign(e) * delta * (|e| / delta)^alpha otherwise
+
+eo = z1 - y
+z1_dot = -a * z1 + z2 + b0 * u_previous
+         - 2 * wo * fal(eo, alpha_velocity, delta_observer)
+z2_dot = -wo * wo * fal(eo, alpha_disturbance, delta_observer)
+         - leakage * z2
+z1 += T * z1_dot
+z2 += T * z2_dot
+bounded_disturbance = clamp(z2, -disturbance_limit, disturbance_limit)
+u = (a * z1
+     + wc * fal(r - z1, alpha_controller, delta_controller)
+     - bounded_disturbance) / b0
 ```
 
 `z1` is the observer's speed estimate. `z2` is its estimate of all unmodelled
-acceleration/disturbance. The controller uses the speed error and subtracts the
-estimated disturbance before producing `u`.
+acceleration/disturbance. Exponent `1` makes `fal` linear everywhere. An
+exponent below `1` compresses errors outside its threshold while retaining the
+linear small-error region. The disturbance limit bounds only the compensation
+used by the controller; leakage controls how quickly the observer estimate
+decays.
 
 ## Motor parameters
 
@@ -107,24 +120,64 @@ M4 rear-right.
 
 | Parameter | Onboard value | Meaning and adjustment |
 |---|---:|---|
+| `known_velocity_decay_rate_s_inverse` (`a`) | `0.0` | Known first-order speed decay in `s^-1`. Keep zero until a guarded coast-down identification supports a nonzero value. |
 | `input_gain_rps_per_second_per_permille` (`b0`) | `0.03` | Estimated change in RPS per second from one permille of PWM. A value that is too small produces a larger, more aggressive command; a value that is too large usually produces a weaker initial response. |
 | `controller_bandwidth_rad_s` (`wc`) | `4.0` | Desired response speed. Increasing it normally reduces rise time but increases current, overshoot, saturation, and noise sensitivity. A nominal first-order settling estimate is about `4 / wc` seconds before floor or saturation effects. |
+| `controller_fal_exponent` | `1.0` | Nonlinear speed-error exponent. Reduce below one only after the linear baseline is stable; it compresses large errors outside the controller threshold. |
+| `controller_fal_threshold_rps` | `0.1` | Half-width of the unit-slope controller-error region in RPS. |
 | `observer_bandwidth_rad_s` (`wo`) | `12.0` | Speed of the disturbance estimate. A larger value rejects changes sooner but amplifies encoder noise and timing error. The default is three times `wc`. |
+| `observer_velocity_fal_exponent` | `1.0` | Exponent applied to the observer innovation in the speed-state correction. |
+| `observer_disturbance_fal_exponent` | `1.0` | Exponent applied to the observer innovation in the disturbance-state correction. |
+| `observer_fal_threshold_rps` | `0.1` | Shared unit-slope threshold for both observer corrections. |
+| `disturbance_leakage_s_inverse` | `0.0` | Disturbance-estimate decay in `s^-1`. A small nonzero value can shed stale friction/load estimates, but too much weakens steady disturbance rejection. |
+| `disturbance_estimate_limit_rps_per_second` | `30.0` | Symmetric limit on disturbance compensation in RPS/s. It cannot exceed `b0 * 1000`; start with a limit supported by observed load steps. |
 | `velocity_filter_new_weight` | `0.8` | Weight of the newest encoder-speed sample. A larger value reacts faster and passes more noise; a smaller value is smoother but adds delay. The firmware fallback remains `0.5`, but the supervisor applies this tuned onboard value before authorizing motion. |
+| `positive_minimum_drive_permille` | `0` | Minimum same-direction positive-target output. Qualify it with the stopped-state breakaway sweep below; maximum is 250 permille. |
+| `negative_minimum_drive_permille` | `0` | Independent minimum same-direction negative-target output. Friction and mechanics may be asymmetric; maximum is 250 permille. |
 
-Selected motor values must have `0 < b0 <= 1000`, `wc > 0`,
-`wc <= wo <= 50 rad/s`, and filter weight in `[0, 1]`. The limit is not a
-recommended tuning range. At 100 Hz, `wo * T` must remain no greater than
-`0.5`; timing variation makes operation near the absolute `50 rad/s` limit a
-poor starting point.
+Selected motor values must satisfy `0 <= a <= 50`, `0 < b0 <= 1000`,
+`0 < wc <= wo <= 50 rad/s`, exponents in `[0.1, 1]`, thresholds in
+`[0.001, 6] RPS`, leakage in `[0, 50] s^-1`, disturbance limit in
+`[0, b0 * 1000] RPS/s`, filter weight in `[0, 1]`, and each floor in
+`[0, 250]` permille. At 100 Hz, each of `a*T`, `wo*T`, and `leakage*T` must
+remain no greater than `0.5`; operation at an absolute boundary is not a
+recommended starting point.
 
-The minimum-drive floor is separate from ADRC. It is currently compiled as
-zero, so it does not raise small nonzero outputs to a fixed duty. With the
-defaults, the initial command for a `0.10 RPS` step is approximately
-`4 * 0.10 / 0.03 = 13.3` permille. The motor may not move at that duty; record
-stall, current, and breakaway behavior rather than treating it as a gain error.
-Changing the floor requires a firmware change and renewed motor qualification;
-it is not adjustable through these YAML arrays or `set_adrc`.
+The directional floor is actuator compensation, not a `fal` threshold. After
+the candidate is clamped to +/-1000 permille, firmware raises only a nonzero
+candidate whose sign agrees with the nonzero target. It never raises a braking
+or opposing candidate, and zero targets still command zero. With the default
+linear exponents and zero floor, the initial command for a `0.10 RPS` step is
+approximately `4 * 0.10 / 0.03 = 13.3` permille and may not break static
+friction. Record breakaway output separately for each direction: with the motor
+stopped before every change, sweep in 25-permille increments, refine around
+the first repeatable motion in 5-permille increments, and choose the smallest
+repeatable breakaway value plus a 10-permille margin. Abort instead of exceeding
+250 permille, or on unexpected current, heat, motion, or oscillation. These
+values are runtime-adjustable through `set_adrc` and the supervisor YAML, but
+any nonzero production floor still requires renewed guarded motor
+qualification.
+
+## Diagnose a low-speed zero before changing the floor
+
+Firmware `MotorCommand.target_rps` and `MotorState.target_rps/measured_rps` are
+in output-shaft revolutions per second. `ros2_control` wheel-joint interfaces
+are in radians per second: `0.2 rad/s` is only
+`0.2 / (2*pi) = 0.0318 RPS`, not `0.2 RPS`. At the default linear-exponent
+baseline, a direct `0.2 RPS` motor step initially requests approximately
+`4 * 0.2 / 0.03 = 26.7` permille before disturbance compensation, clamping,
+and any directional floor.
+
+Before attributing zero motion to stiction, inspect `/mentor_pi/motors/state`.
+The selected `target_rps` must retain the intended nonzero RPS, the watchdog
+stop bit and selected lease-expiry counter must remain unchanged, and the
+command publisher must refresh faster than the independent 198 ms firmware
+lease. If the reported target is already zero, diagnose units, the 100 ms
+controller reference timeout, configuration authorization/session state,
+publisher ownership, and command validation first. Stiction is plausible only
+when the nonzero target is accepted and retained while measured RPS remains
+near zero; PWM/current instrumentation is still required because `MotorState`
+does not publish bridge output.
 
 ## Record an unchanged motor baseline
 
@@ -139,17 +192,21 @@ source /opt/ros/humble/setup.zsh
 source ros2_ws/install/setup.zsh
 export ROS_DOMAIN_ID=42
 export ROS_LOCALHOST_ONLY=0
+export ROBOT_NAME=mecanum_1
 systemctl is-active mentor-pi-agent.service
-ros2 launch mentor_pi_bringup controller.launch.py
+ros2 launch mentor_pi_bringup controller.launch.py \
+  robot_name:=${ROBOT_NAME}
 ```
 
-Replace `0` with the domain installed in Tutorial 05. Wait until the supervisor
-reports successful configuration. In a second sourced terminal, require a live
-authorization and zero existing motor-command publishers:
+Replace the domain and robot name with the values installed in Tutorial 05.
+Wait until the supervisor reports successful configuration. In a second
+sourced terminal with the same `ROBOT_NAME`, require a live authorization and
+zero existing motor-command publishers:
 
 ```zsh
-ros2 topic echo --once /mentor_pi/configuration/motion_authorization
-ros2 topic info /mentor_pi/motors/command --verbose
+ros2 topic echo --once \
+  /${ROBOT_NAME}/configuration/motion_authorization
+ros2 topic info /${ROBOT_NAME}/motors/command --verbose
 ```
 
 Stop if the publisher count is not zero. Start a plainly named capture in a
@@ -157,34 +214,48 @@ third sourced terminal; `ros2 bag` continues printing progress until `Ctrl-C`:
 
 ```zsh
 mkdir -p build/adrc-tuning
-ros2 bag record -a -o build/adrc-tuning/motor-m1-default-positive
+ros2 bag record \
+  -o build/adrc-tuning/${ROBOT_NAME}-motor-m1-linear-zero-floor-positive \
+  /${ROBOT_NAME}/heartbeat \
+  /${ROBOT_NAME}/diagnostics \
+  /${ROBOT_NAME}/motors/state \
+  /${ROBOT_NAME}/motors/command \
+  /${ROBOT_NAME}/battery/state \
+  /${ROBOT_NAME}/configuration/motion_authorization
 ```
 
-With M1 guarded and the other channels observed, run one visibly active,
-three-second positive checkout and then send an explicit all-motor zero:
+With M1 guarded and the other channels observed, run the bounded commissioning
+node for one three-second positive `0.2 RPS` linear, zero-floor baseline. The
+namespace remap is required: it scopes the node's authorization, telemetry,
+publisher-conflict check, and commands to the selected robot.
 
 ```zsh
-timeout --signal=INT --kill-after=1s 3s \
-  ros2 topic pub --rate 20 \
-  /mentor_pi/motors/command mentor_pi_interfaces/msg/MotorCommand \
-  '{update_mask: 15, target_rps: [0.10, 0.0, 0.0, 0.0]}'
+ros2 run mentor_pi_bringup motor_commissioning --ros-args \
+  -r __ns:=/${ROBOT_NAME} \
+  -p acknowledgement:=MOTORS_RAISED_CURRENT_LIMITED \
+  -p motor_id:=1 \
+  -p target_rps:=0.2 \
+  -p duration_ms:=3000
 
-timeout 5s ros2 topic pub --once \
-  /mentor_pi/motors/command mentor_pi_interfaces/msg/MotorCommand \
-  '{update_mask: 15, target_rps: [0.0, 0.0, 0.0, 0.0]}'
-
-timeout 5s ros2 topic echo --once /mentor_pi/motors/state
+timeout 5s ros2 topic echo --once /${ROBOT_NAME}/motors/state
 ```
 
-Confirm that every reported target is zero and that motion stops. Repeat with
-`-0.10` only after positive direction is correct. For M2, M3, and M4, move the
-single nonzero value to the corresponding array position. Use a new rosbag name
-for every motor, sign, parameter set, and target.
+The node publishes all four targets at 20 Hz, includes repeated 500 ms zero
+phases before and after the bounded drive phase, and fails closed on stale
+telemetry, a changed session, command rejection, watchdog activity, unexpected
+motion, wrong direction, or another motor-command publisher. `Ctrl-C` requests
+the same bounded post-stop phase; if telemetry or the stop cannot be confirmed,
+use the reachable physical power stop. The independent MCU lease remains the
+backup.
 
-The `0.10 RPS` example is only a low-duty direction checkout and may not break
-static friction. Do not jump from it to a full-range target. Each higher target and duration must be
-bounded in the reviewed HIL plan for the motor model, fixture, supply limit,
-and stop instrumentation.
+Require a `PASS` summary, confirm that every reported target is zero and that
+motion stops, then stop the rosbag cleanly. Repeat in a new bag with
+`target_rps:=-0.2` only after the positive direction is correct. Repeat M2,
+M3, and M4 one at a time by changing only `motor_id`. Use a new rosbag name for
+every motor, sign, parameter set, and target. The commissioning summary is a
+safety result, not the tracking acceptance calculation; retain the bag and
+instrument record for rise time, one-second settled mean, overshoot, current,
+voltage, and temperature analysis.
 
 ## Tune the motor loop
 
@@ -201,15 +272,30 @@ quantity and retain the previous rosbag and instrument record.
    `b0` as `(change in RPS / change in seconds) / applied permille`. Use short
    early-response segments, repeat both signs, and reject segments disturbed by
    fixture contact or load changes.
-3. **Adjust `wc`.** Starting from the baseline, change it by only 10–20 percent
+3. **Measure directional breakaway.** With `fal` exponents still `1`, keep the
+   motor stopped before every floor update. Sweep each sign in 25-permille
+   increments, then refine around first motion in 5-permille increments. Choose
+   the smallest repeatable breakaway value plus 10 permille, repeat current,
+   heating, stop, and low-speed tracking checks, and abort rather than exceed
+   250 permille. Never infer one direction from the other.
+4. **Adjust `wc`.** Starting from the baseline, change it by only 10–20 percent
    per run. Increase it while rise/settling time improves without unacceptable
    overshoot, current, temperature, floor cycling, or oscillation. Back down to
    the last clean value when any of those worsen.
-4. **Adjust `wo`.** Begin with `wo` near three times the accepted `wc`. Increase
+5. **Adjust `wo`.** Begin with `wo` near three times the accepted `wc`. Increase
    it only if load rejection is too slow and the encoder signal is clean;
    decrease it if measured output chatters or the observer reacts to noise.
    Always keep `wo >= wc` and comfortably inside the timing limit.
-5. **Repeat the matrix.** Test both signs, the reviewed RPS range, expected load
+6. **Bound and decay the disturbance estimate.** Keep known decay and leakage
+   zero unless coast-down/load-release data identifies them. Set the
+   disturbance limit high enough for measured load rejection but no higher
+   than supported by the record; it can never exceed `b0 * 1000`.
+7. **Introduce `fal` nonlinearity last.** Keep all exponents at `1` for the
+   accepted linear baseline. Then change one controller or observer exponent
+   and its threshold at a time. Lower exponents compress large errors; reject
+   changes that slow breakaway/load recovery, hide sign errors, or add floor
+   cycling near zero.
+8. **Repeat the matrix.** Test both signs, the reviewed RPS range, expected load
    changes, and all four motors independently. One good M1 run does not qualify
    M2–M4.
 
@@ -217,6 +303,39 @@ For each run record target, measured RPS, rise time, peak and percent overshoot,
 settling time and tolerance, steady-state error, encoder noise, measured PWM,
 current, supply voltage, temperature, watchdog/lease counters, reset reason,
 and whether the floor or output clamp was active.
+
+For a provisional M1 positive-floor candidate, stop the vehicle controller,
+confirm all four reported targets are zero and all measured magnitudes are
+below `0.01 RPS`, then call the complete fixed-array service:
+
+```zsh
+ros2 service call /mecanum_1/motors/set_adrc \
+  mentor_pi_interfaces/srv/SetMotorAdrc \
+  '{
+    update_mask: 1,
+    known_velocity_decay_rate_s_inverse: [0.0, 0.0, 0.0, 0.0],
+    input_gain_rps_per_second_per_permille: [0.03, 0.03, 0.03, 0.03],
+    controller_bandwidth_rad_s: [4.0, 4.0, 4.0, 4.0],
+    controller_fal_exponent: [1.0, 1.0, 1.0, 1.0],
+    controller_fal_threshold_rps: [0.1, 0.1, 0.1, 0.1],
+    observer_bandwidth_rad_s: [12.0, 12.0, 12.0, 12.0],
+    observer_velocity_fal_exponent: [1.0, 1.0, 1.0, 1.0],
+    observer_disturbance_fal_exponent: [1.0, 1.0, 1.0, 1.0],
+    observer_fal_threshold_rps: [0.1, 0.1, 0.1, 0.1],
+    disturbance_leakage_s_inverse: [0.0, 0.0, 0.0, 0.0],
+    disturbance_estimate_limit_rps_per_second: [30.0, 30.0, 30.0, 30.0],
+    velocity_filter_new_weight: [0.8, 0.8, 0.8, 0.8],
+    positive_minimum_drive_permille: [25, 0, 0, 0],
+    negative_minimum_drive_permille: [0, 0, 0, 0]
+  }'
+```
+
+Require `result.code == OK` and `applied_mask == 1` before the next guarded
+motion attempt. This candidate is volatile, is cleared by reset or an actual
+motor-model change, and may be replaced by supervisor configuration on a new
+session. It is a sweep convenience, not qualification evidence; only the
+reviewed source YAML and recorded instrument/HIL result establish the accepted
+setting.
 
 Persist the accepted per-motor values only in the source YAML:
 
@@ -227,8 +346,9 @@ make -C ros2_ws build
 
 Never edit `ros2_ws/install`. Stop the supervisor, confirm every motor has
 stopped, rebuild, and relaunch it before testing the new arrays. The supervisor
-applies all four arrays at session configuration. Manual `set_adrc` overrides
-are volatile and are deliberately not used as the evidence source here.
+applies all twelve floating-point arrays and both directional-floor arrays at
+session configuration. Manual `set_adrc` overrides are volatile and are
+deliberately not used as the evidence source here.
 
 ## Chassis ADRC parameters
 
@@ -272,8 +392,8 @@ feed-forward/center behavior, so a slower run cannot tune yaw response.
 All chassis ADRC gains, bandwidths, and measurement-LPF cutoffs must be finite
 and positive, with
 `wo >= wc`. The same implementation rejects an update when `wo * T > 0.5`.
-Because this loop runs at 30 Hz, keep observer bandwidth well below the nominal
-approximately `15 rad/s` timing boundary. The current outer-loop bandwidth of
+Because this loop runs at 50 Hz, keep observer bandwidth well below the nominal
+approximately `25 rad/s` timing boundary. The current outer-loop bandwidth of
 `1 rad/s` is intentionally lower than the `4 rad/s` motor-loop default; do not
 make the outer loop faster than the verified inner loop without evidence.
 
