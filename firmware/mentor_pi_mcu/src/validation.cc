@@ -173,22 +173,69 @@ Result ValidateSetMotorAdrcCommand(const SetMotorAdrcCommand& command) {
     if ((command.update_mask & bit) == 0U) {
       continue;
     }
+    const float known_velocity_decay =
+        command.known_velocity_decay_rate_s_inverse[index];
     const float input_gain =
         command.input_gain_rps_per_second_per_permille[index];
     const float controller_bandwidth =
         command.controller_bandwidth_rad_s[index];
+    const float controller_fal_exponent =
+        command.controller_fal_exponent[index];
+    const float controller_fal_threshold =
+        command.controller_fal_threshold_rps[index];
     const float observer_bandwidth = command.observer_bandwidth_rad_s[index];
+    const float observer_velocity_fal_exponent =
+        command.observer_velocity_fal_exponent[index];
+    const float observer_disturbance_fal_exponent =
+        command.observer_disturbance_fal_exponent[index];
+    const float observer_fal_threshold =
+        command.observer_fal_threshold_rps[index];
+    const float disturbance_leakage =
+        command.disturbance_leakage_s_inverse[index];
+    const float disturbance_estimate_limit =
+        command.disturbance_estimate_limit_rps_per_second[index];
     const float filter = command.velocity_filter_new_weight[index];
-    if (!std::isfinite(input_gain) || !std::isfinite(controller_bandwidth) ||
-        !std::isfinite(observer_bandwidth) || !std::isfinite(filter)) {
+    if (!std::isfinite(known_velocity_decay) || !std::isfinite(input_gain) ||
+        !std::isfinite(controller_bandwidth) ||
+        !std::isfinite(controller_fal_exponent) ||
+        !std::isfinite(controller_fal_threshold) ||
+        !std::isfinite(observer_bandwidth) ||
+        !std::isfinite(observer_velocity_fal_exponent) ||
+        !std::isfinite(observer_disturbance_fal_exponent) ||
+        !std::isfinite(observer_fal_threshold) ||
+        !std::isfinite(disturbance_leakage) ||
+        !std::isfinite(disturbance_estimate_limit) || !std::isfinite(filter)) {
       return {ResultCode::kInvalidArgument,
               static_cast<std::uint16_t>(index + 1U)};
     }
-    if (input_gain <= 0.0F || input_gain > kMotorAdrcMaximumInputGain ||
+    const float maximum_disturbance_estimate =
+        input_gain * kMotorAdrcHardOutputLimitPermille;
+    if (known_velocity_decay < 0.0F ||
+        known_velocity_decay >
+            kMotorAdrcMaximumKnownVelocityDecayRateSInverse ||
+        input_gain <= 0.0F || input_gain > kMotorAdrcMaximumInputGain ||
         controller_bandwidth <= 0.0F || observer_bandwidth <= 0.0F ||
         controller_bandwidth > observer_bandwidth ||
         observer_bandwidth > kMotorAdrcMaximumObserverBandwidthRadS ||
-        filter < 0.0F || filter > 1.0F) {
+        controller_fal_exponent < kMotorAdrcMinimumFalExponent ||
+        controller_fal_exponent > kMotorAdrcMaximumFalExponent ||
+        controller_fal_threshold < kMotorAdrcMinimumFalThresholdRps ||
+        controller_fal_threshold > kMotorAdrcMaximumFalThresholdRps ||
+        observer_velocity_fal_exponent < kMotorAdrcMinimumFalExponent ||
+        observer_velocity_fal_exponent > kMotorAdrcMaximumFalExponent ||
+        observer_disturbance_fal_exponent < kMotorAdrcMinimumFalExponent ||
+        observer_disturbance_fal_exponent > kMotorAdrcMaximumFalExponent ||
+        observer_fal_threshold < kMotorAdrcMinimumFalThresholdRps ||
+        observer_fal_threshold > kMotorAdrcMaximumFalThresholdRps ||
+        disturbance_leakage < 0.0F ||
+        disturbance_leakage > kMotorAdrcMaximumDisturbanceLeakageSInverse ||
+        disturbance_estimate_limit < 0.0F ||
+        disturbance_estimate_limit > maximum_disturbance_estimate ||
+        filter < 0.0F || filter > 1.0F ||
+        command.positive_minimum_drive_permille[index] >
+            kMotorAdrcMaximumMinimumDrivePermille ||
+        command.negative_minimum_drive_permille[index] >
+            kMotorAdrcMaximumMinimumDrivePermille) {
       return {ResultCode::kOutOfRange, static_cast<std::uint16_t>(index + 1U)};
     }
   }

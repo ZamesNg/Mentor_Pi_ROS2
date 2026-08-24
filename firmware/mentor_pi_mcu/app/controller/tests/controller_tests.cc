@@ -1,14 +1,17 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <limits>
 
+#include "mentor_pi_interfaces/srv/set_motor_adrc.h"
 #include "mentor_pi_mcu/app/controller/controller_runtime.h"
 #include "mentor_pi_mcu/app/controller/imu_characterization.h"
 #include "mentor_pi_mcu/app/microros/runtime_hooks.h"
 #include "mentor_pi_mcu/domain/bus_servo.h"
 #include "mentor_pi_mcu/domain/validation.h"
+#include "motor_adrc_service_adapter.h"
 
 namespace {
 
@@ -70,6 +73,126 @@ using mentor_pi_mcu::app::microros::WorkerDiagnostics;
 
 MotorControlConfiguration FullRangeTestMotorConfiguration() {
   return DefaultAdrcMotorControlConfiguration();
+}
+
+SetMotorAdrcCommand DefaultMotorAdrcCommand(std::uint8_t update_mask) {
+  const mentor_pi::mcu::AdrcCalibration defaults{};
+  SetMotorAdrcCommand command{};
+  command.update_mask = update_mask;
+  command.known_velocity_decay_rate_s_inverse.fill(
+      defaults.known_velocity_decay_rate_s_inverse);
+  command.input_gain_rps_per_second_per_permille.fill(
+      defaults.input_gain_rps_per_second_per_permille);
+  command.controller_bandwidth_rad_s.fill(
+      defaults.controller_bandwidth_rad_s);
+  command.controller_fal_exponent.fill(defaults.controller_fal_exponent);
+  command.controller_fal_threshold_rps.fill(
+      defaults.controller_fal_threshold_rps);
+  command.observer_bandwidth_rad_s.fill(defaults.observer_bandwidth_rad_s);
+  command.observer_velocity_fal_exponent.fill(
+      defaults.observer_velocity_fal_exponent);
+  command.observer_disturbance_fal_exponent.fill(
+      defaults.observer_disturbance_fal_exponent);
+  command.observer_fal_threshold_rps.fill(
+      defaults.observer_fal_threshold_rps);
+  command.disturbance_leakage_s_inverse.fill(
+      defaults.disturbance_leakage_s_inverse);
+  command.disturbance_estimate_limit_rps_per_second.fill(
+      defaults.disturbance_estimate_limit_rps_per_second);
+  command.velocity_filter_new_weight.fill(
+      defaults.velocity_filter_new_weight);
+  command.positive_minimum_drive_permille.fill(
+      defaults.positive_minimum_drive_permille);
+  command.negative_minimum_drive_permille.fill(
+      defaults.negative_minimum_drive_permille);
+  return command;
+}
+
+bool TestMotorAdrcWireAdapter() {
+  mentor_pi_interfaces__srv__SetMotorAdrc_Request request{};
+  request.update_mask = 0x0fU;
+  for (std::size_t index = 0U; index < 4U; ++index) {
+    const float offset = static_cast<float>(index);
+    request.known_velocity_decay_rate_s_inverse[index] = 1.0F + offset;
+    request.input_gain_rps_per_second_per_permille[index] =
+        0.05F + 0.01F * offset;
+    request.controller_bandwidth_rad_s[index] = 4.0F + offset;
+    request.controller_fal_exponent[index] = 0.55F + 0.05F * offset;
+    request.controller_fal_threshold_rps[index] = 0.05F + 0.01F * offset;
+    request.observer_bandwidth_rad_s[index] = 12.0F + offset;
+    request.observer_velocity_fal_exponent[index] = 0.70F + 0.05F * offset;
+    request.observer_disturbance_fal_exponent[index] =
+        0.45F + 0.05F * offset;
+    request.observer_fal_threshold_rps[index] = 0.09F + 0.01F * offset;
+    request.disturbance_leakage_s_inverse[index] = 0.1F + 0.1F * offset;
+    request.disturbance_estimate_limit_rps_per_second[index] =
+        10.0F + 10.0F * offset;
+    request.velocity_filter_new_weight[index] = 0.2F + 0.2F * offset;
+    request.positive_minimum_drive_permille[index] =
+        static_cast<std::uint16_t>(81U + index);
+    request.negative_minimum_drive_permille[index] =
+        static_cast<std::uint16_t>(91U + index);
+  }
+
+  SetMotorAdrcCommand decoded{};
+  const Result decoded_result =
+      mentor_pi_mcu::app::microros::DecodeMotorAdrcRequest(request, &decoded);
+  CHECK(decoded_result.ok());
+  CHECK(decoded.update_mask == request.update_mask);
+  for (std::size_t index = 0U; index < 4U; ++index) {
+    CHECK(decoded.known_velocity_decay_rate_s_inverse[index] ==
+          request.known_velocity_decay_rate_s_inverse[index]);
+    CHECK(decoded.input_gain_rps_per_second_per_permille[index] ==
+          request.input_gain_rps_per_second_per_permille[index]);
+    CHECK(decoded.controller_bandwidth_rad_s[index] ==
+          request.controller_bandwidth_rad_s[index]);
+    CHECK(decoded.controller_fal_exponent[index] ==
+          request.controller_fal_exponent[index]);
+    CHECK(decoded.controller_fal_threshold_rps[index] ==
+          request.controller_fal_threshold_rps[index]);
+    CHECK(decoded.observer_bandwidth_rad_s[index] ==
+          request.observer_bandwidth_rad_s[index]);
+    CHECK(decoded.observer_velocity_fal_exponent[index] ==
+          request.observer_velocity_fal_exponent[index]);
+    CHECK(decoded.observer_disturbance_fal_exponent[index] ==
+          request.observer_disturbance_fal_exponent[index]);
+    CHECK(decoded.observer_fal_threshold_rps[index] ==
+          request.observer_fal_threshold_rps[index]);
+    CHECK(decoded.disturbance_leakage_s_inverse[index] ==
+          request.disturbance_leakage_s_inverse[index]);
+    CHECK(decoded.disturbance_estimate_limit_rps_per_second[index] ==
+          request.disturbance_estimate_limit_rps_per_second[index]);
+    CHECK(decoded.velocity_filter_new_weight[index] ==
+          request.velocity_filter_new_weight[index]);
+    CHECK(decoded.positive_minimum_drive_permille[index] ==
+          request.positive_minimum_drive_permille[index]);
+    CHECK(decoded.negative_minimum_drive_permille[index] ==
+          request.negative_minimum_drive_permille[index]);
+  }
+
+  mentor_pi_interfaces__srv__SetMotorAdrc_Response response{};
+  response.result.code = 255U;
+  response.result.detail = 65535U;
+  response.applied_mask = 0xffU;
+  mentor_pi_mcu::app::microros::EncodeMotorAdrcResponse(
+      OkResult(), 0x05U, &response);
+  CHECK(response.result.code ==
+        static_cast<std::uint8_t>(ResultCode::kOk));
+  CHECK(response.result.detail == 0U);
+  CHECK(response.applied_mask == 0x05U);
+
+  request.controller_fal_threshold_rps[2] = 0.0F;
+  const Result invalid_result =
+      mentor_pi_mcu::app::microros::DecodeMotorAdrcRequest(request, &decoded);
+  CHECK(invalid_result.code == ResultCode::kOutOfRange);
+  CHECK(invalid_result.detail == 3U);
+  mentor_pi_mcu::app::microros::EncodeMotorAdrcResponse(
+      invalid_result, 0x05U, &response);
+  CHECK(response.result.code ==
+        static_cast<std::uint8_t>(ResultCode::kOutOfRange));
+  CHECK(response.result.detail == 3U);
+  CHECK(response.applied_mask == 0U);
+  return true;
 }
 
 struct FakePlatform {
@@ -2337,11 +2460,7 @@ bool TestMotorCalibrationGate() {
   CHECK(locked.PublishMotorCommand(motion, 1000U).result.code ==
         ResultCode::kUnsupported);
 
-  SetMotorAdrcCommand locked_adrc{};
-  locked_adrc.update_mask = 1U;
-  locked_adrc.input_gain_rps_per_second_per_permille[0] = 0.03F;
-  locked_adrc.controller_bandwidth_rad_s[0] = 4.0F;
-  locked_adrc.observer_bandwidth_rad_s[0] = 12.0F;
+  SetMotorAdrcCommand locked_adrc = DefaultMotorAdrcCommand(1U);
   locked_adrc.velocity_filter_new_weight[0] = 1.0F;
   const ServiceToken locked_adrc_token{1U, 2U};
   CHECK(locked.DispatchMotorAdrc(locked_adrc_token, locked_adrc));
@@ -2407,13 +2526,19 @@ bool TestMotorCalibrationGate() {
   CHECK(EstablishStartupReadiness(&adrc_runtime, &adrc_platform));
   adrc_runtime.SetSessionActive(true, 1U);
 
-  SetMotorAdrcCommand adrc{};
-  adrc.update_mask = 5U;
+  SetMotorAdrcCommand adrc = DefaultMotorAdrcCommand(5U);
   for (const std::size_t index : {0U, 2U}) {
-    adrc.input_gain_rps_per_second_per_permille[index] = 0.03F;
-    adrc.controller_bandwidth_rad_s[index] = 4.0F;
-    adrc.observer_bandwidth_rad_s[index] = 12.0F;
+    adrc.known_velocity_decay_rate_s_inverse[index] = 1.0F;
+    adrc.controller_fal_exponent[index] = 0.8F;
+    adrc.controller_fal_threshold_rps[index] = 0.2F;
+    adrc.observer_velocity_fal_exponent[index] = 0.7F;
+    adrc.observer_disturbance_fal_exponent[index] = 0.6F;
+    adrc.observer_fal_threshold_rps[index] = 0.15F;
+    adrc.disturbance_leakage_s_inverse[index] = 0.5F;
+    adrc.disturbance_estimate_limit_rps_per_second[index] = 20.0F;
     adrc.velocity_filter_new_weight[index] = 1.0F;
+    adrc.positive_minimum_drive_permille[index] = 80U;
+    adrc.negative_minimum_drive_permille[index] = 90U;
   }
   const ServiceToken canceled_adrc_token{1U, 1U};
   CHECK(adrc_runtime.DispatchMotorAdrc(canceled_adrc_token, adrc));
@@ -2440,17 +2565,34 @@ bool TestMotorCalibrationGate() {
   CHECK(adrc_reply.result.code == ResultCode::kInvalidArgument);
   CHECK(adrc_reply.applied_mask == 0U);
 
+  SetMotorAdrcCommand invalid_expanded_adrc = adrc;
+  invalid_expanded_adrc.observer_fal_threshold_rps[2] = 0.0F;
+  const ServiceToken invalid_expanded_adrc_token{1U, 4U};
+  CHECK(adrc_runtime.DispatchMotorAdrc(invalid_expanded_adrc_token,
+                                      invalid_expanded_adrc));
+  adrc_runtime.RunMotorControlOnce();
+  CHECK(adrc_runtime.PollMotorAdrc(invalid_expanded_adrc_token, &adrc_reply));
+  CHECK(adrc_reply.result.code == ResultCode::kOutOfRange);
+  CHECK(adrc_reply.applied_mask == 0U);
+
   MotorCommand adrc_motion{};
   adrc_motion.update_mask = 1U;
   adrc_motion.target_rps[0] = 0.1F;
   CHECK(adrc_runtime.PublishMotorCommand(adrc_motion, 0U).result.ok());
   adrc_runtime.RunMotorControlOnce();
-  const ServiceToken busy_adrc_token{1U, 4U};
+  const ServiceToken busy_adrc_token{1U, 5U};
   CHECK(adrc_runtime.DispatchMotorAdrc(busy_adrc_token, adrc));
   adrc_runtime.RunMotorControlOnce();
   CHECK(adrc_runtime.PollMotorAdrc(busy_adrc_token, &adrc_reply));
   CHECK(adrc_reply.result.code == ResultCode::kBusy);
   CHECK(adrc_reply.applied_mask == 0U);
+  for (std::uint32_t release = 1U; release <= 10U; ++release) {
+    adrc_platform.SetTimeMs(release);
+    adrc_runtime.RunMotorControlOnce();
+  }
+  // The valid expanded update survived the rejected atomic update, and its
+  // positive directional floor is applied in the semantic target direction.
+  CHECK(adrc_platform.motor_duty[0] == -80);
   CHECK(adrc_platform.critical_depth == 0U);
   return true;
 }
@@ -2470,11 +2612,9 @@ bool TestMotorControlUsesElapsedPeriod() {
   CHECK(EstablishStartupReadiness(&runtime, &platform));
   runtime.SetSessionActive(true, 1U);
 
-  SetMotorAdrcCommand calibration{};
-  calibration.update_mask = 1U;
+  SetMotorAdrcCommand calibration = DefaultMotorAdrcCommand(1U);
   calibration.input_gain_rps_per_second_per_permille[0] = 0.01F;
-  calibration.controller_bandwidth_rad_s[0] = 4.0F;
-  calibration.observer_bandwidth_rad_s[0] = 12.0F;
+  calibration.disturbance_estimate_limit_rps_per_second[0] = 10.0F;
   calibration.velocity_filter_new_weight[0] = 1.0F;
   const ServiceToken token{1U, 1U};
   CHECK(runtime.DispatchMotorAdrc(token, calibration));
@@ -2638,8 +2778,21 @@ bool TestMotorCommandAgeDiagnostics() {
 
 }  // namespace
 
-int main() {
-  if (!TestStatusRgbSemantics() || !TestStatusRgbControllerIntegration() ||
+int main(int argc, char* argv[]) {
+  if (argc == 2 && std::strcmp(argv[1], "--motor-adrc-focused") == 0) {
+    if (!TestMotorAdrcWireAdapter() || !TestMotorCalibrationGate() ||
+        !TestMotorControlUsesElapsedPeriod()) {
+      return 1;
+    }
+    std::puts("focused motor ADRC controller tests passed");
+    return 0;
+  }
+  if (argc != 1) {
+    std::fprintf(stderr, "usage: %s [--motor-adrc-focused]\n", argv[0]);
+    return 2;
+  }
+  if (!TestMotorAdrcWireAdapter() || !TestStatusRgbSemantics() ||
+      !TestStatusRgbControllerIntegration() ||
       !TestPlatformHookCompletenessContract() ||
       !TestBuzzerFailuresAreObservable() || !TestMicroRosAdapterDelegates() ||
       !TestMicroRosMicrosecondAcceptanceBoundary() ||

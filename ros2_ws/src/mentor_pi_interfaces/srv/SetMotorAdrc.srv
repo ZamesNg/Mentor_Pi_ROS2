@@ -5,10 +5,20 @@ uint8 MOTOR_4=8
 uint8 ALL_MOTORS=15
 
 uint8 update_mask
+float32[4] known_velocity_decay_rate_s_inverse
 float32[4] input_gain_rps_per_second_per_permille
 float32[4] controller_bandwidth_rad_s
+float32[4] controller_fal_exponent
+float32[4] controller_fal_threshold_rps
 float32[4] observer_bandwidth_rad_s
+float32[4] observer_velocity_fal_exponent
+float32[4] observer_disturbance_fal_exponent
+float32[4] observer_fal_threshold_rps
+float32[4] disturbance_leakage_s_inverse
+float32[4] disturbance_estimate_limit_rps_per_second
 float32[4] velocity_filter_new_weight
+uint16[4] positive_minimum_drive_permille
+uint16[4] negative_minimum_drive_permille
 ---
 mentor_pi_interfaces/Result result
 uint8 applied_mask

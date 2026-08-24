@@ -41,13 +41,32 @@ void Expect(bool condition, const std::string& message) {
 ConfigurationMap ValidParameters() {
   return {
       {"battery_low_threshold_mv", std::int64_t{6300}},
+      {"known_velocity_decay_rate_s_inverse",
+       std::vector<double>{0.0, 0.0, 0.0, 0.0}},
       {"observer_bandwidth_rad_s", std::vector<double>{12.0, 12.0, 12.0, 12.0}},
       {"controller_bandwidth_rad_s", std::vector<double>{4.0, 4.0, 4.0, 4.0}},
+      {"controller_fal_exponent", std::vector<double>{1.0, 1.0, 1.0, 1.0}},
+      {"controller_fal_threshold_rps",
+       std::vector<double>{0.1, 0.1, 0.1, 0.1}},
+      {"disturbance_estimate_limit_rps_per_second",
+       std::vector<double>{30.0, 30.0, 30.0, 30.0}},
+      {"disturbance_leakage_s_inverse",
+       std::vector<double>{0.0, 0.0, 0.0, 0.0}},
       {"motor_model", std::string{"JGA27"}},
+      {"negative_minimum_drive_permille",
+       std::vector<std::int64_t>{0, 0, 0, 0}},
       {"input_gain_rps_per_second_per_permille",
        std::vector<double>{0.03, 0.03, 0.03, 0.03}},
+      {"observer_disturbance_fal_exponent",
+       std::vector<double>{1.0, 1.0, 1.0, 1.0}},
+      {"observer_fal_threshold_rps",
+       std::vector<double>{0.1, 0.1, 0.1, 0.1}},
+      {"observer_velocity_fal_exponent",
+       std::vector<double>{1.0, 1.0, 1.0, 1.0}},
+      {"positive_minimum_drive_permille",
+       std::vector<std::int64_t>{0, 0, 0, 0}},
       {"pwm_servo_offsets_us", std::vector<std::int64_t>{0, 0, 0, 0}},
-      {"velocity_filter_new_weight", std::vector<double>{0.5, 0.5, 0.5, 0.5}}};
+      {"velocity_filter_new_weight", std::vector<double>{0.8, 0.8, 0.8, 0.8}}};
 }
 
 void TestValidConfiguration() {
@@ -57,12 +76,30 @@ void TestValidConfiguration() {
          "JGA27 model mapping");
   Expect(validation.configuration.battery_low_threshold_mv == 6300,
          "battery threshold mapping");
-  Expect(validation.configuration.input_gain_rps_per_second_per_permille[0] ==
-                 0.03F &&
+  Expect(validation.configuration.known_velocity_decay_rate_s_inverse[0] ==
+                 0.0F &&
+             validation.configuration
+                     .input_gain_rps_per_second_per_permille[0] == 0.03F &&
              validation.configuration.controller_bandwidth_rad_s[1] == 4.0F &&
+             validation.configuration.controller_fal_exponent[1] == 1.0F &&
+             validation.configuration.controller_fal_threshold_rps[1] ==
+                 0.1F &&
              validation.configuration.observer_bandwidth_rad_s[2] == 12.0F &&
-             validation.configuration.velocity_filter_new_weight[3] == 0.5F,
-         "LADRC arrays map safely to floats");
+             validation.configuration.observer_velocity_fal_exponent[2] ==
+                 1.0F &&
+             validation.configuration.observer_disturbance_fal_exponent[2] ==
+                 1.0F &&
+             validation.configuration.observer_fal_threshold_rps[2] == 0.1F &&
+             validation.configuration.disturbance_leakage_s_inverse[3] ==
+                 0.0F &&
+             validation.configuration
+                     .disturbance_estimate_limit_rps_per_second[3] == 30.0F &&
+             validation.configuration.velocity_filter_new_weight[3] == 0.8F &&
+             validation.configuration.positive_minimum_drive_permille[0] ==
+                 0U &&
+             validation.configuration.negative_minimum_drive_permille[3] ==
+                 0U,
+         "nonlinear ADRC and minimum-drive arrays map safely");
 
   const std::vector<std::pair<std::string, MotorModel>> models{
       {"JGB520", MotorModel::kJgb520},
@@ -97,10 +134,20 @@ void TestExactKeys() {
 
   const std::vector<std::string> required_keys{
       "motor_model",
+      "known_velocity_decay_rate_s_inverse",
       "input_gain_rps_per_second_per_permille",
       "controller_bandwidth_rad_s",
+      "controller_fal_exponent",
+      "controller_fal_threshold_rps",
       "observer_bandwidth_rad_s",
+      "observer_velocity_fal_exponent",
+      "observer_disturbance_fal_exponent",
+      "observer_fal_threshold_rps",
+      "disturbance_leakage_s_inverse",
+      "disturbance_estimate_limit_rps_per_second",
       "velocity_filter_new_weight",
+      "positive_minimum_drive_permille",
+      "negative_minimum_drive_permille",
       "pwm_servo_offsets_us",
       "battery_low_threshold_mv"};
   for (const auto& key : required_keys) {
@@ -207,6 +254,109 @@ void TestTypesAndRanges() {
   Expect(!ValidateConfiguration(parameters).ok,
          "controller bandwidth above observer bandwidth must be rejected");
 
+  const std::vector<std::string> bounded_zero_to_fifty_keys{
+      "known_velocity_decay_rate_s_inverse",
+      "disturbance_leakage_s_inverse"};
+  for (const auto& key : bounded_zero_to_fifty_keys) {
+    parameters = ValidParameters();
+    parameters[key] = std::vector<double>{0.0, 50.0, 1.0, 2.0};
+    Expect(ValidateConfiguration(parameters).ok,
+           key + " inclusive boundaries must be accepted");
+    parameters[key] = std::vector<double>{0.0, 50.1, 1.0, 2.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " above 50 must be rejected");
+    parameters[key] = std::vector<double>{0.0, -0.1, 1.0, 2.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " below zero must be rejected");
+  }
+
+  const std::vector<std::string> exponent_keys{
+      "controller_fal_exponent", "observer_velocity_fal_exponent",
+      "observer_disturbance_fal_exponent"};
+  for (const auto& key : exponent_keys) {
+    parameters = ValidParameters();
+    parameters[key] = std::vector<double>{0.1, 1.0, 0.5, 0.75};
+    Expect(ValidateConfiguration(parameters).ok,
+           key + " inclusive boundaries must be accepted");
+    parameters[key] = std::vector<double>{0.099, 1.0, 0.5, 0.75};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " below 0.1 must be rejected");
+    parameters[key] = std::vector<double>{0.1, 1.001, 0.5, 0.75};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " above one must be rejected");
+  }
+
+  const std::vector<std::string> fal_threshold_keys{
+      "controller_fal_threshold_rps", "observer_fal_threshold_rps"};
+  for (const auto& key : fal_threshold_keys) {
+    parameters = ValidParameters();
+    parameters[key] = std::vector<double>{0.001, 6.0, 0.1, 1.0};
+    Expect(ValidateConfiguration(parameters).ok,
+           key + " inclusive boundaries must be accepted");
+    parameters[key] = std::vector<double>{0.0009, 6.0, 0.1, 1.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " below 0.001 RPS must be rejected");
+    parameters[key] = std::vector<double>{0.001, 6.1, 0.1, 1.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " above 6 RPS must be rejected");
+  }
+
+  parameters = ValidParameters();
+  parameters["disturbance_estimate_limit_rps_per_second"] =
+      std::vector<double>{0.0, 30.0, 30.0, 30.0};
+  Expect(ValidateConfiguration(parameters).ok,
+         "disturbance-estimate limit accepts zero and b0-scaled maximum");
+  parameters["disturbance_estimate_limit_rps_per_second"] =
+      std::vector<double>{0.0, 30.1, 30.0, 30.0};
+  Expect(!ValidateConfiguration(parameters).ok,
+         "disturbance-estimate limit above b0 * 1000 must be rejected");
+  parameters = ValidParameters();
+  parameters["disturbance_estimate_limit_rps_per_second"] =
+      std::vector<double>{0.0, -0.1, 30.0, 30.0};
+  Expect(!ValidateConfiguration(parameters).ok,
+         "negative disturbance-estimate limit must be rejected");
+
+  for (const std::string key : {"positive_minimum_drive_permille",
+                                "negative_minimum_drive_permille"}) {
+    parameters = ValidParameters();
+    parameters[key] = std::vector<std::int64_t>{0, 250, 1, 249};
+    Expect(ValidateConfiguration(parameters).ok,
+           key + " inclusive boundaries must be accepted");
+    parameters[key] = std::vector<std::int64_t>{0, 251, 1, 249};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " above 250 permille must be rejected");
+    parameters[key] = std::vector<std::int64_t>{0, -1, 1, 249};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " below zero must be rejected");
+    parameters[key] = std::vector<std::int64_t>{0, 1, 2};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " must contain exactly four integers");
+    parameters[key] = std::vector<double>{0.0, 1.0, 2.0, 3.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " must reject a double array");
+  }
+
+  const std::vector<std::string> float_array_keys{
+      "known_velocity_decay_rate_s_inverse",
+      "input_gain_rps_per_second_per_permille",
+      "controller_bandwidth_rad_s",
+      "controller_fal_exponent",
+      "controller_fal_threshold_rps",
+      "observer_bandwidth_rad_s",
+      "observer_velocity_fal_exponent",
+      "observer_disturbance_fal_exponent",
+      "observer_fal_threshold_rps",
+      "disturbance_leakage_s_inverse",
+      "disturbance_estimate_limit_rps_per_second",
+      "velocity_filter_new_weight"};
+  for (const auto& key : float_array_keys) {
+    parameters = ValidParameters();
+    parameters[key] = std::vector<double>{
+        1.0, std::numeric_limits<double>::quiet_NaN(), 1.0, 1.0};
+    Expect(!ValidateConfiguration(parameters).ok,
+           key + " must reject a non-finite selected value");
+  }
+
   parameters = ValidParameters();
   parameters["velocity_filter_new_weight"] =
       std::vector<double>{0.0, 1.0, 0.5, 0.5};
@@ -232,6 +382,46 @@ void TestConfigurationValueSemanticsAndWireMappings() {
   changed.input_gain_rps_per_second_per_permille[0] = 0.031F;
   Expect(!(valid.configuration == changed),
          "LADRC gains participate in configuration equality");
+  changed = valid.configuration;
+  changed.known_velocity_decay_rate_s_inverse[0] = 1.0F;
+  Expect(!(valid.configuration == changed),
+         "known velocity decay participates in configuration equality");
+  changed = valid.configuration;
+  changed.controller_fal_exponent[0] = 0.9F;
+  Expect(!(valid.configuration == changed),
+         "controller fal exponent participates in configuration equality");
+  changed = valid.configuration;
+  changed.controller_fal_threshold_rps[0] = 0.2F;
+  Expect(!(valid.configuration == changed),
+         "controller fal threshold participates in configuration equality");
+  changed = valid.configuration;
+  changed.observer_velocity_fal_exponent[0] = 0.9F;
+  Expect(!(valid.configuration == changed),
+         "observer velocity fal exponent participates in equality");
+  changed = valid.configuration;
+  changed.observer_disturbance_fal_exponent[0] = 0.9F;
+  Expect(!(valid.configuration == changed),
+         "observer disturbance fal exponent participates in equality");
+  changed = valid.configuration;
+  changed.observer_fal_threshold_rps[0] = 0.2F;
+  Expect(!(valid.configuration == changed),
+         "observer fal threshold participates in configuration equality");
+  changed = valid.configuration;
+  changed.disturbance_leakage_s_inverse[0] = 1.0F;
+  Expect(!(valid.configuration == changed),
+         "disturbance leakage participates in configuration equality");
+  changed = valid.configuration;
+  changed.disturbance_estimate_limit_rps_per_second[0] = 29.0F;
+  Expect(!(valid.configuration == changed),
+         "disturbance limit participates in configuration equality");
+  changed = valid.configuration;
+  changed.positive_minimum_drive_permille[0] = 1U;
+  Expect(!(valid.configuration == changed),
+         "positive minimum drive participates in configuration equality");
+  changed = valid.configuration;
+  changed.negative_minimum_drive_permille[0] = 1U;
+  Expect(!(valid.configuration == changed),
+         "negative minimum drive participates in configuration equality");
   changed = valid.configuration;
   changed.pwm_servo_offsets_us[3] = 1;
   Expect(!(valid.configuration == changed),

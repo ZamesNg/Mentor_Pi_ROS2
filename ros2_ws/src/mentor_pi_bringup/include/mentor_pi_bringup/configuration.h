@@ -25,11 +25,25 @@ struct DeploymentConfiguration {
   static constexpr std::uint16_t kDefaultBatteryLowThresholdMv = 6300;
 
   MotorModel motor_model = MotorModel::kJga27;
+  std::array<float, 4> known_velocity_decay_rate_s_inverse{0.0F, 0.0F, 0.0F,
+                                                           0.0F};
   std::array<float, 4> input_gain_rps_per_second_per_permille{0.03F, 0.03F,
                                                               0.03F, 0.03F};
   std::array<float, 4> controller_bandwidth_rad_s{4.0F, 4.0F, 4.0F, 4.0F};
+  std::array<float, 4> controller_fal_exponent{1.0F, 1.0F, 1.0F, 1.0F};
+  std::array<float, 4> controller_fal_threshold_rps{0.1F, 0.1F, 0.1F, 0.1F};
   std::array<float, 4> observer_bandwidth_rad_s{12.0F, 12.0F, 12.0F, 12.0F};
-  std::array<float, 4> velocity_filter_new_weight{0.5F, 0.5F, 0.5F, 0.5F};
+  std::array<float, 4> observer_velocity_fal_exponent{1.0F, 1.0F, 1.0F,
+                                                      1.0F};
+  std::array<float, 4> observer_disturbance_fal_exponent{1.0F, 1.0F, 1.0F,
+                                                         1.0F};
+  std::array<float, 4> observer_fal_threshold_rps{0.1F, 0.1F, 0.1F, 0.1F};
+  std::array<float, 4> disturbance_leakage_s_inverse{0.0F, 0.0F, 0.0F, 0.0F};
+  std::array<float, 4> disturbance_estimate_limit_rps_per_second{
+      30.0F, 30.0F, 30.0F, 30.0F};
+  std::array<float, 4> velocity_filter_new_weight{0.8F, 0.8F, 0.8F, 0.8F};
+  std::array<std::uint16_t, 4> positive_minimum_drive_permille{0, 0, 0, 0};
+  std::array<std::uint16_t, 4> negative_minimum_drive_permille{0, 0, 0, 0};
   std::array<std::int16_t, 4> pwm_servo_offsets_us{0, 0, 0, 0};
   std::uint16_t battery_low_threshold_mv = kDefaultBatteryLowThresholdMv;
 

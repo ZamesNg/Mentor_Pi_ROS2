@@ -53,13 +53,35 @@ enum class Operation {
 };
 
 constexpr std::array<std::int16_t, 4> kExpectedOffsets{-100, -50, 50, 100};
+constexpr std::array<float, 4> kExpectedKnownVelocityDecay{0.0F, 1.0F, 2.0F,
+                                                           3.0F};
 constexpr std::array<float, 4> kExpectedInputGain{0.03F, 0.031F, 0.032F,
                                                   0.033F};
 constexpr std::array<float, 4> kExpectedControllerBandwidth{4.0F, 4.1F, 4.2F,
                                                             4.3F};
+constexpr std::array<float, 4> kExpectedControllerFalExponent{0.1F, 0.4F,
+                                                              0.7F, 1.0F};
+constexpr std::array<float, 4> kExpectedControllerFalThreshold{0.001F, 0.1F,
+                                                               1.0F, 6.0F};
 constexpr std::array<float, 4> kExpectedObserverBandwidth{12.0F, 12.1F, 12.2F,
                                                           12.3F};
+constexpr std::array<float, 4> kExpectedObserverVelocityFalExponent{
+    1.0F, 0.8F, 0.6F, 0.4F};
+constexpr std::array<float, 4> kExpectedObserverDisturbanceFalExponent{
+    0.4F, 0.6F, 0.8F, 1.0F};
+constexpr std::array<float, 4> kExpectedObserverFalThreshold{6.0F, 1.0F, 0.1F,
+                                                             0.001F};
+constexpr std::array<float, 4> kExpectedDisturbanceLeakage{0.0F, 10.0F, 20.0F,
+                                                           50.0F};
+constexpr std::array<float, 4> kExpectedDisturbanceLimit{30.0F, 20.0F, 10.0F,
+                                                         0.0F};
 constexpr std::array<float, 4> kExpectedFilterWeight{0.5F, 0.6F, 0.7F, 0.8F};
+constexpr std::array<std::uint16_t, 4> kExpectedPositiveMinimumDrive{0U, 50U,
+                                                                    100U,
+                                                                    250U};
+constexpr std::array<std::uint16_t, 4> kExpectedNegativeMinimumDrive{250U,
+                                                                    100U, 50U,
+                                                                    0U};
 constexpr std::uint16_t kExpectedBatteryThresholdMv = 9000;
 constexpr auto kNativeLaunchDeadline = 10s;
 
@@ -216,14 +238,34 @@ class ControllerPeer {
           operations_.push_back(Operation::kMotorAdrc);
           Expect(
               request->update_mask == SetMotorAdrc::Request::ALL_MOTORS &&
+                  request->known_velocity_decay_rate_s_inverse ==
+                      kExpectedKnownVelocityDecay &&
                   request->input_gain_rps_per_second_per_permille ==
                       kExpectedInputGain &&
                   request->controller_bandwidth_rad_s ==
                       kExpectedControllerBandwidth &&
+                  request->controller_fal_exponent ==
+                      kExpectedControllerFalExponent &&
+                  request->controller_fal_threshold_rps ==
+                      kExpectedControllerFalThreshold &&
                   request->observer_bandwidth_rad_s ==
                       kExpectedObserverBandwidth &&
-                  request->velocity_filter_new_weight == kExpectedFilterWeight,
-              "launched supervisor loads all YAML LADRC arrays");
+                  request->observer_velocity_fal_exponent ==
+                      kExpectedObserverVelocityFalExponent &&
+                  request->observer_disturbance_fal_exponent ==
+                      kExpectedObserverDisturbanceFalExponent &&
+                  request->observer_fal_threshold_rps ==
+                      kExpectedObserverFalThreshold &&
+                  request->disturbance_leakage_s_inverse ==
+                      kExpectedDisturbanceLeakage &&
+                  request->disturbance_estimate_limit_rps_per_second ==
+                      kExpectedDisturbanceLimit &&
+                  request->velocity_filter_new_weight == kExpectedFilterWeight &&
+                  request->positive_minimum_drive_permille ==
+                      kExpectedPositiveMinimumDrive &&
+                  request->negative_minimum_drive_permille ==
+                      kExpectedNegativeMinimumDrive,
+              "launched supervisor loads all nonlinear ADRC YAML arrays");
           response->result.code = Result::OK;
           response->applied_mask = SetMotorAdrc::Request::ALL_MOTORS;
         });

@@ -14,7 +14,8 @@ namespace mentor_pi::mcu {
 constexpr std::uint32_t kMotorLeaseExpiryUs = 198000U;
 constexpr std::uint32_t kMotorControlPeriodUs = 10000U;
 constexpr std::int16_t kMotorOutputLimitPermille = 1000;
-constexpr std::int16_t kMotorMinimumDrivePermille = 0;
+static_assert(static_cast<float>(kMotorOutputLimitPermille) ==
+              kMotorAdrcHardOutputLimitPermille);
 // The RRCLite bridge/encoder wiring has negative plant polarity: positive
 // bridge duty decreases the raw encoder count. Apply one fixed inversion for
 // every channel and motor model so the LADRC coordinate remains positive
@@ -22,17 +23,45 @@ constexpr std::int16_t kMotorMinimumDrivePermille = 0;
 constexpr std::int16_t kMotorBridgeOutputPolarity = -1;
 constexpr float kMotorImplementationMaximumRps = 6.0F;
 constexpr float kMotorAdrcUpdateMaximumMeasuredRps = 0.01F;
+constexpr float kMotorDefaultAdrcKnownVelocityDecayRateSInverse = 0.0F;
 constexpr float kMotorDefaultAdrcInputGainRpsPerSecondPerPermille = 0.03F;
 constexpr float kMotorDefaultAdrcControllerBandwidthRadS = 4.0F;
+constexpr float kMotorDefaultAdrcControllerFalExponent = 1.0F;
+constexpr float kMotorDefaultAdrcControllerFalThresholdRps = 0.1F;
 constexpr float kMotorDefaultAdrcObserverBandwidthRadS = 12.0F;
+constexpr float kMotorDefaultAdrcObserverVelocityFalExponent = 1.0F;
+constexpr float kMotorDefaultAdrcObserverDisturbanceFalExponent = 1.0F;
+constexpr float kMotorDefaultAdrcObserverFalThresholdRps = 0.1F;
+constexpr float kMotorDefaultAdrcDisturbanceLeakageSInverse = 0.0F;
+constexpr float kMotorDefaultAdrcDisturbanceEstimateLimitRpsPerSecond = 30.0F;
 constexpr float kMotorDefaultVelocityFilterNewWeight = 0.5F;
+constexpr std::uint16_t kMotorDefaultPositiveMinimumDrivePermille = 0U;
+constexpr std::uint16_t kMotorDefaultNegativeMinimumDrivePermille = 0U;
 
 struct AdrcCalibration {
+  float known_velocity_decay_rate_s_inverse{
+      kMotorDefaultAdrcKnownVelocityDecayRateSInverse};
   float input_gain_rps_per_second_per_permille{
       kMotorDefaultAdrcInputGainRpsPerSecondPerPermille};
   float controller_bandwidth_rad_s{kMotorDefaultAdrcControllerBandwidthRadS};
+  float controller_fal_exponent{kMotorDefaultAdrcControllerFalExponent};
+  float controller_fal_threshold_rps{
+      kMotorDefaultAdrcControllerFalThresholdRps};
   float observer_bandwidth_rad_s{kMotorDefaultAdrcObserverBandwidthRadS};
+  float observer_velocity_fal_exponent{
+      kMotorDefaultAdrcObserverVelocityFalExponent};
+  float observer_disturbance_fal_exponent{
+      kMotorDefaultAdrcObserverDisturbanceFalExponent};
+  float observer_fal_threshold_rps{kMotorDefaultAdrcObserverFalThresholdRps};
+  float disturbance_leakage_s_inverse{
+      kMotorDefaultAdrcDisturbanceLeakageSInverse};
+  float disturbance_estimate_limit_rps_per_second{
+      kMotorDefaultAdrcDisturbanceEstimateLimitRpsPerSecond};
   float velocity_filter_new_weight{kMotorDefaultVelocityFilterNewWeight};
+  std::uint16_t positive_minimum_drive_permille{
+      kMotorDefaultPositiveMinimumDrivePermille};
+  std::uint16_t negative_minimum_drive_permille{
+      kMotorDefaultNegativeMinimumDrivePermille};
 };
 
 struct MotorProfile {

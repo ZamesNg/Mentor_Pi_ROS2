@@ -371,12 +371,33 @@ void SetBoundaryFields(srv::SetMotorAdrc::Request* message, Boundary boundary) {
   message->update_mask = boundary == Boundary::kLower
                              ? srv::SetMotorAdrc::Request::MOTOR_1
                              : srv::SetMotorAdrc::Request::ALL_MOTORS;
-  const float gain = boundary == Boundary::kLower ? 0.0F : 1000.0F;
+  const float positive = boundary == Boundary::kLower
+                             ? std::numeric_limits<float>::min()
+                             : 50.0F;
+  const float gain = boundary == Boundary::kLower ? positive : 1000.0F;
+  const float exponent = boundary == Boundary::kLower ? 0.1F : 1.0F;
+  const float threshold = boundary == Boundary::kLower ? 0.001F : 6.0F;
+  const float disturbance_limit =
+      boundary == Boundary::kLower ? 0.0F : 1'000'000.0F;
   const float filter = boundary == Boundary::kLower ? 0.0F : 1.0F;
+  message->known_velocity_decay_rate_s_inverse.fill(
+      boundary == Boundary::kLower ? 0.0F : 50.0F);
   message->input_gain_rps_per_second_per_permille.fill(gain);
-  message->controller_bandwidth_rad_s.fill(gain);
-  message->observer_bandwidth_rad_s.fill(gain);
+  message->controller_bandwidth_rad_s.fill(positive);
+  message->controller_fal_exponent.fill(exponent);
+  message->controller_fal_threshold_rps.fill(threshold);
+  message->observer_bandwidth_rad_s.fill(positive);
+  message->observer_velocity_fal_exponent.fill(exponent);
+  message->observer_disturbance_fal_exponent.fill(exponent);
+  message->observer_fal_threshold_rps.fill(threshold);
+  message->disturbance_leakage_s_inverse.fill(
+      boundary == Boundary::kLower ? 0.0F : 50.0F);
+  message->disturbance_estimate_limit_rps_per_second.fill(disturbance_limit);
   message->velocity_filter_new_weight.fill(filter);
+  message->positive_minimum_drive_permille.fill(
+      boundary == Boundary::kLower ? 0U : 250U);
+  message->negative_minimum_drive_permille.fill(
+      boundary == Boundary::kLower ? 0U : 250U);
 }
 
 void SetBoundaryFields(srv::SetMotorAdrc::Response* message,
@@ -488,6 +509,19 @@ TYPED_TEST_SUITE(GeneratedServicePartCdrRoundTripTest,
 TYPED_TEST(GeneratedServicePartCdrRoundTripTest,
            DefaultAndIdlBoundariesRoundTripThroughGeneratedRmwCdr) {
   ExpectDefaultAndBoundaryRoundTrips<TypeParam>();
+}
+
+TEST(GeneratedTypeSupportTest,
+     SetMotorAdrcRequestIsExactly216BytesIncludingCdrEncapsulation) {
+  std::array<srv::SetMotorAdrc::Request, 3> samples;
+  SetBoundaryFields(&samples[1], Boundary::kLower);
+  SetBoundaryFields(&samples[2], Boundary::kUpper);
+  for (const srv::SetMotorAdrc::Request& input : samples) {
+    rclcpp::SerializedMessage serialized;
+    ASSERT_NO_THROW(serialized = Serialize(input));
+    EXPECT_EQ(216U, serialized.size());
+    EXPECT_LT(serialized.size(), 392U);
+  }
 }
 
 TEST(GeneratedTypeSupportTest,

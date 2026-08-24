@@ -1,9 +1,19 @@
 /**/configuration_supervisor:
   ros__parameters:
     motor_model: "JGA27"
+    known_velocity_decay_rate_s_inverse: [0.0, 0.0, 0.0, 0.0]
     input_gain_rps_per_second_per_permille: [0.03, 0.03, 0.03, 0.03]
     controller_bandwidth_rad_s: [4.0, 4.0, 4.0, 4.0]
+    controller_fal_exponent: [1.0, 1.0, 1.0, 1.0]
+    controller_fal_threshold_rps: [0.1, 0.1, 0.1, 0.1]
     observer_bandwidth_rad_s: [12.0, 12.0, 12.0, 12.0]
+    observer_velocity_fal_exponent: [1.0, 1.0, 1.0, 1.0]
+    observer_disturbance_fal_exponent: [1.0, 1.0, 1.0, 1.0]
+    observer_fal_threshold_rps: [0.1, 0.1, 0.1, 0.1]
+    disturbance_leakage_s_inverse: [0.0, 0.0, 0.0, 0.0]
+    disturbance_estimate_limit_rps_per_second: [30.0, 30.0, 30.0, 30.0]
     velocity_filter_new_weight: [0.8, 0.8, 0.8, 0.8]
+    positive_minimum_drive_permille: [0, 0, 0, 0]
+    negative_minimum_drive_permille: [0, 0, 0, 0]
     pwm_servo_offsets_us: [0, 0, 0, 0]
     battery_low_threshold_mv: 6300

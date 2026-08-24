@@ -53,13 +53,35 @@ enum class MotorAdrcResponseMode {
 };
 
 constexpr std::array<std::int16_t, 4> kExpectedOffsets{10, -20, 30, -40};
+constexpr std::array<float, 4> kExpectedKnownVelocityDecay{0.0F, 1.0F, 2.0F,
+                                                           3.0F};
 constexpr std::array<float, 4> kExpectedInputGain{0.03F, 0.031F, 0.032F,
                                                   0.033F};
 constexpr std::array<float, 4> kExpectedControllerBandwidth{4.0F, 4.1F, 4.2F,
                                                             4.3F};
+constexpr std::array<float, 4> kExpectedControllerFalExponent{0.1F, 0.4F,
+                                                              0.7F, 1.0F};
+constexpr std::array<float, 4> kExpectedControllerFalThreshold{0.001F, 0.1F,
+                                                               1.0F, 6.0F};
 constexpr std::array<float, 4> kExpectedObserverBandwidth{12.0F, 12.1F, 12.2F,
                                                           12.3F};
+constexpr std::array<float, 4> kExpectedObserverVelocityFalExponent{
+    1.0F, 0.8F, 0.6F, 0.4F};
+constexpr std::array<float, 4> kExpectedObserverDisturbanceFalExponent{
+    0.4F, 0.6F, 0.8F, 1.0F};
+constexpr std::array<float, 4> kExpectedObserverFalThreshold{6.0F, 1.0F, 0.1F,
+                                                             0.001F};
+constexpr std::array<float, 4> kExpectedDisturbanceLeakage{0.0F, 10.0F, 20.0F,
+                                                           50.0F};
+constexpr std::array<float, 4> kExpectedDisturbanceLimit{30.0F, 20.0F, 10.0F,
+                                                         0.0F};
 constexpr std::array<float, 4> kExpectedFilterWeight{0.5F, 0.6F, 0.7F, 0.8F};
+constexpr std::array<std::uint16_t, 4> kExpectedPositiveMinimumDrive{0U, 50U,
+                                                                    100U,
+                                                                    250U};
+constexpr std::array<std::uint16_t, 4> kExpectedNegativeMinimumDrive{250U,
+                                                                    100U, 50U,
+                                                                    0U};
 constexpr std::uint16_t kExpectedBatteryThresholdMv = 7000;
 
 int g_failures = 0;
@@ -69,6 +91,43 @@ void Expect(bool condition, const std::string& message) {
     std::cerr << "FAIL: " << message << '\n';
     ++g_failures;
   }
+}
+
+std::vector<rclcpp::Parameter> ConfigurationOverrides() {
+  return {
+      rclcpp::Parameter("motor_model", "JGA27"),
+      rclcpp::Parameter("known_velocity_decay_rate_s_inverse",
+                        std::vector<double>{0.0, 1.0, 2.0, 3.0}),
+      rclcpp::Parameter("input_gain_rps_per_second_per_permille",
+                        std::vector<double>{0.03, 0.031, 0.032, 0.033}),
+      rclcpp::Parameter("controller_bandwidth_rad_s",
+                        std::vector<double>{4.0, 4.1, 4.2, 4.3}),
+      rclcpp::Parameter("controller_fal_exponent",
+                        std::vector<double>{0.1, 0.4, 0.7, 1.0}),
+      rclcpp::Parameter("controller_fal_threshold_rps",
+                        std::vector<double>{0.001, 0.1, 1.0, 6.0}),
+      rclcpp::Parameter("observer_bandwidth_rad_s",
+                        std::vector<double>{12.0, 12.1, 12.2, 12.3}),
+      rclcpp::Parameter("observer_velocity_fal_exponent",
+                        std::vector<double>{1.0, 0.8, 0.6, 0.4}),
+      rclcpp::Parameter("observer_disturbance_fal_exponent",
+                        std::vector<double>{0.4, 0.6, 0.8, 1.0}),
+      rclcpp::Parameter("observer_fal_threshold_rps",
+                        std::vector<double>{6.0, 1.0, 0.1, 0.001}),
+      rclcpp::Parameter("disturbance_leakage_s_inverse",
+                        std::vector<double>{0.0, 10.0, 20.0, 50.0}),
+      rclcpp::Parameter("disturbance_estimate_limit_rps_per_second",
+                        std::vector<double>{30.0, 20.0, 10.0, 0.0}),
+      rclcpp::Parameter("velocity_filter_new_weight",
+                        std::vector<double>{0.5, 0.6, 0.7, 0.8}),
+      rclcpp::Parameter("positive_minimum_drive_permille",
+                        std::vector<std::int64_t>{0, 50, 100, 250}),
+      rclcpp::Parameter("negative_minimum_drive_permille",
+                        std::vector<std::int64_t>{250, 100, 50, 0}),
+      rclcpp::Parameter("pwm_servo_offsets_us",
+                        std::vector<std::int64_t>{10, -20, 30, -40}),
+      rclcpp::Parameter("battery_low_threshold_mv", std::int64_t{7000}),
+  };
 }
 
 class ControllerStub {
@@ -130,16 +189,36 @@ class ControllerStub {
                std::shared_ptr<SetMotorAdrc::Response> response) {
           operations_.push_back(Operation::kMotorAdrc);
           Expect(request->update_mask == SetMotorAdrc::Request::ALL_MOTORS,
-                 "LADRC service receives the complete update mask");
+                 "NLADRC service receives the complete update mask");
           Expect(
-              request->input_gain_rps_per_second_per_permille ==
+              request->known_velocity_decay_rate_s_inverse ==
+                      kExpectedKnownVelocityDecay &&
+                  request->input_gain_rps_per_second_per_permille ==
                       kExpectedInputGain &&
                   request->controller_bandwidth_rad_s ==
                       kExpectedControllerBandwidth &&
+                  request->controller_fal_exponent ==
+                      kExpectedControllerFalExponent &&
+                  request->controller_fal_threshold_rps ==
+                      kExpectedControllerFalThreshold &&
                   request->observer_bandwidth_rad_s ==
                       kExpectedObserverBandwidth &&
-                  request->velocity_filter_new_weight == kExpectedFilterWeight,
-              "LADRC service receives every configured gain array");
+                  request->observer_velocity_fal_exponent ==
+                      kExpectedObserverVelocityFalExponent &&
+                  request->observer_disturbance_fal_exponent ==
+                      kExpectedObserverDisturbanceFalExponent &&
+                  request->observer_fal_threshold_rps ==
+                      kExpectedObserverFalThreshold &&
+                  request->disturbance_leakage_s_inverse ==
+                      kExpectedDisturbanceLeakage &&
+                  request->disturbance_estimate_limit_rps_per_second ==
+                      kExpectedDisturbanceLimit &&
+                  request->velocity_filter_new_weight == kExpectedFilterWeight &&
+                  request->positive_minimum_drive_permille ==
+                      kExpectedPositiveMinimumDrive &&
+                  request->negative_minimum_drive_permille ==
+                      kExpectedNegativeMinimumDrive,
+              "nonlinear ADRC service receives every configured array");
           response->result.code =
               motor_adrc_response_mode_ ==
                       MotorAdrcResponseMode::kFailureWithNonzeroMask
@@ -271,20 +350,7 @@ void ExpectOperation(const std::vector<Operation>& operations,
 
 void RunIntegrationTest() {
   rclcpp::NodeOptions options;
-  options.parameter_overrides({
-      rclcpp::Parameter("motor_model", "JGA27"),
-      rclcpp::Parameter("input_gain_rps_per_second_per_permille",
-                        std::vector<double>{0.03, 0.031, 0.032, 0.033}),
-      rclcpp::Parameter("controller_bandwidth_rad_s",
-                        std::vector<double>{4.0, 4.1, 4.2, 4.3}),
-      rclcpp::Parameter("observer_bandwidth_rad_s",
-                        std::vector<double>{12.0, 12.1, 12.2, 12.3}),
-      rclcpp::Parameter("velocity_filter_new_weight",
-                        std::vector<double>{0.5, 0.6, 0.7, 0.8}),
-      rclcpp::Parameter("pwm_servo_offsets_us",
-                        std::vector<std::int64_t>{10, -20, 30, -40}),
-      rclcpp::Parameter("battery_low_threshold_mv", std::int64_t{7000}),
-  });
+  options.parameter_overrides(ConfigurationOverrides());
 
   auto supervisor = mentor_pi_bringup::MakeConfigurationSupervisorNode(options);
   ControllerStub controller;
@@ -369,20 +435,7 @@ void RunIntegrationTest() {
 
 void RunInconsistentMotorProfileTest() {
   rclcpp::NodeOptions options;
-  options.parameter_overrides({
-      rclcpp::Parameter("motor_model", "JGA27"),
-      rclcpp::Parameter("input_gain_rps_per_second_per_permille",
-                        std::vector<double>{0.03, 0.031, 0.032, 0.033}),
-      rclcpp::Parameter("controller_bandwidth_rad_s",
-                        std::vector<double>{4.0, 4.1, 4.2, 4.3}),
-      rclcpp::Parameter("observer_bandwidth_rad_s",
-                        std::vector<double>{12.0, 12.1, 12.2, 12.3}),
-      rclcpp::Parameter("velocity_filter_new_weight",
-                        std::vector<double>{0.5, 0.6, 0.7, 0.8}),
-      rclcpp::Parameter("pwm_servo_offsets_us",
-                        std::vector<std::int64_t>{10, -20, 30, -40}),
-      rclcpp::Parameter("battery_low_threshold_mv", std::int64_t{7000}),
-  });
+  options.parameter_overrides(ConfigurationOverrides());
 
   auto supervisor = mentor_pi_bringup::MakeConfigurationSupervisorNode(options);
   ControllerStub controller{MotorResponseMode::kMismatchedTicks};
@@ -419,20 +472,7 @@ void RunInconsistentMotorProfileTest() {
 void RunAdrcAppliedMaskMismatchTest(MotorAdrcResponseMode response_mode,
                                     const std::string& description) {
   rclcpp::NodeOptions options;
-  options.parameter_overrides({
-      rclcpp::Parameter("motor_model", "JGA27"),
-      rclcpp::Parameter("input_gain_rps_per_second_per_permille",
-                        std::vector<double>{0.03, 0.031, 0.032, 0.033}),
-      rclcpp::Parameter("controller_bandwidth_rad_s",
-                        std::vector<double>{4.0, 4.1, 4.2, 4.3}),
-      rclcpp::Parameter("observer_bandwidth_rad_s",
-                        std::vector<double>{12.0, 12.1, 12.2, 12.3}),
-      rclcpp::Parameter("velocity_filter_new_weight",
-                        std::vector<double>{0.5, 0.6, 0.7, 0.8}),
-      rclcpp::Parameter("pwm_servo_offsets_us",
-                        std::vector<std::int64_t>{10, -20, 30, -40}),
-      rclcpp::Parameter("battery_low_threshold_mv", std::int64_t{7000}),
-  });
+  options.parameter_overrides(ConfigurationOverrides());
 
   auto supervisor = mentor_pi_bringup::MakeConfigurationSupervisorNode(options);
   ControllerStub controller{MotorResponseMode::kExact, response_mode};

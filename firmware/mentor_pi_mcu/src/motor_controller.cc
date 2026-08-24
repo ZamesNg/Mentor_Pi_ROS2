@@ -58,6 +58,19 @@ float ClampOutput(float candidate_output, float output_limit) {
   return std::max(-output_limit, std::min(output_limit, candidate_output));
 }
 
+// Dimension-preserving nonlinear error map. Unit slope inside the threshold
+// retains the linear controller's small-error behavior; exponents below one
+// compress larger innovations without changing their sign or units.
+float NonlinearFal(float error, float exponent, float threshold) {
+  const float magnitude = std::fabs(error);
+  if (magnitude <= threshold) {
+    return error;
+  }
+  const float scaled_magnitude =
+      threshold * std::pow(magnitude / threshold, exponent);
+  return std::copysign(scaled_magnitude, error);
+}
+
 std::int64_t SaturatingAdd(std::int64_t value, std::int32_t increment) {
   if (increment > 0 &&
       value > std::numeric_limits<std::int64_t>::max() - increment) {
@@ -143,7 +156,16 @@ Result MotorController::AcceptCommand(const MotorCommand& command,
       continue;
     }
     MotorChannelState& channel = channels_[index];
-    channel.target_rps = command.target_rps[index];
+    const float previous_target_rps = channel.target_rps;
+    const float next_target_rps = command.target_rps[index];
+    if (previous_target_rps != 0.0F && next_target_rps != 0.0F &&
+        std::signbit(previous_target_rps) != std::signbit(next_target_rps)) {
+      // Direction-specific friction estimates must not cross a target-sign
+      // reversal. Reinitialize from the latest filtered measurement before
+      // admitting the opposite-direction command.
+      ResetAdrc(index);
+    }
+    channel.target_rps = next_target_rps;
     channel.watchdog_stopped = false;
     last_command_us_[index] = now_us;
     if (channel.target_rps == 0.0F) {
@@ -204,10 +226,20 @@ MotorAdrcUpdate MotorController::SetAdrc(const SetMotorAdrcCommand& command) {
     }
     adrc_overrides_[index].active = true;
     adrc_overrides_[index].calibration = {
+        command.known_velocity_decay_rate_s_inverse[index],
         command.input_gain_rps_per_second_per_permille[index],
         command.controller_bandwidth_rad_s[index],
+        command.controller_fal_exponent[index],
+        command.controller_fal_threshold_rps[index],
         command.observer_bandwidth_rad_s[index],
-        command.velocity_filter_new_weight[index]};
+        command.observer_velocity_fal_exponent[index],
+        command.observer_disturbance_fal_exponent[index],
+        command.observer_fal_threshold_rps[index],
+        command.disturbance_leakage_s_inverse[index],
+        command.disturbance_estimate_limit_rps_per_second[index],
+        command.velocity_filter_new_weight[index],
+        command.positive_minimum_drive_permille[index],
+        command.negative_minimum_drive_permille[index]};
     ResetAdrc(index);
   }
   return {OkResult(), command.update_mask};
@@ -264,7 +296,10 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
       outputs[index] = 0;
       continue;
     }
-    if (calibration.observer_bandwidth_rad_s * period_seconds > 0.5F) {
+    if (calibration.known_velocity_decay_rate_s_inverse * period_seconds >
+            0.5F ||
+        calibration.observer_bandwidth_rad_s * period_seconds > 0.5F ||
+        calibration.disturbance_leakage_s_inverse * period_seconds > 0.5F) {
       StopChannel(index, true);
       outputs[index] = 0;
       continue;
@@ -274,14 +309,28 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
     const float observer_error =
         state.observed_velocity_rps - channel.measured_rps;
     const float observer_bandwidth = calibration.observer_bandwidth_rad_s;
+    const float observer_velocity_correction = NonlinearFal(
+        observer_error, calibration.observer_velocity_fal_exponent,
+        calibration.observer_fal_threshold_rps);
+    const float observer_disturbance_correction = NonlinearFal(
+        observer_error, calibration.observer_disturbance_fal_exponent,
+        calibration.observer_fal_threshold_rps);
+    const float observed_velocity_derivative =
+        -calibration.known_velocity_decay_rate_s_inverse *
+            state.observed_velocity_rps +
+        state.observed_disturbance_rps_per_second +
+        calibration.input_gain_rps_per_second_per_permille *
+            state.applied_output_permille -
+        2.0F * observer_bandwidth * observer_velocity_correction;
+    const float observed_disturbance_derivative =
+        -observer_bandwidth * observer_bandwidth *
+            observer_disturbance_correction -
+        calibration.disturbance_leakage_s_inverse *
+            state.observed_disturbance_rps_per_second;
     state.observed_velocity_rps +=
-        period_seconds * (state.observed_disturbance_rps_per_second +
-                          calibration.input_gain_rps_per_second_per_permille *
-                              state.applied_output_permille -
-                          2.0F * observer_bandwidth * observer_error);
+        period_seconds * observed_velocity_derivative;
     state.observed_disturbance_rps_per_second +=
-        period_seconds *
-        (-observer_bandwidth * observer_bandwidth * observer_error);
+        period_seconds * observed_disturbance_derivative;
     if (!std::isfinite(state.observed_velocity_rps) ||
         !std::isfinite(state.observed_disturbance_rps_per_second)) {
       StopChannel(index, true);
@@ -289,10 +338,19 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
       continue;
     }
 
+    const float control_error =
+        channel.target_rps - state.observed_velocity_rps;
+    const float nonlinear_control_error =
+        NonlinearFal(control_error, calibration.controller_fal_exponent,
+                     calibration.controller_fal_threshold_rps);
+    const float compensated_disturbance = ClampOutput(
+        state.observed_disturbance_rps_per_second,
+        calibration.disturbance_estimate_limit_rps_per_second);
     const float candidate =
-        (calibration.controller_bandwidth_rad_s *
-             (channel.target_rps - state.observed_velocity_rps) -
-         state.observed_disturbance_rps_per_second) /
+        (calibration.known_velocity_decay_rate_s_inverse *
+             state.observed_velocity_rps +
+         calibration.controller_bandwidth_rad_s * nonlinear_control_error -
+         compensated_disturbance) /
         calibration.input_gain_rps_per_second_per_permille;
     if (!std::isfinite(candidate)) {
       StopChannel(index, true);
@@ -303,14 +361,21 @@ std::array<std::int16_t, kMotorCount> MotorController::ControlStep(
         static_cast<float>(configuration_.output_limit_permille);
     const float output = ClampOutput(candidate, output_limit);
 
+    const std::uint16_t directional_minimum_drive =
+        channel.target_rps > 0.0F
+            ? calibration.positive_minimum_drive_permille
+            : calibration.negative_minimum_drive_permille;
+    const auto configured_output_limit =
+        static_cast<std::uint16_t>(configuration_.output_limit_permille);
+    const auto effective_minimum_drive = static_cast<std::int16_t>(
+        std::min(directional_minimum_drive, configured_output_limit));
     const float absolute_output = std::fabs(output);
-    const std::int16_t effective_minimum_drive = std::min(
-        kMotorMinimumDrivePermille, configuration_.output_limit_permille);
-    if (absolute_output > 0.0F &&
+    if (output * channel.target_rps > 0.0F && absolute_output > 0.0F &&
         absolute_output < static_cast<float>(effective_minimum_drive)) {
-      channel.output_permille =
-          output > 0.0F ? effective_minimum_drive
-                        : static_cast<std::int16_t>(-effective_minimum_drive);
+      channel.output_permille = channel.target_rps > 0.0F
+                                    ? effective_minimum_drive
+                                    : static_cast<std::int16_t>(
+                                          -effective_minimum_drive);
     } else {
       channel.output_permille = static_cast<std::int16_t>(std::lround(output));
     }

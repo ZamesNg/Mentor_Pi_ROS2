@@ -1,9 +1,19 @@
 /mentor_pi/configuration_supervisor:
   ros__parameters:
     motor_model: "JGB37"
+    known_velocity_decay_rate_s_inverse: [0.0, 1.0, 2.0, 3.0]
     input_gain_rps_per_second_per_permille: [0.03, 0.031, 0.032, 0.033]
     controller_bandwidth_rad_s: [4.0, 4.1, 4.2, 4.3]
+    controller_fal_exponent: [0.1, 0.4, 0.7, 1.0]
+    controller_fal_threshold_rps: [0.001, 0.1, 1.0, 6.0]
     observer_bandwidth_rad_s: [12.0, 12.1, 12.2, 12.3]
+    observer_velocity_fal_exponent: [1.0, 0.8, 0.6, 0.4]
+    observer_disturbance_fal_exponent: [0.4, 0.6, 0.8, 1.0]
+    observer_fal_threshold_rps: [6.0, 1.0, 0.1, 0.001]
+    disturbance_leakage_s_inverse: [0.0, 10.0, 20.0, 50.0]
+    disturbance_estimate_limit_rps_per_second: [30.0, 20.0, 10.0, 0.0]
     velocity_filter_new_weight: [0.5, 0.6, 0.7, 0.8]
+    positive_minimum_drive_permille: [0, 50, 100, 250]
+    negative_minimum_drive_permille: [250, 100, 50, 0]
     pwm_servo_offsets_us: [-100, -50, 50, 100]
     battery_low_threshold_mv: 9000

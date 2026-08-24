@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <limits>
 
+#include "motor_adrc_service_adapter.h"
 #include "runtime_internal.h"
 
 extern "C" {
@@ -259,21 +260,8 @@ bool MicroRosRuntime::TakeMotorAdrcRequest(std::uint32_t now_ms) {
 
   const auto& request = service_messages_.motor_adrc_request;
   mentor_pi::mcu::SetMotorAdrcCommand command{};
-  command.update_mask = request.update_mask;
-  std::copy_n(request.input_gain_rps_per_second_per_permille,
-              command.input_gain_rps_per_second_per_permille.size(),
-              command.input_gain_rps_per_second_per_permille.begin());
-  std::copy_n(request.controller_bandwidth_rad_s,
-              command.controller_bandwidth_rad_s.size(),
-              command.controller_bandwidth_rad_s.begin());
-  std::copy_n(request.observer_bandwidth_rad_s,
-              command.observer_bandwidth_rad_s.size(),
-              command.observer_bandwidth_rad_s.begin());
-  std::copy_n(request.velocity_filter_new_weight,
-              command.velocity_filter_new_weight.size(),
-              command.velocity_filter_new_weight.begin());
   const mentor_pi::mcu::Result validation =
-      mentor_pi::mcu::ValidateSetMotorAdrcCommand(command);
+      DecodeMotorAdrcRequest(request, &command);
   if (!validation.ok()) {
     SetWireResult(&response, validation);
     static_cast<void>(SendServiceResponse(ToIndex(ServiceIndex::kMotorAdrc),
@@ -689,9 +677,7 @@ bool MicroRosRuntime::PollMotorAdrcCompletion(std::uint32_t now_ms) {
     }
   }
   auto& response = service_messages_.motor_adrc_response;
-  response = {};
-  SetWireResult(&response, reply.result);
-  response.applied_mask = reply.applied_mask;
+  EncodeMotorAdrcResponse(reply.result, reply.applied_mask, &response);
   const bool sent = SendServiceResponse(ToIndex(ServiceIndex::kMotorAdrc),
                                         &motor_adrc_slot_.request_id, &response,
                                         reply.result);

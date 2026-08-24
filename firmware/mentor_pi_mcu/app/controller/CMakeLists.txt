@@ -57,6 +57,9 @@ if(BUILD_TESTING)
   )
   target_link_libraries(mentor_pi_mcu_controller_tests
     PRIVATE mentor_pi_mcu_controller)
+  target_include_directories(mentor_pi_mcu_controller_tests PRIVATE
+    ../microros/src
+    "${MENTOR_PI_MICROROS_SDK_ROOT}/include")
   target_compile_features(mentor_pi_mcu_controller_tests PRIVATE cxx_std_17)
   target_compile_options(mentor_pi_mcu_controller_tests PRIVATE
     ${MENTOR_PI_MCU_CONTROLLER_WARNINGS})
@@ -70,6 +73,8 @@ if(BUILD_TESTING)
   endif()
   add_test(NAME mentor_pi_mcu_controller_tests
            COMMAND mentor_pi_mcu_controller_tests)
+  add_test(NAME mentor_pi_mcu_controller_motor_adrc_tests
+           COMMAND mentor_pi_mcu_controller_tests --motor-adrc-focused)
   add_test(
     NAME mentor_pi_mcu_stm32_motor_transport_gate
     COMMAND

@@ -344,14 +344,34 @@ class ConfigurationSupervisorNode final : public rclcpp::Node {
     }
     auto request = std::make_shared<SetMotorAdrc::Request>();
     request->update_mask = SetMotorAdrc::Request::ALL_MOTORS;
+    request->known_velocity_decay_rate_s_inverse =
+        core_->configuration().known_velocity_decay_rate_s_inverse;
     request->input_gain_rps_per_second_per_permille =
         core_->configuration().input_gain_rps_per_second_per_permille;
     request->controller_bandwidth_rad_s =
         core_->configuration().controller_bandwidth_rad_s;
+    request->controller_fal_exponent =
+        core_->configuration().controller_fal_exponent;
+    request->controller_fal_threshold_rps =
+        core_->configuration().controller_fal_threshold_rps;
     request->observer_bandwidth_rad_s =
         core_->configuration().observer_bandwidth_rad_s;
+    request->observer_velocity_fal_exponent =
+        core_->configuration().observer_velocity_fal_exponent;
+    request->observer_disturbance_fal_exponent =
+        core_->configuration().observer_disturbance_fal_exponent;
+    request->observer_fal_threshold_rps =
+        core_->configuration().observer_fal_threshold_rps;
+    request->disturbance_leakage_s_inverse =
+        core_->configuration().disturbance_leakage_s_inverse;
+    request->disturbance_estimate_limit_rps_per_second =
+        core_->configuration().disturbance_estimate_limit_rps_per_second;
     request->velocity_filter_new_weight =
         core_->configuration().velocity_filter_new_weight;
+    request->positive_minimum_drive_permille =
+        core_->configuration().positive_minimum_drive_permille;
+    request->negative_minimum_drive_permille =
+        core_->configuration().negative_minimum_drive_permille;
     const auto future = motor_adrc_client_->async_send_request(
         request, [this, token](MotorAdrcClient::SharedFuture response_future) {
           try {
