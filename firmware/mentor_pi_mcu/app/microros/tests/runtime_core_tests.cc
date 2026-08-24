@@ -87,6 +87,10 @@ void TestFailureAndWrapHelpers() {
   CHECK(microros::DeadlineReached(5U, 5U));
   CHECK(microros::DeadlineReached(6U, 5U));
   CHECK(microros::NextNonzeroGeneration(41U) == 42U);
+  CHECK(microros::PublicationFailureReason(true) ==
+        microros::TeardownReason::kAgentLost);
+  CHECK(microros::PublicationFailureReason(false) ==
+        microros::TeardownReason::kEntityError);
 }
 
 void TestOutOfOrderLifecycleEventsAreIgnored() {
@@ -348,7 +352,7 @@ void TestEntityCreateCursorOrder() {
                      index, microros::kCreateCallTimeoutMs, &boundary_count);
   }
   ExpectCreateStep(&cursor, microros::EntityCreateStepKind::kExecutorPrime, 0U,
-                   microros::kExecutorWaitMs, &boundary_count);
+                   microros::kExecutorCallDeadlineMs, &boundary_count);
   ExpectCreateStep(&cursor, microros::EntityCreateStepKind::kInitialTimeSync,
                    0U, microros::kInitialTimeSyncTimeoutMs, &boundary_count);
   CHECK(cursor.complete());
@@ -451,6 +455,171 @@ void TestLifecycleDeadlineAndWrap() {
   CHECK(destroy.RemotePhaseDeadlineReached(kWrapStart + 500U));
 }
 
+void TestPeriodicPhasesAndBlockingAdmission() {
+  constexpr std::uint32_t kStartMs = 1000U;
+  constexpr std::uint32_t kHeartbeatPeriodMs = 500U;
+  constexpr std::uint32_t kSlowTelemetryPeriodMs = 1000U;
+
+  const std::uint32_t heartbeat_last_ms = microros::InitialPeriodicRelease(
+      kStartMs, kHeartbeatPeriodMs, 0U);
+  const std::uint32_t battery_last_ms = microros::InitialPeriodicRelease(
+      kStartMs, kSlowTelemetryPeriodMs, 250U);
+  const std::uint32_t diagnostics_last_ms = microros::InitialPeriodicRelease(
+      kStartMs, kSlowTelemetryPeriodMs, 750U);
+  CHECK(microros::PeriodicReleaseDue(kStartMs, heartbeat_last_ms,
+                                     kHeartbeatPeriodMs));
+  CHECK(!microros::PeriodicReleaseDue(kStartMs, battery_last_ms,
+                                      kSlowTelemetryPeriodMs));
+  CHECK(!microros::PeriodicReleaseDue(kStartMs, diagnostics_last_ms,
+                                      kSlowTelemetryPeriodMs));
+  CHECK(microros::PeriodicReleaseDue(kStartMs + 250U, battery_last_ms,
+                                     kSlowTelemetryPeriodMs));
+  CHECK(!microros::PeriodicReleaseDue(kStartMs + 749U, diagnostics_last_ms,
+                                      kSlowTelemetryPeriodMs));
+  CHECK(microros::PeriodicReleaseDue(kStartMs + 750U, diagnostics_last_ms,
+                                     kSlowTelemetryPeriodMs));
+
+  constexpr std::array<microros::PeriodicReleaseState, 3U> kFreshReleases{{
+      {kStartMs, 20U},
+      {kStartMs, 50U},
+      {kStartMs, 20U},
+  }};
+  CHECK(microros::CanAdmitBlockingOperation(
+      kStartMs, microros::kReliableOperationTimeoutMs,
+      microros::kBlockingOperationGuardMs, kFreshReleases));
+  CHECK(microros::CanAdmitBlockingOperation(
+      kStartMs + 8U, microros::kReliableOperationTimeoutMs,
+      microros::kBlockingOperationGuardMs, kFreshReleases));
+  CHECK(!microros::CanAdmitBlockingOperation(
+      kStartMs + 9U, microros::kReliableOperationTimeoutMs,
+      microros::kBlockingOperationGuardMs, kFreshReleases));
+
+  auto due_releases = kFreshReleases;
+  due_releases[0].last_release_ms = kStartMs - 20U;
+  CHECK(!microros::CanAdmitBlockingOperation(
+      kStartMs, microros::kReliableOperationTimeoutMs,
+      microros::kBlockingOperationGuardMs, due_releases));
+  due_releases = kFreshReleases;
+  due_releases[1].period_ms = 0U;
+  CHECK(!microros::CanAdmitBlockingOperation(
+      kStartMs, microros::kReliableOperationTimeoutMs,
+      microros::kBlockingOperationGuardMs, due_releases));
+
+  constexpr std::uint32_t kWrapStart =
+      std::numeric_limits<std::uint32_t>::max() - 4U;
+  constexpr std::array<microros::PeriodicReleaseState, 1U> kWrapRelease{{
+      {kWrapStart, 20U},
+  }};
+  CHECK(microros::MillisecondsUntilPeriodicRelease(kWrapStart + 8U,
+                                                    kWrapRelease[0]) == 12U);
+  CHECK(microros::CanAdmitBlockingOperation(
+      kWrapStart + 8U, microros::kReliableOperationTimeoutMs,
+      microros::kBlockingOperationGuardMs, kWrapRelease));
+  CHECK(!microros::CanAdmitBlockingOperation(
+      kWrapStart + 9U, microros::kReliableOperationTimeoutMs,
+      microros::kBlockingOperationGuardMs, kWrapRelease));
+  CHECK(microros::PeriodicReleaseDue(
+      kWrapStart + 20U, kWrapRelease[0].last_release_ms,
+      kWrapRelease[0].period_ms));
+}
+
+void TestAdmittedReliableWaitsPreserveBestEffortCadence() {
+  const auto run_simulation = [](std::uint32_t start_ms) {
+    constexpr std::uint32_t kScheduledDurationMs = 2000U;
+    constexpr std::uint32_t kSimulationDurationMs =
+        kScheduledDurationMs + microros::kReliableOperationTimeoutMs +
+        microros::kBlockingOperationGuardMs;
+    constexpr std::array<std::uint32_t, 3U> kProtectedPeriodsMs{20U, 50U,
+                                                               20U};
+    constexpr std::array<std::uint32_t, 3U> kReliablePeriodsMs{500U, 1000U,
+                                                               1000U};
+    constexpr std::array<std::uint32_t, 3U> kReliableDelaysMs{0U, 250U,
+                                                              750U};
+
+    std::array<microros::PeriodicReleaseState, 3U> protected_releases{};
+    std::array<std::uint32_t, 3U> reliable_last_ms{};
+    for (std::size_t index = 0U; index < protected_releases.size(); ++index) {
+      protected_releases[index] = {
+          microros::InitialPeriodicRelease(start_ms,
+                                           kProtectedPeriodsMs[index], 0U),
+          kProtectedPeriodsMs[index]};
+      reliable_last_ms[index] = microros::InitialPeriodicRelease(
+          start_ms, kReliablePeriodsMs[index], kReliableDelaysMs[index]);
+    }
+
+    std::uint32_t elapsed_ms = 0U;
+    std::array<std::uint32_t, 2U> previous_fast_release_ms{};
+    std::array<std::uint32_t, 2U> minimum_fast_gap_ms{
+        std::numeric_limits<std::uint32_t>::max(),
+        std::numeric_limits<std::uint32_t>::max()};
+    std::array<std::uint32_t, 2U> maximum_fast_gap_ms{};
+    std::array<std::uint32_t, 2U> fast_release_count{};
+    std::array<bool, 2U> have_previous_fast_release{};
+    std::uint32_t reliable_wait_count = 0U;
+    microros::RoundRobinCursor<3U> protected_cursor;
+    while (elapsed_ms <= kSimulationDurationMs) {
+      const std::uint32_t now_ms = start_ms + elapsed_ms;
+      for (std::size_t offset = 0U; offset < protected_releases.size();
+           ++offset) {
+        const std::size_t index = protected_cursor.Peek(offset);
+        auto& release = protected_releases[index];
+        if (!microros::PeriodicReleaseDue(now_ms, release.last_release_ms,
+                                          release.period_ms)) {
+          continue;
+        }
+        release.last_release_ms = microros::AdvancePeriodicRelease(
+            now_ms, release.last_release_ms, release.period_ms);
+        protected_cursor.AdvancePast(index);
+        if (index == 0U || index == 2U) {
+          const std::size_t fast_index = index == 0U ? 0U : 1U;
+          if (have_previous_fast_release[fast_index]) {
+            const std::uint32_t gap_ms =
+                elapsed_ms - previous_fast_release_ms[fast_index];
+            minimum_fast_gap_ms[fast_index] =
+                std::min(minimum_fast_gap_ms[fast_index], gap_ms);
+            maximum_fast_gap_ms[fast_index] =
+                std::max(maximum_fast_gap_ms[fast_index], gap_ms);
+          }
+          previous_fast_release_ms[fast_index] = elapsed_ms;
+          have_previous_fast_release[fast_index] = true;
+          ++fast_release_count[fast_index];
+        }
+        break;
+      }
+
+      bool waited = false;
+      for (std::size_t index = 0U; index < reliable_last_ms.size(); ++index) {
+        if (!microros::PeriodicReleaseDue(now_ms, reliable_last_ms[index],
+                                          kReliablePeriodsMs[index]) ||
+            !microros::CanAdmitBlockingOperation(
+                now_ms, microros::kReliableOperationTimeoutMs,
+                microros::kBlockingOperationGuardMs, protected_releases)) {
+          continue;
+        }
+        reliable_last_ms[index] = microros::AdvancePeriodicRelease(
+            now_ms, reliable_last_ms[index], kReliablePeriodsMs[index]);
+        elapsed_ms += microros::kReliableOperationTimeoutMs;
+        ++reliable_wait_count;
+        waited = true;
+        break;
+      }
+      if (!waited) {
+        ++elapsed_ms;
+      }
+    }
+
+    CHECK(reliable_wait_count == 9U);
+    for (std::size_t index = 0U; index < fast_release_count.size(); ++index) {
+      CHECK(fast_release_count[index] == 101U);
+      CHECK(minimum_fast_gap_ms[index] > 10U);
+      CHECK(maximum_fast_gap_ms[index] <= 25U);
+    }
+  };
+
+  run_simulation(0U);
+  run_simulation(std::numeric_limits<std::uint32_t>::max() - 100U);
+}
+
 void TestIncrementalLifecycleDriverAndReconnects() {
   CHECK(microros::kLifecycleCreateMaximumDeclaredMilliseconds == 1949U);
   CHECK(microros::kLifecycleDestroyMaximumDeclaredMilliseconds == 274U);
@@ -551,10 +720,10 @@ void TestMiddlewareFaultProxyBoundaries() {
     microros::MiddlewareBoundary boundary;
     std::uint32_t deadline_ms;
   };
-  constexpr std::array<BoundaryCase, microros::kMiddlewareBoundaryCount + 2U>
+  constexpr std::array<BoundaryCase, microros::kMiddlewareBoundaryCount + 1U>
       kCases{{
           {microros::MiddlewareBoundary::kExecutorSpin,
-           microros::kExecutorWaitMs},
+           microros::kExecutorCallDeadlineMs},
           {microros::MiddlewareBoundary::kRequestTake,
            microros::kNonblockingCallDeadlineMs},
           {microros::MiddlewareBoundary::kBestEffortPublish,
@@ -563,8 +732,6 @@ void TestMiddlewareFaultProxyBoundaries() {
            microros::kReliableOperationTimeoutMs},
           {microros::MiddlewareBoundary::kSendResponse,
            microros::kReliableOperationTimeoutMs},
-          {microros::MiddlewareBoundary::kAgentPing,
-           microros::kActivePingTimeoutMs},
           {microros::MiddlewareBoundary::kAgentPing,
            microros::kWaitAgentPingTimeoutMs},
           {microros::MiddlewareBoundary::kTimeSync,
@@ -626,7 +793,7 @@ void TestMiddlewareFaultProxySelectionAndDeadline() {
       {microros::MiddlewareBoundary::kAgentPing, 1U, 1U, 0U, 0}));
 
   CHECK(proxy.Configure({microros::MiddlewareBoundary::kAgentPing, 1U, 3U,
-                         microros::kActivePingTimeoutMs, 91}));
+                         microros::kWaitAgentPingTimeoutMs, 91}));
   std::uint32_t now_ms = 0U;
   std::uint32_t backend_calls = 0U;
   const auto clock = [&now_ms]() { return now_ms; };
@@ -641,7 +808,7 @@ void TestMiddlewareFaultProxySelectionAndDeadline() {
                      wait) == 0);
   for (std::size_t count = 0U; count < 3U; ++count) {
     CHECK(proxy.Invoke(microros::MiddlewareBoundary::kAgentPing,
-                       microros::kActivePingTimeoutMs, backend, clock,
+                       microros::kWaitAgentPingTimeoutMs, backend, clock,
                        wait) == 91);
   }
   CHECK(backend_calls == 1U);
@@ -769,10 +936,12 @@ void TestExecutorFaultBoundedTeardownAndReconnect() {
   // all pending work before entity finalization begins.
   constexpr std::int32_t kInjectedFailure = 73;
   CHECK(proxy.Configure({microros::MiddlewareBoundary::kExecutorSpin, 1U, 1U,
-                         microros::kExecutorWaitMs, kInjectedFailure}));
+                         microros::kExecutorCallDeadlineMs,
+                         kInjectedFailure}));
   std::uint32_t executor_backend_calls = 0U;
   const std::int32_t spin_result = proxy.Invoke(
-      microros::MiddlewareBoundary::kExecutorSpin, microros::kExecutorWaitMs,
+      microros::MiddlewareBoundary::kExecutorSpin,
+      microros::kExecutorCallDeadlineMs,
       [&executor_backend_calls]() {
         ++executor_backend_calls;
         return 0;
@@ -783,7 +952,7 @@ void TestExecutorFaultBoundedTeardownAndReconnect() {
       });
   CHECK(spin_result == kInjectedFailure);
   CHECK(executor_backend_calls == 0U);
-  CHECK(hooks.now_ms() == microros::kExecutorWaitMs);
+  CHECK(hooks.now_ms() == microros::kExecutorCallDeadlineMs);
   CHECK(proxy.stats(microros::MiddlewareBoundary::kExecutorSpin).calls == 1U);
   CHECK(proxy.stats(microros::MiddlewareBoundary::kExecutorSpin).injections ==
         1U);
@@ -925,6 +1094,8 @@ int main() {
   TestEntityCreateCursorOrder();
   TestEntityDestroyCursorOrderAndAbandon();
   TestLifecycleDeadlineAndWrap();
+  TestPeriodicPhasesAndBlockingAdmission();
+  TestAdmittedReliableWaitsPreserveBestEffortCadence();
   TestIncrementalLifecycleDriverAndReconnects();
   TestMiddlewareFaultProxyBoundaries();
   TestMiddlewareFaultProxySelectionAndDeadline();

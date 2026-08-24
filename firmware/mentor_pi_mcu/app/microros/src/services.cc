@@ -97,6 +97,13 @@ rcl_ret_t MicroRosRuntime::TakeServiceRequest(std::size_t service_index,
 }
 
 void MicroRosRuntime::PumpServices(std::uint32_t now_ms) {
+  // Taking a request can require an immediate reliable BUSY or validation
+  // response, while polling a completion can require its final response.
+  // Defer the complete service slice until a bounded 10 ms response fits
+  // before every protected best-effort release.
+  if (!CanStartBoundedBlockingOperation(now_ms)) {
+    return;
+  }
   if (PollOneServiceCompletion(now_ms) ||
       lifecycle_.state() != SessionState::kActive) {
     return;

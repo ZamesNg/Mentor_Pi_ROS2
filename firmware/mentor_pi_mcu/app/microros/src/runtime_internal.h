@@ -232,6 +232,7 @@ class MicroRosRuntime {
   void CompleteDestroyEntities();
   void InitializeRosStorage();
   void InitializeSchedules(std::uint32_t now_ms);
+  bool CanStartBoundedBlockingOperation(std::uint32_t now_ms) const;
 
   void PumpServices(std::uint32_t now_ms);
   bool TakeOneServiceRequest(std::uint32_t now_ms);
@@ -265,7 +266,8 @@ class MicroRosRuntime {
   bool PublishBatteryState(std::uint32_t now_ms);
   bool PublishHeartbeat(std::uint32_t now_ms);
   bool PublishDiagnostics(std::uint32_t now_ms);
-  bool Publish(std::size_t publisher_index, const void* message, bool reliable);
+  bool Publish(std::size_t publisher_index, const void* message, bool reliable,
+               bool proves_agent_liveness = false);
 
   bool SynchronizeTime(std::uint32_t now_ms, std::uint32_t timeout_ms,
                        bool initial_attempt);
@@ -351,7 +353,6 @@ class MicroRosRuntime {
   bool time_offset_initialized_{false};
   bool time_sync_retry_pending_{false};
   bool alternate_bus_get_first_{true};
-  std::uint8_t consecutive_ping_failures_{0U};
   std::uint8_t accounted_transport_flags_{0U};
   std::uint32_t request_generation_{0U};
   std::uint32_t heartbeat_sequence_{0U};
@@ -359,7 +360,6 @@ class MicroRosRuntime {
   std::uint64_t extended_monotonic_ms_{0U};
   std::int64_t epoch_offset_ns_{0};
   std::array<std::int64_t, kPublisherCount> last_stamp_ns_{};
-  std::uint32_t last_agent_ping_ms_{0U};
   std::uint32_t last_time_sync_attempt_ms_{0U};
   std::uint32_t last_time_sync_success_ms_{0U};
   std::uint32_t last_motor_publish_ms_{0U};

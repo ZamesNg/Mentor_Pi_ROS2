@@ -19,7 +19,7 @@ constexpr std::array<std::uint32_t, 6> kBackoffMilliseconds{100U, 200U,  400U,
 constexpr std::uint32_t CreateStepDeadlineMs(EntityCreateStepKind kind) {
   switch (kind) {
     case EntityCreateStepKind::kExecutorPrime:
-      return kExecutorWaitMs;
+      return kExecutorCallDeadlineMs;
     case EntityCreateStepKind::kInitialTimeSync:
       return kInitialTimeSyncTimeoutMs;
     case EntityCreateStepKind::kComplete:

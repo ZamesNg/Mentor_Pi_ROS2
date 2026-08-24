@@ -298,9 +298,9 @@ void MicroRosRuntime::ActiveStep(std::uint32_t now_ms) {
 
   const std::uint32_t spin_start_ms = NowMs();
   const auto spin = static_cast<rcl_ret_t>(InvokeMiddleware(
-      MiddlewareBoundary::kExecutorSpin, kExecutorWaitMs, [this]() {
+      MiddlewareBoundary::kExecutorSpin, kExecutorCallDeadlineMs, [this]() {
         return static_cast<std::int32_t>(
-            rclc_executor_spin_some(&executor_, RCL_MS_TO_NS(kExecutorWaitMs)));
+            rclc_executor_spin_some(&executor_, kActiveExecutorSpinTimeoutNs));
       }));
   const std::uint32_t after_spin_ms = NowMs();
   if (after_spin_ms - spin_start_ms > 2U) {
@@ -345,37 +345,13 @@ void MicroRosRuntime::ActiveStep(std::uint32_t now_ms) {
 }
 
 void MicroRosRuntime::RunOneMaintenanceOperation(std::uint32_t now_ms) {
-  if (now_ms - last_agent_ping_ms_ >= kActivePingPeriodMs) {
-    if (!active_slice_budget_.TryStartBlockingOperation(
-            ActiveWorkClass::kMaintenance)) {
-      RequestTeardown(TeardownReason::kEntityError, ErrorSource::kExecutor,
-                      {mentor_pi::mcu::ResultCode::kIoError, 0U});
-      return;
-    }
-    last_agent_ping_ms_ = now_ms;
-    const auto ping = static_cast<rmw_ret_t>(InvokeMiddleware(
-        MiddlewareBoundary::kAgentPing, kActivePingTimeoutMs, []() {
-          return static_cast<std::int32_t>(
-              rmw_uros_ping_agent(static_cast<int>(kActivePingTimeoutMs), 1U));
-        }));
-    if (ping == RMW_RET_OK) {
-      consecutive_ping_failures_ = 0U;
-    } else {
-      ++consecutive_ping_failures_;
-      if (consecutive_ping_failures_ >= kActivePingFailureLimit) {
-        RequestTeardown(TeardownReason::kAgentLost, ErrorSource::kTransport,
-                        {mentor_pi::mcu::ResultCode::kTimeout, 0U});
-        return;
-      }
-    }
-    AdvanceHeartbeat();
-    return;
-  }
-
   const std::uint32_t sync_period =
       !time_synchronized_ || time_sync_retry_pending_ ? kTimeSyncRetryMs
                                                       : kTimeResyncPeriodMs;
   if (now_ms - last_time_sync_attempt_ms_ < sync_period) {
+    return;
+  }
+  if (!CanStartBoundedBlockingOperation(now_ms)) {
     return;
   }
   if (!active_slice_budget_.TryStartBlockingOperation(
@@ -455,7 +431,6 @@ void MicroRosRuntime::PrepareCreateEntities(std::uint32_t now_ms) {
   node_constructed_ = false;
   executor_constructed_ = false;
   accounted_transport_flags_ = 0U;
-  consecutive_ping_failures_ = 0U;
   time_synchronized_ = false;
   time_offset_initialized_ = false;
   time_sync_retry_pending_ = false;

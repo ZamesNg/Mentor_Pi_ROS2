@@ -6,6 +6,7 @@
 #ifndef MENTOR_PI_MCU_APP_MICROROS_RUNTIME_CORE_H_
 #define MENTOR_PI_MCU_APP_MICROROS_RUNTIME_CORE_H_
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -30,6 +31,14 @@ enum class TeardownReason : std::uint8_t {
   kMemoryViolation = 6,
   kTaskStall = 7,
 };
+
+// A failed heartbeat proves the ACTIVE Agent session is no longer usable;
+// failures from all other publishers retain the existing entity-error path.
+constexpr TeardownReason PublicationFailureReason(
+    bool proves_agent_liveness) {
+  return proves_agent_liveness ? TeardownReason::kAgentLost
+                               : TeardownReason::kEntityError;
+}
 
 enum class HeartbeatState : std::uint8_t {
   kBooting = 0,
@@ -64,16 +73,15 @@ static_assert(static_cast<std::size_t>(ActiveWorkClass::kMaintenance) + 1U ==
               kActiveWorkClassCount);
 
 inline constexpr std::uint32_t kWaitAgentPingTimeoutMs = 20U;
-inline constexpr std::uint32_t kActivePingPeriodMs = 500U;
-inline constexpr std::uint32_t kActivePingTimeoutMs = 10U;
-inline constexpr std::uint8_t kActivePingFailureLimit = 3U;
 inline constexpr std::uint32_t kCreateCallTimeoutMs = 40U;
 inline constexpr std::uint32_t kCreatePhaseDeadlineMs = 2000U;
 inline constexpr std::uint32_t kDestroyCallTimeoutMs = 10U;
 inline constexpr std::uint32_t kDestroyPhaseDeadlineMs = 500U;
-inline constexpr std::uint32_t kExecutorWaitMs = 1U;
+inline constexpr std::uint64_t kActiveExecutorSpinTimeoutNs = 0U;
+inline constexpr std::uint32_t kExecutorCallDeadlineMs = 1U;
 inline constexpr std::uint32_t kNonblockingCallDeadlineMs = 1U;
 inline constexpr std::uint32_t kReliableOperationTimeoutMs = 10U;
+inline constexpr std::uint32_t kBlockingOperationGuardMs = 2U;
 inline constexpr std::uint32_t kInitialTimeSyncTimeoutMs = 20U;
 inline constexpr std::uint32_t kActiveTimeSyncTimeoutMs = 10U;
 inline constexpr std::uint32_t kTimeSyncRetryMs = 5000U;
@@ -93,7 +101,7 @@ inline constexpr std::size_t kLifecycleDestroyBoundaryCount =
     kLifecycleServiceCount;
 inline constexpr std::size_t kLifecycleCreateMaximumDeclaredMilliseconds =
     ((kLifecycleCreateBoundaryCount - 2U) * kCreateCallTimeoutMs) +
-    kExecutorWaitMs + kInitialTimeSyncTimeoutMs +
+    kExecutorCallDeadlineMs + kInitialTimeSyncTimeoutMs +
     (kLifecycleCreateBoundaryCount - 1U);
 inline constexpr std::size_t kLifecycleDestroyMaximumDeclaredMilliseconds =
     (kLifecycleDestroyBoundaryCount * kDestroyCallTimeoutMs) +
@@ -241,6 +249,67 @@ TeardownReason ClassifyTransportErrorFlags(std::uint8_t error_flags);
 constexpr bool DeadlineReached(std::uint32_t now_ms,
                                std::uint32_t deadline_ms) {
   return static_cast<std::int32_t>(now_ms - deadline_ms) >= 0;
+}
+
+struct PeriodicReleaseState {
+  std::uint32_t last_release_ms{0U};
+  std::uint32_t period_ms{0U};
+};
+
+// Represents a periodic stream using the same fixed-timeline convention as
+// AdvancePeriodicRelease(). A zero period is invalid and is treated as due so
+// it cannot accidentally admit a blocking middleware operation.
+constexpr bool PeriodicReleaseDue(std::uint32_t now_ms,
+                                  std::uint32_t last_release_ms,
+                                  std::uint32_t period_ms) {
+  return period_ms == 0U || now_ms - last_release_ms >= period_ms;
+}
+
+// Returns the synthetic previous release needed to make the first publication
+// due after first_delay_ms. A zero delay is due immediately. Delays larger than
+// the period are bounded to one period rather than creating an ambiguous
+// multi-period startup schedule.
+constexpr std::uint32_t InitialPeriodicRelease(std::uint32_t now_ms,
+                                               std::uint32_t period_ms,
+                                               std::uint32_t first_delay_ms) {
+  if (period_ms == 0U) {
+    return now_ms;
+  }
+  const std::uint32_t bounded_delay_ms =
+      first_delay_ms < period_ms ? first_delay_ms : period_ms;
+  return now_ms - (period_ms - bounded_delay_ms);
+}
+
+// Returns zero for a due or invalid stream; otherwise returns its wrap-safe
+// slack to the next fixed-timeline release.
+constexpr std::uint32_t MillisecondsUntilPeriodicRelease(
+    std::uint32_t now_ms, const PeriodicReleaseState& release) {
+  if (PeriodicReleaseDue(now_ms, release.last_release_ms,
+                         release.period_ms)) {
+    return 0U;
+  }
+  return release.period_ms - (now_ms - release.last_release_ms);
+}
+
+// A bounded middleware operation is admitted only when every protected
+// best-effort stream is current and its next release has enough slack for the
+// complete operation plus the scheduling guard. The unsigned release helpers
+// preserve this behavior across the uint32 millisecond wrap.
+template <std::size_t kReleaseCount>
+constexpr bool CanAdmitBlockingOperation(
+    std::uint32_t now_ms, std::uint32_t operation_budget_ms,
+    std::uint32_t guard_ms,
+    const std::array<PeriodicReleaseState, kReleaseCount>& releases) {
+  const std::uint64_t required_slack_ms =
+      static_cast<std::uint64_t>(operation_budget_ms) + guard_ms;
+  for (const PeriodicReleaseState& release : releases) {
+    const std::uint32_t slack_ms =
+        MillisecondsUntilPeriodicRelease(now_ms, release);
+    if (slack_ms == 0U || slack_ms < required_slack_ms) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Advances a periodic release along its fixed timeline. If execution is late,

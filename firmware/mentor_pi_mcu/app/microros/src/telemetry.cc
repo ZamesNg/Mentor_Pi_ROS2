@@ -21,6 +21,9 @@ constexpr std::uint32_t kButtonPublishPeriodMs = 50U;
 constexpr std::uint32_t kBatteryPublishPeriodMs = 1000U;
 constexpr std::uint32_t kHeartbeatPublishPeriodMs = 500U;
 constexpr std::uint32_t kDiagnosticsPublishPeriodMs = 1000U;
+constexpr std::uint32_t kHeartbeatFirstPublishDelayMs = 0U;
+constexpr std::uint32_t kBatteryFirstPublishDelayMs = 250U;
+constexpr std::uint32_t kDiagnosticsFirstPublishDelayMs = 750U;
 
 enum class BestEffortPublisherIndex : std::uint8_t {
   kMotors = 0U,
@@ -71,15 +74,18 @@ mentor_pi::mcu::Result RclError(rcl_ret_t result) {
 }  // namespace
 
 void MicroRosRuntime::InitializeSchedules(std::uint32_t now_ms) {
-  last_agent_ping_ms_ = now_ms;
   last_time_sync_attempt_ms_ = now_ms;
   last_motor_publish_ms_ = now_ms - kMotorPublishPeriodMs;
   last_pwm_publish_ms_ = now_ms - kPwmPublishPeriodMs;
   last_imu_publish_ms_ = now_ms - kImuPublishPeriodMs;
   last_button_publish_ms_ = now_ms - kButtonPublishPeriodMs;
-  last_battery_publish_ms_ = now_ms - kBatteryPublishPeriodMs;
-  last_heartbeat_publish_ms_ = now_ms - kHeartbeatPublishPeriodMs;
-  last_diagnostics_publish_ms_ = now_ms - kDiagnosticsPublishPeriodMs;
+  last_battery_publish_ms_ = InitialPeriodicRelease(
+      now_ms, kBatteryPublishPeriodMs, kBatteryFirstPublishDelayMs);
+  last_heartbeat_publish_ms_ = InitialPeriodicRelease(
+      now_ms, kHeartbeatPublishPeriodMs, kHeartbeatFirstPublishDelayMs);
+  last_diagnostics_publish_ms_ = InitialPeriodicRelease(
+      now_ms, kDiagnosticsPublishPeriodMs,
+      kDiagnosticsFirstPublishDelayMs);
   service_completion_cursor_.Reset();
   service_request_cursor_.Reset();
   busy_bus_request_cursor_.Reset();
@@ -90,14 +96,29 @@ void MicroRosRuntime::InitializeSchedules(std::uint32_t now_ms) {
   active_slice_budget_.Reset(ActiveWorkClass::kService);
 }
 
+bool MicroRosRuntime::CanStartBoundedBlockingOperation(
+    std::uint32_t now_ms) const {
+  const std::array<PeriodicReleaseState, kBestEffortPublisherCount>
+      best_effort_releases{{
+          {last_motor_publish_ms_, kMotorPublishPeriodMs},
+          {last_pwm_publish_ms_, kPwmPublishPeriodMs},
+          {last_imu_publish_ms_, kImuPublishPeriodMs},
+      }};
+  return CanAdmitBlockingOperation(
+      now_ms, kReliableOperationTimeoutMs, kBlockingOperationGuardMs,
+      best_effort_releases);
+}
+
 void MicroRosRuntime::PublishDueTelemetry(std::uint32_t now_ms,
                                           bool allow_reliable) {
   PublishOneDueBestEffortTelemetry(now_ms);
   if (lifecycle_.state() != SessionState::kActive) {
     return;
   }
-  if (allow_reliable) {
-    PublishOneDueReliableTelemetry(now_ms);
+  const std::uint32_t after_best_effort_ms = NowMs();
+  if (allow_reliable &&
+      CanStartBoundedBlockingOperation(after_best_effort_ms)) {
+    PublishOneDueReliableTelemetry(after_best_effort_ms);
   }
 }
 
@@ -366,7 +387,7 @@ bool MicroRosRuntime::PublishHeartbeat(std::uint32_t now_ms) {
     message.state = static_cast<std::uint8_t>(HeartbeatState::kReady);
   }
   const bool published =
-      Publish(ToIndex(PublisherIndex::kHeartbeat), &message, true);
+      Publish(ToIndex(PublisherIndex::kHeartbeat), &message, true, true);
   if (published) {
     hooks_.record_successful_ros_heartbeat(hooks_.context);
   }
@@ -461,7 +482,7 @@ bool MicroRosRuntime::PublishDiagnostics(std::uint32_t now_ms) {
 }
 
 bool MicroRosRuntime::Publish(std::size_t publisher_index, const void* message,
-                              bool reliable) {
+                              bool reliable, bool proves_agent_liveness) {
   if (lifecycle_.state() != SessionState::kActive ||
       publisher_index >= publishers_.size()) {
     return false;
@@ -492,8 +513,16 @@ bool MicroRosRuntime::Publish(std::size_t publisher_index, const void* message,
     return true;
   }
   SaturatingIncrement(&counters_.publication_errors);
-  RequestTeardown(TeardownReason::kEntityError, ErrorSource::kExecutor,
-                  RclError(result));
+  const TeardownReason teardown_reason =
+      PublicationFailureReason(proves_agent_liveness);
+  if (proves_agent_liveness) {
+    RequestTeardown(
+        teardown_reason, ErrorSource::kTransport,
+        {mentor_pi::mcu::ResultCode::kTimeout,
+         static_cast<std::uint16_t>(result)});
+  } else {
+    RequestTeardown(teardown_reason, ErrorSource::kExecutor, RclError(result));
+  }
   return false;
 }
 
